@@ -136,14 +136,6 @@ export default function StaffLoginPage() {
             </button>
           </form>
 
-          {/* Demo credentials */}
-          <div className="mt-7 pt-6 border-t border-white/10">
-            <p className="text-xs text-white/30 mb-3 text-center">Demo credentials</p>
-            <div className="space-y-2">
-              <DemoCred label="Teacher" email="teacher@iic-demo.com" pass="Teacher@123" />
-              <DemoCred label="Admin" email="admin@iic-demo.com" pass="Admin@123456" />
-            </div>
-          </div>
         </div>
 
         <p className="mt-5 text-center text-xs text-white/30">
@@ -154,25 +146,5 @@ export default function StaffLoginPage() {
         </p>
       </div>
     </div>
-  )
-}
-
-function DemoCred({ label, email, pass }: { label: string; email: string; pass: string }) {
-  const copyAll = () => navigator.clipboard.writeText(`${email} / ${pass}`)
-  return (
-    <button
-      type="button"
-      onClick={copyAll}
-      className="w-full text-left px-3 py-2 rounded-lg bg-white/5 hover:bg-white/8 border border-white/8
-                 transition-colors group"
-    >
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-white/50">{label}</span>
-        <span className="text-[10px] text-white/25 group-hover:text-white/50 transition-colors">
-          click to copy
-        </span>
-      </div>
-      <p className="text-xs text-white/35 font-mono mt-0.5">{email}</p>
-    </button>
   )
 }

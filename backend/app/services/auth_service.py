@@ -242,20 +242,32 @@ class AuthService:
         role: str,
         tenant_id: str,
     ) -> dict:
-        admin = get_admin_client()
+        import httpx
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        
+        payload = {
+            "email": email,
+            "data": {
+                "name": name,
+                "role": role,
+                "tenant_id": tenant_id,
+            }
+        }
 
-        try:
-            result = admin.auth.admin.invite_user_by_email(
-                email,
-                options={
-                    "data": {
-                        "name": name,
-                        "role": role,
-                        "tenant_id": tenant_id,
-                    }
-                },
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{settings.SUPABASE_URL}/auth/v1/invite",
+                json=payload,
+                headers=auth_headers
             )
-        except AuthApiError as e:
-            raise AuthError("INVITE_ERROR", str(e), 400)
-
-        return {"user_id": result.user.id, "email": email, "message": "Invite email sent"}
+            
+        if resp.status_code >= 400:
+            error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+            raise AuthError("INVITE_ERROR", error_msg, resp.status_code)
+            
+        data = resp.json()
+        return {"user_id": data["id"], "email": email, "message": "Invite email sent"}
