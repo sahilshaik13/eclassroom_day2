@@ -1,0 +1,12 @@
+.env
+.env.local
+venv/
+*.pyc
+__pycache__/
+node_modules/
+build/
+coverage/
+.vscode/
+.env
+.env.local
+venv/   

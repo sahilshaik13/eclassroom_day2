@@ -1,0 +1,40 @@
+import api from './api'
+import type { LoginResponse, MFAEnrollResponse } from '@/types'
+
+export const authApi = {
+  sendOtp: (phone: string, tenantId: string) =>
+    api.post<{ success: true; data: { message: string; dev_otp?: string } }>(
+      '/auth/otp/send',
+      { phone, tenant_id: tenantId }
+    ),
+
+  verifyOtp: (phone: string, token: string, tenantId: string) =>
+    api.post<{ success: true; data: LoginResponse }>(
+      '/auth/otp/verify',
+      { phone, token, tenant_id: tenantId }
+    ),
+
+  login: (email: string, password: string) =>
+    api.post<{ success: true; data: LoginResponse }>(
+      '/auth/login',
+      { email, password }
+    ),
+
+  mfaEnroll: () => {
+    const rt = localStorage.getItem('refresh_token') ?? ''
+    return api.post<{ success: true; data: MFAEnrollResponse }>('/auth/mfa/enroll', {}, {
+      headers: { 'X-Refresh-Token': rt },
+    })
+  },
+
+  mfaVerify: (factorId: string, code: string) => {
+    const rt = localStorage.getItem('refresh_token') ?? ''
+    return api.post<{ success: true; data: LoginResponse }>(
+      '/auth/mfa/verify',
+      { factor_id: factorId, code },
+      { headers: { 'X-Refresh-Token': rt } },
+    )
+  },
+
+  logout: () => api.post('/auth/logout'),
+}

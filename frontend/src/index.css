@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Google Fonts already loaded via index.html ── */
+
+@layer base {
+  :root {
+    --gold:         #D4AF37;
+    --gold-dark:    #AA8C2E;
+    --gold-light:   #E8D4A8;
+    --gold-faint:   #fdf8e7;
+
+    --ink:          #1a1f2e;
+    --ink-muted:    #4a5568;
+    --ink-faint:    #718096;
+
+    --surface:      #ffffff;
+    --surface-alt:  #f8f9fc;
+    --border:       #e8eaf0;
+    --border-focus: #D4AF37;
+
+    --success:      #10B981;
+    --error:        #EF4444;
+    --warning:      #F59E0B;
+    --info:         #3B82F6;
+  }
+
+  * { box-sizing: border-box; }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--surface-alt);
+    line-height: 1.55;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Playfair Display', Georgia, serif;
+    line-height: 1.25;
+  }
+
+  /* Remove default button styles */
+  button { font-family: inherit; }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+}
+
+@layer components {
+  /* ── Primary button ── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           px-5 py-2.5 rounded-lg font-body font-medium text-sm
+           bg-gold text-white
+           hover:bg-gold-600 active:scale-[0.98]
+           transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none;
+  }
+
+  /* ── Ghost button ── */
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+           px-5 py-2.5 rounded-lg font-body font-medium text-sm
+           text-ink-muted border border-border
+           hover:border-gold hover:text-gold active:scale-[0.98]
+           transition-all duration-150;
+  }
+
+  /* ── Card ── */
+  .card {
+    @apply bg-white rounded-2xl shadow-card border border-border;
+  }
+
+  /* ── Input ── */
+  .input {
+    @apply w-full px-4 py-2.5 rounded-lg border border-border
+           bg-white text-ink text-sm font-body
+           placeholder:text-ink-faint
+           focus:outline-none focus:ring-2 focus:ring-gold/30 focus:border-gold
+           transition-colors duration-150
+           disabled:bg-surface-alt disabled:cursor-not-allowed;
+  }
+
+  /* ── Label ── */
+  .label {
+    @apply block text-xs font-medium text-ink-muted mb-1.5 tracking-wide uppercase;
+  }
+
+  /* ── Badge ── */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  /* ── Sidebar nav link ── */
+  .nav-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+           text-ink-muted
+           hover:bg-gold-faint hover:text-gold
+           transition-all duration-150;
+  }
+  .nav-link.active {
+    @apply bg-gold-faint text-gold;
+  }
+}
+
+/* ── Staggered animation helpers ── */
+.animate-delay-100 { animation-delay: 100ms; }
+.animate-delay-200 { animation-delay: 200ms; }
+.animate-delay-300 { animation-delay: 300ms; }
+.animate-delay-400 { animation-delay: 400ms; }
+
+/* ── Auth page geometric pattern ── */
+.auth-pattern {
+  background-image:
+    radial-gradient(circle at 25% 25%, rgba(212,175,55,0.08) 0%, transparent 50%),
+    radial-gradient(circle at 75% 75%, rgba(212,175,55,0.06) 0%, transparent 50%);
+}
