@@ -271,3 +271,34 @@ class AuthService:
             
         data = resp.json()
         return {"user_id": data["id"], "email": email, "message": "Invite email sent"}
+
+    # ── Refresh Session ───────────────────────────────────────
+
+    @staticmethod
+    async def refresh_session(refresh_token: str) -> dict:
+        admin = get_admin_client()
+        try:
+            result = admin.auth.refresh_session(refresh_token)
+        except AuthApiError as e:
+            raise AuthError("INVALID_CREDENTIALS", "Refresh token is invalid or expired", 401)
+
+        session = result.session
+        user = result.user
+
+        if not session or not user:
+            raise AuthError("INVALID_CREDENTIALS", "Could not refresh session", 401)
+
+        user_row = (
+            admin.table("users")
+            .select("id, name, role, tenant_id")
+            .eq("id", user.id)
+            .single()
+            .execute()
+        )
+
+        return {
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+            "token_type": "bearer",
+            "user": user_row.data,
+        }

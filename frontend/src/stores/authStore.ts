@@ -9,12 +9,15 @@ interface AuthState {
   isAuthenticated: boolean
   _hasHydrated: boolean
 
+  loginTimestamp: number | null
+
   setSession: (user: AuthUser, accessToken: string, refreshToken: string) => void
   storeTokenOnly: (user: AuthUser, accessToken: string, refreshToken: string) => void
-  updateToken: (accessToken: string) => void
+  updateTokens: (accessToken: string, refreshToken: string) => void
   clearSession: () => void
   hasRole: (role: UserRole) => boolean
   setHasHydrated: (v: boolean) => void
+  getRoleExpirationMs: () => number
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -26,12 +29,14 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       _hasHydrated: false,
 
+      loginTimestamp: null,
+
       setHasHydrated: (v) => set({ _hasHydrated: v }),
 
       setSession: (user, accessToken, refreshToken) => {
         localStorage.setItem('access_token', accessToken)
         localStorage.setItem('refresh_token', refreshToken)
-        set({ user, accessToken, refreshToken, isAuthenticated: true })
+        set({ user, accessToken, refreshToken, isAuthenticated: true, loginTimestamp: Date.now() })
       },
 
       // Store token for API calls but don't mark as authenticated
@@ -40,21 +45,28 @@ export const useAuthStore = create<AuthState>()(
       storeTokenOnly: (user, accessToken, refreshToken) => {
         localStorage.setItem('access_token', accessToken)
         localStorage.setItem('refresh_token', refreshToken)
-        set({ user, accessToken, refreshToken, isAuthenticated: false })
+        set({ user, accessToken, refreshToken, isAuthenticated: false, loginTimestamp: Date.now() })
       },
 
-      updateToken: (accessToken) => {
+      updateTokens: (accessToken, refreshToken) => {
         localStorage.setItem('access_token', accessToken)
-        set({ accessToken })
+        localStorage.setItem('refresh_token', refreshToken)
+        set({ accessToken, refreshToken })
       },
 
       clearSession: () => {
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
-        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false })
+        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false, loginTimestamp: null })
       },
 
       hasRole: (role) => get().user?.role === role,
+      
+      getRoleExpirationMs: () => {
+        const role = get().user?.role
+        if (role === 'admin') return 8 * 60 * 60 * 1000 // 8 hours
+        return 30 * 24 * 60 * 60 * 1000 // 30 days
+      },
     }),
     {
       name: 'eclassroom-auth',
@@ -63,6 +75,7 @@ export const useAuthStore = create<AuthState>()(
         accessToken: s.accessToken,
         refreshToken: s.refreshToken,
         isAuthenticated: s.isAuthenticated,
+        loginTimestamp: s.loginTimestamp,
       }),
       onRehydrateStorage: () => (state) => {
         // Called once localStorage state has been loaded into the store

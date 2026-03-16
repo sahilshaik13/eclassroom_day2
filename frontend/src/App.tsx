@@ -1,5 +1,9 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import { useEffect } from 'react'
+
+// Store
+import { useAuthStore } from '@/stores/authStore'
 
 // Auth guards
 import { RequireRole, RedirectIfAuthed } from '@/components/shared/RouteGuards'
@@ -36,9 +40,36 @@ import AdminClassesPage from '@/pages/admin/AdminClassesPage'
 import StudyPlansPage from '@/pages/admin/StudyPlansPage'
 import AdminSettingsPage from '@/pages/admin/AdminSettingsPage'
 
+function AuthEventListener() {
+  const navigate = useNavigate()
+  const { user } = useAuthStore()
+
+  useEffect(() => {
+    const handleLogout = () => {
+      // Force cleanup
+      localStorage.removeItem('eclassroom-auth')
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
+      
+      const role = user?.role
+      if (role === 'student') {
+        navigate('/auth/student-login', { replace: true })
+      } else {
+        navigate('/auth/login', { replace: true })
+      }
+    }
+
+    window.addEventListener('eclassroom-logout', handleLogout)
+    return () => window.removeEventListener('eclassroom-logout', handleLogout)
+  }, [navigate, user?.role])
+
+  return null
+}
+
 export default function App() {
   return (
     <BrowserRouter>
+      <AuthEventListener />
       <Toaster
         position="top-right"
         toastOptions={{

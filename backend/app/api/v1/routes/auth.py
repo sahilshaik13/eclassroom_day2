@@ -48,6 +48,10 @@ class MFAVerifyRequest(BaseModel):
     code: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/otp/send")
@@ -149,3 +153,12 @@ async def mfa_verify(
 @router.post("/logout")
 async def logout(token: TokenData = Depends(get_current_user)):
     return success({"message": "Logged out successfully"})
+
+
+@router.post("/refresh")
+async def refresh_session(body: RefreshRequest):
+    try:
+        result = await AuthService.refresh_session(body.refresh_token)
+        return success(result)
+    except AuthError as e:
+        return error(e.code, e.message, e.status)
