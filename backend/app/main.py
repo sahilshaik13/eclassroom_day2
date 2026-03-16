@@ -77,3 +77,7 @@ app.include_router(admin.router,   prefix="/api/v1")
 @app.get("/health")
 async def health():
     return {"status": "ok", "app": settings.APP_NAME, "env": settings.APP_ENV}
+
+@app.get("/api/ping")
+async def ping():
+    return {"status": "pong"}
