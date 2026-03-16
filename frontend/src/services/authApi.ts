@@ -27,6 +27,9 @@ export const authApi = {
     })
   },
 
+  mfaGetFactors: () =>
+    api.get<{ success: true; data: MFAEnrollResponse }>('/auth/mfa/factors'),
+
   mfaVerify: (factorId: string, code: string) => {
     const rt = localStorage.getItem('refresh_token') ?? ''
     return api.post<{ success: true; data: LoginResponse }>(

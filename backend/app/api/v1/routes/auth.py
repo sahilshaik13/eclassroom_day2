@@ -5,6 +5,7 @@ POST /api/v1/auth/otp/send
 POST /api/v1/auth/otp/verify
 POST /api/v1/auth/login
 POST /api/v1/auth/mfa/enroll
+GET  /api/v1/auth/mfa/factors
 POST /api/v1/auth/mfa/verify
 POST /api/v1/auth/logout
 """
@@ -13,6 +14,7 @@ from pydantic import BaseModel, EmailStr
 
 from app.core.deps import get_current_user, TokenData
 from app.core.response import success, error
+from app.core.config import settings
 from app.services.auth_service import AuthService, AuthError
 
 
@@ -22,13 +24,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # ── Request schemas ────────────────────────────────────────────────────────────
 
 class OTPSendRequest(BaseModel):
-    phone: str       # E.164 e.g. +971501234567
-    tenant_id: str   # which Islamic Center
+    phone: str
+    tenant_id: str
 
 
 class OTPVerifyRequest(BaseModel):
     phone: str
-    token: str       # 6-digit OTP from SMS
+    token: str
     tenant_id: str
 
 
@@ -38,12 +40,12 @@ class LoginRequest(BaseModel):
 
 
 class MFAEnrollRequest(BaseModel):
-    pass             # no body — reads from current user JWT
+    pass
 
 
 class MFAVerifyRequest(BaseModel):
-    factor_id: str   # from enroll response
-    code: str        # 6-digit TOTP from authenticator app
+    factor_id: str
+    code: str
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -90,6 +92,41 @@ async def mfa_enroll(
         return error(e.code, e.message, e.status)
 
 
+@router.get("/mfa/factors")
+async def mfa_get_factors(
+    request: Request,
+    token: TokenData = Depends(get_current_user),
+):
+    import httpx
+    auth_headers = {
+        "Authorization": f"Bearer {request.state.jwt_token}",
+        "apikey": settings.SUPABASE_ANON_KEY,
+    }
+    
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{settings.SUPABASE_URL}/auth/v1/user",
+            headers=auth_headers,
+        )
+        
+    if resp.status_code >= 400:
+        return error("NOT_FOUND", "User not found or session expired", resp.status_code)
+        
+    user_data = resp.json()
+    factors = user_data.get("factors", [])
+    totp = next((f for f in factors if f.get("factor_type") == "totp" and f.get("status") == "verified"), None)
+    
+    if not totp:
+        return error("NOT_FOUND", "No TOTP factor found — please set up MFA first", 404)
+
+    return success({
+        "factor_id": totp["id"],
+        "qr_code": "",
+        "secret": "",
+        "uri": "",
+    })
+
+
 @router.post("/mfa/verify")
 async def mfa_verify(
     body: MFAVerifyRequest,
@@ -111,6 +148,4 @@ async def mfa_verify(
 
 @router.post("/logout")
 async def logout(token: TokenData = Depends(get_current_user)):
-    # Stateless — client drops the token.
-    # Supabase handles server-side session invalidation if needed.
     return success({"message": "Logged out successfully"})

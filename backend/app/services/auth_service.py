@@ -1,19 +1,7 @@
 """
 AuthService — thin wrapper around Supabase Auth.
-
-Supabase handles:
-  - OTP generation, delivery (Twilio), expiry, and verification
-  - Email+password login
-  - TOTP MFA enroll / challenge / verify
-  - Session JWT issuance
-
-FastAPI's job:
-  - Forward requests to Supabase Auth
-  - Set custom app_metadata (role, tenant_id, mfa_verified) on the user
-  - Validate the returned JWT on subsequent requests
 """
 from typing import Optional
-from supabase import Client
 from gotrue.errors import AuthApiError
 
 from app.db.supabase import get_admin_client
@@ -33,19 +21,9 @@ class AuthService:
 
     @staticmethod
     async def send_otp(phone: str, tenant_id: str) -> dict:
-        """
-        Trigger Supabase to send a 6-digit OTP to the phone number.
-        Supabase uses the Twilio integration configured in the Auth settings.
-
-        Before sending, verify the phone belongs to a student in this tenant.
-        Unknown numbers must NOT receive an OTP.
-        """
         admin = get_admin_client()
 
         from postgrest.exceptions import APIError as PostgrestAPIError
-
-        # .maybe_single() raises APIError(code='204') in newer postgrest-py
-        # when no row is found, instead of returning data=None.
         try:
             result = (
                 admin.table("students")
@@ -58,38 +36,29 @@ class AuthService:
         except PostgrestAPIError as e:
             if e.code == "204":
                 import types
-                result = types.SimpleNamespace(data=None)  # treat as "no row found"
+                result = types.SimpleNamespace(data=None)
             else:
                 raise AuthError("INTERNAL_ERROR", str(e), 500)
 
         if not result.data:
-            # Security: don't reveal that the phone doesn't exist
             raise AuthError("INVALID_CREDENTIALS", "Phone number not registered or OTP could not be sent", 401)
 
         if result.data.get("deactivated_at"):
             raise AuthError("INVALID_CREDENTIALS", "Account is deactivated", 401)
 
-        # Supabase sends the OTP
         try:
             admin.auth.sign_in_with_otp({"phone": phone})
         except AuthApiError as e:
             raise AuthError("INTERNAL_ERROR", str(e), 500)
 
         response = {"message": "OTP sent successfully"}
-
-        # In dev mode Supabase doesn't send real SMS — it returns the OTP in the response
-        # (only when using the Supabase test phone numbers or email OTP fallback)
         if not settings.is_production:
-            response["note"] = "In development, check Supabase Auth logs for the OTP or use a test phone number"
+            response["note"] = "In development, check Supabase Auth logs for the OTP"
 
         return response
 
     @staticmethod
     async def verify_otp(phone: str, token: str, tenant_id: str) -> dict:
-        """
-        Verify the OTP. Returns the Supabase session on success.
-        Raises AuthError on failure.
-        """
         admin = get_admin_client()
 
         try:
@@ -108,7 +77,6 @@ class AuthService:
         if not session or not user:
             raise AuthError("INTERNAL_ERROR", "No session returned from Supabase", 500)
 
-        # Fetch our app user record to include role in response
         user_row = (
             admin.table("users")
             .select("id, name, role, tenant_id")
@@ -128,7 +96,6 @@ class AuthService:
 
     @staticmethod
     async def login_with_password(email: str, password: str) -> dict:
-        """Sign in with email + password via Supabase."""
         admin = get_admin_client()
 
         try:
@@ -151,7 +118,10 @@ class AuthService:
         )
 
         role = user_row.data.get("role", "")
-        mfa_enrolled = bool(user.factors)  # True if user has any MFA factors
+        mfa_enrolled = any(
+            getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
+            for f in (user.factors or [])
+        )
 
         return {
             "access_token": session.access_token,
@@ -162,17 +132,12 @@ class AuthService:
             "mfa_enrolled": mfa_enrolled,
         }
 
-    # ── TOTP MFA (Admin) ──────────────────────────────────────
+    # ── TOTP MFA enroll (Admin) ───────────────────────────────
 
     @staticmethod
     async def mfa_enroll(user_jwt: str, refresh_token: str = "") -> dict:
         """
-        Enroll admin in TOTP using Supabase MFA API.
-        Returns QR code URI and secret for manual entry.
-
-        NOTE: We call the Supabase REST API directly instead of using
-        gotrue-py's mfa.enroll() because gotrue-py 2.9.0 has a Pydantic
-        model bug (requires a 'phone' field not returned for TOTP).
+        Calls Supabase REST API directly — avoids gotrue-py Pydantic bugs.
         """
         import httpx
 
@@ -183,46 +148,35 @@ class AuthService:
         }
 
         async with httpx.AsyncClient() as client:
-            # Step 1: Delete any existing unverified TOTP factors
-            # (from previous incomplete enrollment attempts)
+            # Clean up any previous incomplete enrollment attempts
             try:
                 list_resp = await client.get(
                     f"{settings.SUPABASE_URL}/auth/v1/factors",
                     headers=auth_headers,
                 )
                 if list_resp.status_code == 200:
-                    factors = list_resp.json()
-                    for f in factors:
+                    for f in list_resp.json():
                         if f.get("factor_type") == "totp" and f.get("status") != "verified":
                             await client.delete(
                                 f"{settings.SUPABASE_URL}/auth/v1/factors/{f['id']}",
                                 headers=auth_headers,
                             )
             except httpx.HTTPError:
-                pass  # best-effort cleanup
+                pass
 
-            # Step 2: Enroll new TOTP factor
-            body = {
-                "factor_type": "totp",
-                "friendly_name": "Authenticator App",
-                "issuer": "eClassroom",
-            }
-
-            try:
-                resp = await client.post(
-                    f"{settings.SUPABASE_URL}/auth/v1/factors",
-                    json=body,
-                    headers=auth_headers,
-                )
-            except httpx.HTTPError as e:
-                raise AuthError("MFA_ERROR", f"Network error during MFA enroll: {e}", 500)
+            # Enroll new TOTP factor
+            resp = await client.post(
+                f"{settings.SUPABASE_URL}/auth/v1/factors",
+                json={
+                    "factor_type": "totp",
+                    "friendly_name": "Authenticator App",
+                    "issuer": "eClassroom",
+                },
+                headers=auth_headers,
+            )
 
             if resp.status_code >= 400:
-                try:
-                    detail = resp.json()
-                except Exception:
-                    detail = resp.text
-                raise AuthError("MFA_ERROR", f"Supabase MFA enroll failed: {detail}", resp.status_code)
+                raise AuthError("MFA_ERROR", f"Supabase MFA enroll failed: {resp.text}", resp.status_code)
 
             data = resp.json()
 
@@ -234,30 +188,47 @@ class AuthService:
             "uri": totp.get("uri", ""),
         }
 
+    # ── TOTP MFA verify (Admin) ───────────────────────────────
 
     @staticmethod
     async def mfa_verify(user_jwt: str, refresh_token: str, factor_id: str, code: str) -> dict:
         """
-        Complete TOTP verification. Returns upgraded session with mfa_verified=true.
+        Calls Supabase REST API directly — avoids gotrue-py challenge() dict bug.
         """
-        from app.db.supabase import get_user_client
-        client = get_user_client(user_jwt, refresh_token)
+        import httpx
 
-        try:
+        auth_headers = {
+            "Authorization": f"Bearer {user_jwt}",
+            "apikey": settings.SUPABASE_ANON_KEY,
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient() as http:
             # Step 1: Create challenge
-            challenge = client.auth.mfa.challenge({"factor_id": factor_id})
-            # Step 2: Verify
-            result = client.auth.mfa.verify({
-                "factor_id": factor_id,
-                "challenge_id": challenge.id,
-                "code": code,
-            })
-        except AuthApiError as e:
-            raise AuthError("INVALID_CREDENTIALS", "Invalid TOTP code", 401)
+            challenge_resp = await http.post(
+                f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/challenge",
+                headers=auth_headers,
+            )
+            if challenge_resp.status_code >= 400:
+                raise AuthError("MFA_ERROR", f"Challenge failed: {challenge_resp.text}", 401)
+
+            challenge_id = challenge_resp.json().get("id")
+
+            # Step 2: Verify the 6-digit code
+            verify_resp = await http.post(
+                f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/verify",
+                json={"challenge_id": challenge_id, "code": code},
+                headers=auth_headers,
+            )
+
+            if verify_resp.status_code >= 400:
+                raise AuthError("INVALID_CREDENTIALS", "Invalid TOTP code. Try again.", 401)
+
+            data = verify_resp.json()
 
         return {
-            "access_token": result.session.access_token,
-            "refresh_token": result.session.refresh_token,
+            "access_token": data["access_token"],
+            "refresh_token": data.get("refresh_token", ""),
             "token_type": "bearer",
             "mfa_verified": True,
         }
@@ -271,10 +242,6 @@ class AuthService:
         role: str,
         tenant_id: str,
     ) -> dict:
-        """
-        Supabase sends an invite email with a set-password link.
-        After accepting, we set the user's app_metadata.
-        """
         admin = get_admin_client()
 
         try:

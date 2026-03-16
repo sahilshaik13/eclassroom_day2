@@ -141,9 +141,11 @@ export default function MFASetupPage() {
               </p>
 
               <div className="flex justify-center mb-5">
-                <div className="p-3 bg-white rounded-xl">
-                  <img src={enrollData.qr_code} alt="TOTP QR code" className="w-44 h-44" />
-                </div>
+                <div
+                  className="p-3 bg-white rounded-xl"
+                  style={{ lineHeight: 0 }}
+                  dangerouslySetInnerHTML={{ __html: enrollData.qr_code }}
+                />
               </div>
 
               <div className="mb-4">

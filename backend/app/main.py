@@ -1,12 +1,5 @@
 """
 ThinkTarteeb E-Classroom — FastAPI application entry point.
-
-Architecture:
-  - Supabase issues JWTs at login
-  - FastAPI verifies JWT on every request (offline, using SUPABASE_JWT_SECRET)
-  - Route handlers use supabase-py to query data
-    - User-scoped queries: get_user_client(token) — RLS applies
-    - Admin operations:    get_admin_client()      — service role, bypasses RLS
 """
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -18,7 +11,6 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
 from app.api.v1.routes import auth, student, teacher, admin
-from app.api.v1.routes.student import announcements_router
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -76,11 +68,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # ── Routers ───────────────────────────────────────────────────
-app.include_router(auth.router,            prefix="/api/v1")
-app.include_router(student.router,         prefix="/api/v1")
-app.include_router(announcements_router,   prefix="/api/v1")
-app.include_router(teacher.router,         prefix="/api/v1")
-app.include_router(admin.router,           prefix="/api/v1")
+app.include_router(auth.router,    prefix="/api/v1")
+app.include_router(student.router, prefix="/api/v1")
+app.include_router(teacher.router, prefix="/api/v1")
+app.include_router(admin.router,   prefix="/api/v1")
 
 # ── Health check ──────────────────────────────────────────────
 @app.get("/health")

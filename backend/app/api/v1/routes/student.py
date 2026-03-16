@@ -21,10 +21,6 @@ from app.db.supabase import get_user_client, get_admin_client
 
 router = APIRouter(prefix="/classroom", tags=["student"])
 
-# Alias so /api/v1/announcements/latest also works
-announcements_router = APIRouter(prefix="/announcements", tags=["student"])
-
-
 # ── Today's tasks ─────────────────────────────────────────────
 
 @router.get("/tasks/today")

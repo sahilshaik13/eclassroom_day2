@@ -9,31 +9,32 @@ import PortalLayout from '@/components/shared/PortalLayout'
 
 // Auth pages
 import StudentLoginPage from '@/pages/auth/StudentLoginPage'
-import StaffLoginPage   from '@/pages/auth/StaffLoginPage'
-import MFASetupPage     from '@/pages/auth/MFASetupPage'
+import StaffLoginPage from '@/pages/auth/StaffLoginPage'
+import MFASetupPage from '@/pages/auth/MFASetupPage'
+import MFAVerifyPage from '@/pages/auth/MFAVerifyPage'
 
 // Student pages
-import StudentDashboard  from '@/pages/student/StudentDashboard'
-import StudyPlanPage     from '@/pages/student/StudyPlanPage'
+import StudentDashboard from '@/pages/student/StudentDashboard'
+import StudyPlanPage from '@/pages/student/StudyPlanPage'
 import StudentClassesPage from '@/pages/student/StudentClassesPage'
-import StudentDoubtsPage  from '@/pages/student/StudentDoubtsPage'
+import StudentDoubtsPage from '@/pages/student/StudentDoubtsPage'
 import StudentProfilePage from '@/pages/student/StudentProfilePage'
 
 // Teacher pages
-import TeacherDashboard   from '@/pages/teacher/TeacherDashboard'
+import TeacherDashboard from '@/pages/teacher/TeacherDashboard'
 import TeacherStudentsPage from '@/pages/teacher/TeacherStudentsPage'
-import AttendancePage      from '@/pages/teacher/AttendancePage'
-import TeacherDoubtsPage   from '@/pages/teacher/TeacherDoubtsPage'
-import GradesPage          from '@/pages/teacher/GradesPage'
-import ReportsPage         from '@/pages/teacher/ReportsPage'
+import AttendancePage from '@/pages/teacher/AttendancePage'
+import TeacherDoubtsPage from '@/pages/teacher/TeacherDoubtsPage'
+import GradesPage from '@/pages/teacher/GradesPage'
+import ReportsPage from '@/pages/teacher/ReportsPage'
 
 // Admin pages
-import AdminDashboard     from '@/pages/admin/AdminDashboard'
-import AdminStudentsPage  from '@/pages/admin/AdminStudentsPage'
-import AdminTeachersPage  from '@/pages/admin/AdminTeachersPage'
-import AdminClassesPage   from '@/pages/admin/AdminClassesPage'
-import StudyPlansPage     from '@/pages/admin/StudyPlansPage'
-import AdminSettingsPage  from '@/pages/admin/AdminSettingsPage'
+import AdminDashboard from '@/pages/admin/AdminDashboard'
+import AdminStudentsPage from '@/pages/admin/AdminStudentsPage'
+import AdminTeachersPage from '@/pages/admin/AdminTeachersPage'
+import AdminClassesPage from '@/pages/admin/AdminClassesPage'
+import StudyPlansPage from '@/pages/admin/StudyPlansPage'
+import AdminSettingsPage from '@/pages/admin/AdminSettingsPage'
 
 export default function App() {
   return (
@@ -56,7 +57,7 @@ export default function App() {
         {/* ── Root redirect ─────────────────────────── */}
         <Route path="/" element={<Navigate to="/auth/login" replace />} />
 
-        {/* ── Auth routes (redirect if already logged in) ── */}
+        {/* ── Auth routes ───────────────────────────── */}
         <Route
           path="/auth/student-login"
           element={
@@ -73,9 +74,8 @@ export default function App() {
             </RedirectIfAuthed>
           }
         />
-        {/* MFA setup — requires a valid (non-mfa-verified) admin token */}
-        <Route path="/auth/mfa-setup"  element={<MFASetupPage />} />
-        <Route path="/auth/mfa-verify" element={<MFASetupPage />} />
+        <Route path="/auth/mfa-setup" element={<MFASetupPage />} />
+        <Route path="/auth/mfa-verify" element={<MFAVerifyPage />} />
 
         {/* ── Student portal ────────────────────────── */}
         <Route
@@ -86,11 +86,11 @@ export default function App() {
             </RequireRole>
           }
         >
-          <Route index         element={<StudentDashboard />} />
+          <Route index element={<StudentDashboard />} />
           <Route path="study-plan" element={<StudyPlanPage />} />
-          <Route path="classes"    element={<StudentClassesPage />} />
-          <Route path="doubts"     element={<StudentDoubtsPage />} />
-          <Route path="profile"    element={<StudentProfilePage />} />
+          <Route path="classes" element={<StudentClassesPage />} />
+          <Route path="doubts" element={<StudentDoubtsPage />} />
+          <Route path="profile" element={<StudentProfilePage />} />
         </Route>
 
         {/* ── Teacher portal ────────────────────────── */}
@@ -102,12 +102,12 @@ export default function App() {
             </RequireRole>
           }
         >
-          <Route index             element={<TeacherDashboard />} />
-          <Route path="students"   element={<TeacherStudentsPage />} />
+          <Route index element={<TeacherDashboard />} />
+          <Route path="students" element={<TeacherStudentsPage />} />
           <Route path="attendance" element={<AttendancePage />} />
-          <Route path="doubts"     element={<TeacherDoubtsPage />} />
-          <Route path="grades"     element={<GradesPage />} />
-          <Route path="reports"    element={<ReportsPage />} />
+          <Route path="doubts" element={<TeacherDoubtsPage />} />
+          <Route path="grades" element={<GradesPage />} />
+          <Route path="reports" element={<ReportsPage />} />
         </Route>
 
         {/* ── Admin portal ──────────────────────────── */}
@@ -119,12 +119,12 @@ export default function App() {
             </RequireRole>
           }
         >
-          <Route index               element={<AdminDashboard />} />
-          <Route path="students"     element={<AdminStudentsPage />} />
-          <Route path="teachers"     element={<AdminTeachersPage />} />
-          <Route path="classes"      element={<AdminClassesPage />} />
-          <Route path="study-plans"  element={<StudyPlansPage />} />
-          <Route path="settings"     element={<AdminSettingsPage />} />
+          <Route index element={<AdminDashboard />} />
+          <Route path="students" element={<AdminStudentsPage />} />
+          <Route path="teachers" element={<AdminTeachersPage />} />
+          <Route path="classes" element={<AdminClassesPage />} />
+          <Route path="study-plans" element={<StudyPlansPage />} />
+          <Route path="settings" element={<AdminSettingsPage />} />
         </Route>
 
         {/* ── 404 ───────────────────────────────────── */}
