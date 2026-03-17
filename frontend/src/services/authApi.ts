@@ -27,6 +27,26 @@ export const authApi = {
     })
   },
 
+  setPassword: (password: string, token: string) =>
+    api.post<{ success: true; data: { message: string } }>(
+      '/auth/set-password',
+      { new_password: password },
+      { headers: { Authorization: `Bearer ${token}` } } // Pass invite token
+    ),
+
+  completeStudentProfile: (data: any) =>
+    api.post<{ success: true; data: { message: string } }>(
+      '/classroom/complete-profile',
+      data
+    ),
+
+  completeTeacherProfile: (data: any) =>
+    api.post<{ success: true; data: { message: string } }>(
+      '/teacher/complete-profile',
+      data
+    ),
+
+
   mfaGetFactors: () =>
     api.get<{ success: true; data: MFAEnrollResponse }>('/auth/mfa/factors'),
 

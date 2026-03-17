@@ -34,6 +34,10 @@ class OTPVerifyRequest(BaseModel):
     tenant_id: str
 
 
+class SetPasswordRequest(BaseModel):
+    new_password: str
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
@@ -76,6 +80,20 @@ async def verify_otp(body: OTPVerifyRequest):
 async def login(body: LoginRequest):
     try:
         result = await AuthService.login_with_password(body.email, body.password)
+        return success(result)
+    except AuthError as e:
+        return error(e.code, e.message, e.status)
+
+
+@router.post("/set-password")
+async def set_password(
+    body: SetPasswordRequest,
+    request: Request,
+    token: TokenData = Depends(get_current_user),
+):
+    try:
+        # Require JWT to update password
+        result = await AuthService.set_password(request.state.jwt_token, body.new_password)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)

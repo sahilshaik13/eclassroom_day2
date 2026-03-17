@@ -9,6 +9,7 @@ export interface AuthUser {
   tenant_id: string
   email?: string
   phone?: string
+  is_registered?: boolean
 }
 
 export interface AuthTokens {

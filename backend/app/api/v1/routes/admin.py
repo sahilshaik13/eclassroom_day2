@@ -111,18 +111,36 @@ async def create_student(
 ):
     admin = get_admin_client()
 
-    # Create auth user (phone-based, no password)
-    try:
-        auth_res = admin.auth.admin.create_user({
-            "phone": body.phone,
-            "phone_confirm": True,
-            "app_metadata": {"role": "student", "tenant_id": token.tenant_id},
-            "user_metadata": {"name": body.name},
-        })
-    except Exception as e:
-        return error("CREATE_ERROR", str(e), 400)
+    # Create auth user (phone-based, no password) via REST API to avoid gotrue deadlocks
+    import httpx
+    from app.core.config import settings
 
-    user_id = auth_res.user.id
+    auth_headers = {
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "phone": body.phone,
+        "phone_confirm": True,
+        "app_metadata": {"role": "student", "tenant_id": token.tenant_id},
+        "user_metadata": {"name": body.name},
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+            json=payload,
+            headers=auth_headers
+        )
+
+    if resp.status_code >= 400:
+        error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+        return error("CREATE_ERROR", error_msg, 400)
+
+    auth_res = resp.json()
+    user_id = auth_res.get("id")
 
     # Insert user row
     admin.table("users").insert({
@@ -176,10 +194,15 @@ async def deactivate_student(
     from datetime import datetime, timezone
     admin = get_admin_client()
     now = datetime.now(timezone.utc).isoformat()
-    admin.table("students").update({"deactivated_at": now}).eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
-    admin.table("users").update({"deactivated_at": now, "is_active": False}).eq("id",
-        admin.table("students").select("user_id").eq("id", student_id).single().execute().data["user_id"]
-    ).execute()
+    
+    # Update student (only if matched by id AND tenant_id)
+    stu_res = admin.table("students").update({"deactivated_at": now}).eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
+    
+    if stu_res.data:
+        # If student found, also deactivate their linked user account (ensure same tenant)
+        user_id = stu_res.data[0]["user_id"]
+        admin.table("users").update({"deactivated_at": now, "is_active": False}).eq("id", user_id).eq("tenant_id", token.tenant_id).execute()
+    
     return success({"deactivated": True})
 
 
@@ -304,6 +327,19 @@ async def enroll_students(
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
+    
+    # 1. Verify class belongs to this tenant
+    class_check = admin.table("classes").select("id").eq("id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not class_check.data:
+        return error("NOT_FOUND", "Class not found or access denied", 404)
+
+    # 2. Verify all students belong to this tenant
+    student_check = admin.table("students").select("id").in_("id", body.student_ids).eq("tenant_id", token.tenant_id).execute()
+    valid_ids = [r["id"] for r in (student_check.data or [])]
+    
+    if len(valid_ids) != len(body.student_ids):
+        return error("UNAUTHORIZED", "Some students do not belong to your tenant", 403)
+
     rows = [{"student_id": sid, "class_id": class_id, "tenant_id": token.tenant_id} for sid in body.student_ids]
     res = admin.table("class_enrollments").upsert(rows, on_conflict="student_id,class_id").execute()
     return success({"enrolled": len(res.data or [])})
@@ -405,7 +441,7 @@ async def delete_plan_task(
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
-    admin.table("study_plan_tasks").delete().eq("id", task_id).eq("template_id", template_id).execute()
+    admin.table("study_plan_tasks").delete().eq("id", task_id).eq("template_id", template_id).eq("tenant_id", token.tenant_id).execute()
     return success({"deleted": True})
 
 

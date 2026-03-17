@@ -101,8 +101,12 @@ export default function StudentLoginPage() {
       const res = await authApi.verifyOtp(phone, code, DEMO_TENANT_ID)
       const { user, access_token, refresh_token } = res.data.data
       setSession(user, access_token, refresh_token)
-      toast.success(`Welcome back, ${user.name}!`)
-      navigate('/student')
+      toast.success(`Welcome back!`)
+      if (user.is_registered) {
+        navigate('/student')
+      } else {
+        navigate('/auth/student-registration')
+      }
     } catch (e) {
       setAttempts((a) => a + 1)
       if (e instanceof ApiClientError) toast.error(e.message)

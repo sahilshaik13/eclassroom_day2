@@ -16,6 +16,10 @@ import StudentLoginPage from '@/pages/auth/StudentLoginPage'
 import StaffLoginPage from '@/pages/auth/StaffLoginPage'
 import MFASetupPage from '@/pages/auth/MFASetupPage'
 import MFAVerifyPage from '@/pages/auth/MFAVerifyPage'
+import AuthCallback from '@/pages/auth/AuthCallback'
+import SetupPasswordPage from '@/pages/auth/SetupPasswordPage'
+import StudentRegistrationPage from '@/pages/auth/StudentRegistrationPage'
+import TeacherRegistrationPage from '@/pages/auth/TeacherRegistrationPage'
 
 // Student pages
 import StudentDashboard from '@/pages/student/StudentDashboard'
@@ -107,6 +111,24 @@ export default function App() {
         />
         <Route path="/auth/mfa-setup" element={<MFASetupPage />} />
         <Route path="/auth/mfa-verify" element={<MFAVerifyPage />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/auth/setup-password" element={<SetupPasswordPage />} />
+        <Route
+          path="/auth/student-registration"
+          element={
+            <RequireRole role="student">
+              <StudentRegistrationPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/auth/teacher-registration"
+          element={
+            <RequireRole role="teacher">
+              <TeacherRegistrationPage />
+            </RequireRole>
+          }
+        />
 
         {/* ── Student portal ────────────────────────── */}
         <Route

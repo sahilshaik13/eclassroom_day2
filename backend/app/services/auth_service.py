@@ -6,6 +6,10 @@ from gotrue.errors import AuthApiError
 
 from app.db.supabase import get_admin_client
 from app.core.config import settings
+import random
+import jwt
+from datetime import datetime, timedelta, timezone
+from twilio.rest import Client as TwilioClient
 
 
 class AuthError(Exception):
@@ -23,73 +27,149 @@ class AuthService:
     async def send_otp(phone: str, tenant_id: str) -> dict:
         admin = get_admin_client()
 
-        from postgrest.exceptions import APIError as PostgrestAPIError
+        # Normalize phone number
+        phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
+
         try:
+            # 1. Verify student exists in this tenant
             result = (
                 admin.table("students")
                 .select("id, user_id, deactivated_at")
                 .eq("phone", phone)
                 .eq("tenant_id", tenant_id)
-                .maybe_single()
                 .execute()
             )
-        except PostgrestAPIError as e:
-            if e.code == "204":
-                import types
-                result = types.SimpleNamespace(data=None)
-            else:
-                raise AuthError("INTERNAL_ERROR", str(e), 500)
+        except Exception as e:
+            raise AuthError("INTERNAL_ERROR", f"Database query failed: {str(e)}", 500)
 
-        if not result.data:
-            raise AuthError("INVALID_CREDENTIALS", "Phone number not registered or OTP could not be sent", 401)
+        if not result or not result.data:
+            raise AuthError("INVALID_CREDENTIALS", "Phone number not registered or access denied", 401)
 
-        if result.data.get("deactivated_at"):
+        student_data = result.data[0]
+        if student_data.get("deactivated_at"):
             raise AuthError("INVALID_CREDENTIALS", "Account is deactivated", 401)
 
+        # 2. Generate and store OTP
+        otp_code = f"{random.randint(100000, 999999)}"
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+
         try:
-            admin.auth.sign_in_with_otp({"phone": phone})
-        except AuthApiError as e:
-            raise AuthError("INTERNAL_ERROR", str(e), 500)
+            # Clean up old codes first
+            admin.table("otp_codes").delete().eq("phone", phone).eq("tenant_id", tenant_id).execute()
+            # Store new one
+            admin.table("otp_codes").insert({
+                "phone": phone,
+                "tenant_id": tenant_id,
+                "code": otp_code,
+                "expires_at": expires_at
+            }).execute()
+        except Exception as e:
+            raise AuthError("INTERNAL_ERROR", f"Failed to store OTP: {str(e)}", 500)
 
-        response = {"message": "OTP sent successfully"}
-        if not settings.is_production:
-            response["note"] = "In development, check Supabase Auth logs for the OTP"
+        # 3. Send via Twilio
+        try:
+            client = TwilioClient(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
+            message_body = f"Your ThinkTarteeb verification code is: {otp_code}. Valid for 10 minutes."
+            
+            send_args = {"to": phone, "body": message_body}
+            if settings.TWILIO_MESSAGING_SERVICE_SID:
+                send_args["messaging_service_sid"] = settings.TWILIO_MESSAGING_SERVICE_SID
+            elif settings.TWILIO_PHONE_NUMBER:
+                send_args["from_"] = settings.TWILIO_PHONE_NUMBER
+            else:
+                raise Exception("Twilio Phone Number or Messaging Service SID missing")
 
-        return response
+            client.messages.create(**send_args)
+        except Exception as e:
+            # Special case for dev: allow mock even if Twilio fails if it's not production
+            if not settings.is_production:
+                return {
+                    "message": "OTP generated (MOCK)",
+                    "dev_otp": otp_code,
+                    "note": f"Twilio error: {str(e)}. Use {otp_code} for testing."
+                }
+            raise AuthError("INTERNAL_ERROR", f"SMS delivery failed: {str(e)}", 500)
+
+        return {"message": "OTP sent successfully"}
 
     @staticmethod
     async def verify_otp(phone: str, token: str, tenant_id: str) -> dict:
         admin = get_admin_client()
 
+        # Normalize phone
+        phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
+
+        # 1. Verify against our otp_codes table
         try:
-            result = admin.auth.verify_otp({"phone": phone, "token": token, "type": "sms"})
-        except AuthApiError as e:
-            msg = str(e).lower()
-            if "expired" in msg:
-                raise AuthError("INVALID_CREDENTIALS", "OTP has expired. Please request a new one.", 401)
-            if "invalid" in msg or "incorrect" in msg:
-                raise AuthError("INVALID_CREDENTIALS", "Invalid OTP.", 401)
-            raise AuthError("INTERNAL_ERROR", str(e), 500)
+            otp_res = (
+                admin.table("otp_codes")
+                .select("*")
+                .eq("phone", phone)
+                .eq("tenant_id", tenant_id)
+                .eq("code", token)
+                .gte("expires_at", datetime.now(timezone.utc).isoformat())
+                .execute()
+            )
+        except Exception as e:
+            raise AuthError("INTERNAL_ERROR", f"Verification failed: {str(e)}", 500)
 
-        session = result.session
-        user = result.user
+        if not otp_res or not otp_res.data:
+            raise AuthError("INVALID_CREDENTIALS", "Invalid or expired OTP", 401)
 
-        if not session or not user:
-            raise AuthError("INTERNAL_ERROR", "No session returned from Supabase", 500)
+        # 2. Consume the code
+        admin.table("otp_codes").delete().eq("id", otp_res.data[0]["id"]).execute()
 
-        user_row = (
+        # 3. Get user record
+        user_res = (
             admin.table("users")
-            .select("id, name, role, tenant_id")
-            .eq("id", user.id)
+            .select("id, name, role, tenant_id, is_registered")
+            .eq("phone", phone)
+            .eq("tenant_id", tenant_id)
             .single()
             .execute()
         )
+        if not user_res or not user_res.data:
+            raise AuthError("NOT_FOUND", "User record lost — please contact support", 404)
+
+        user_data = user_res.data
+
+        # 4. Sign a custom JWT for the session
+        # We use HS256 with the secret Supabase expects for local validation
+        try:
+            import base64
+            # Some environments use a base64 encoded secret, some don't
+            try:
+                secret = base64.b64decode(settings.SUPABASE_JWT_SECRET)
+            except Exception:
+                secret = settings.SUPABASE_JWT_SECRET.encode()
+
+            now = datetime.now(timezone.utc)
+            payload = {
+                "sub": user_data["id"],
+                "aud": "authenticated",
+                "role": "authenticated",
+                "email": f"{phone}@sms.thinktarteeb.local",
+                "app_metadata": {
+                    "provider": "sms",
+                    "role": user_data["role"],
+                    "tenant_id": user_data["tenant_id"],
+                    "is_registered": user_data.get("is_registered", False)
+                },
+                "user_metadata": {
+                    "name": user_data["name"]
+                },
+                "iat": int(now.timestamp()),
+                "exp": int((now + timedelta(days=7)).timestamp())
+            }
+            access_token = jwt.encode(payload, secret, algorithm="HS256")
+        except Exception as e:
+            raise AuthError("INTERNAL_ERROR", f"Failed to issue session: {str(e)}", 500)
 
         return {
-            "access_token": session.access_token,
-            "refresh_token": session.refresh_token,
+            "access_token": access_token,
+            "refresh_token": "manual-otp-verified", # Not using real refresh tokens in manual flow for now
             "token_type": "bearer",
-            "user": user_row.data,
+            "user": user_data,
         }
 
     # ── Email + Password (Teacher / Admin) ────────────────────
@@ -131,6 +211,29 @@ class AuthService:
             "mfa_required": role == "admin",
             "mfa_enrolled": mfa_enrolled,
         }
+
+    @staticmethod
+    async def set_password(user_jwt: str, new_password: str) -> dict:
+        import httpx
+
+        auth_headers = {
+            "Authorization": f"Bearer {user_jwt}",
+            "apikey": settings.SUPABASE_ANON_KEY,
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{settings.SUPABASE_URL}/auth/v1/user",
+                json={"password": new_password},
+                headers=auth_headers,
+            )
+
+        if resp.status_code >= 400:
+            error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+            raise AuthError("SET_PASSWORD_ERROR", error_msg, resp.status_code)
+
+        return {"message": "Password updated successfully"}
 
     # ── TOTP MFA enroll (Admin) ───────────────────────────────
 

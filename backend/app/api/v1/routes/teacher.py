@@ -416,3 +416,36 @@ async def get_report_data(
         "grade": grade_res.data,
         "teacher": teacher_res.data or {},
     })
+
+# ── Profile update ────────────────────────────────────────────
+
+class ProfileComplete(BaseModel):
+    first_name: str
+    last_name: str
+    islamic_name: Optional[str] = None
+    gender: str
+    dob: str
+    nationality: str
+    emirates_id: Optional[str] = None
+    whatsapp_number: str
+    city: str
+    needs_transport: bool = False
+    address: Optional[str] = None
+
+@router.post("/complete-profile")
+async def complete_teacher_profile(
+    body: ProfileComplete,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    from app.db.supabase import get_admin_client
+    admin = get_admin_client()
+    update_data = body.dict()
+    update_data["is_registered"] = True
+    full_name = f"{body.first_name} {body.last_name}".strip()
+    update_data["name"] = full_name
+    
+    # Update users table (strict tenant isolation)
+    admin.table("users").update(update_data).eq("id", token.user_id).eq("tenant_id", token.tenant_id).execute()
+    
+    return success({"message": "Profile completed successfully"})

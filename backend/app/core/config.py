@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
+    TWILIO_MESSAGING_SERVICE_SID: str = ""
 
     # ── Rate limiting ─────────────────────────────────────────
     RATE_LIMIT_AUTH: str = "10/minute"

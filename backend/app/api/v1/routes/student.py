@@ -265,7 +265,6 @@ async def get_full_plan(request: Request, token: TokenData = Depends(require_stu
 class ProfileUpdate(BaseModel):
     name: str
 
-
 @router.patch("/profile")
 async def update_profile(
     body: ProfileUpdate,
@@ -276,6 +275,40 @@ async def update_profile(
     admin.table("users").update({"name": body.name}).eq("id", token.user_id).execute()
     admin.table("students").update({"name": body.name}).eq("user_id", token.user_id).execute()
     return success({"name": body.name})
+
+
+class ProfileComplete(BaseModel):
+    first_name: str
+    last_name: str
+    islamic_name: Optional[str] = None
+    gender: str
+    dob: str
+    nationality: str
+    emirates_id: Optional[str] = None
+    whatsapp_number: str
+    city: str
+    needs_transport: bool = False
+    address: Optional[str] = None
+
+
+@router.post("/complete-profile")
+async def complete_student_profile(
+    body: ProfileComplete,
+    request: Request,
+    token: TokenData = Depends(require_student),
+):
+    admin = get_admin_client()
+    update_data = body.dict()
+    update_data["is_registered"] = True
+    full_name = f"{body.first_name} {body.last_name}".strip()
+    update_data["name"] = full_name
+    
+    # Update users table (strict tenant isolation)
+    admin.table("users").update(update_data).eq("id", token.user_id).eq("tenant_id", token.tenant_id).execute()
+    # Update students table
+    admin.table("students").update({"name": full_name}).eq("user_id", token.user_id).eq("tenant_id", token.tenant_id).execute()
+    
+    return success({"message": "Profile completed successfully"})
 
 
 # ── Latest announcement ────────────────────────────────────────
