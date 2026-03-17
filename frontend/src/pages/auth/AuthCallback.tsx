@@ -21,12 +21,21 @@ export default function AuthCallback() {
 
   useEffect(() => {
     const handleCallback = async () => {
-      // Parse URL hash for access_token and type
+      // Supabase may send tokens either in the URL hash (#) or query (?)
       const hashData = new URLSearchParams(window.location.hash.substring(1))
-      const accessToken = hashData.get('access_token')
-      const type = hashData.get('type')
+      const searchData = new URLSearchParams(window.location.search.substring(1))
 
-      if (accessToken && type === 'invite') {
+      // Prefer explicit access_token, but fall back to generic token if needed
+      const accessToken =
+        hashData.get('access_token') ||
+        searchData.get('access_token') ||
+        searchData.get('token')
+
+      const type = hashData.get('type') || searchData.get('type')
+
+      // Treat any callback that contains an access_token (or token) as a valid invite/session.
+      // Some Supabase flows don't pass type=invite or use query params instead of hash.
+      if (accessToken) {
         // Decode token to extract email
         const decoded = decodeJWT(accessToken)
         const email = decoded?.email

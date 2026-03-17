@@ -19,6 +19,18 @@ const passwordSchema = z.object({
 
 type PasswordForm = z.infer<typeof passwordSchema>
 
+// Decode JWT payload without verification (for email extraction only)
+const decodeJWT = (token: string) => {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const decoded = JSON.parse(atob(parts[1]))
+    return decoded
+  } catch {
+    return null
+  }
+}
+
 export default function SetupPasswordPage() {
   const navigate = useNavigate()
   const { storeTokenOnly } = useAuthStore()
@@ -28,16 +40,76 @@ export default function SetupPasswordPage() {
   const [email, setEmail] = useState<string | null>(null)
 
   useEffect(() => {
-    const t = localStorage.getItem('temp_invite_token')
-    const e = localStorage.getItem('temp_invite_email')
-    if (!t) {
-      toast.error('Invalid or expired invitation link')
-      navigate('/auth/login', { replace: true })
+    // 1) Prefer token from Supabase invite redirect (hash or query)
+    const hashData = new URLSearchParams(window.location.hash.substring(1))
+    const searchData = new URLSearchParams(window.location.search.substring(1))
+
+    const urlToken =
+      hashData.get('access_token') ||
+      searchData.get('access_token') ||
+      searchData.get('token')
+
+    if (urlToken) {
+      const decoded = decodeJWT(urlToken)
+      const urlEmail = decoded?.email as string | undefined
+
+      localStorage.setItem('temp_invite_token', urlToken)
+      if (urlEmail) {
+        localStorage.setItem('temp_invite_email', urlEmail)
+      }
+
+      setToken(urlToken)
+      setEmail(urlEmail ?? null)
     } else {
+      // 2) Fallback to previously stored temp invite data
+      const t = localStorage.getItem('temp_invite_token')
+      const e = localStorage.getItem('temp_invite_email')
+      if (!t) {
+        toast.error('Invalid or expired invitation link')
+        navigate('/auth/login', { replace: true })
+        return
+      }
       setToken(t)
       setEmail(e)
     }
   }, [navigate])
+
+  // Once we have a token, check if this user already has a password.
+  useEffect(() => {
+    const checkStatus = async () => {
+      if (!token) return
+      try {
+        // Temporarily set access_token so authApi.getUserStatus uses it
+        const prev = localStorage.getItem('access_token')
+        localStorage.setItem('access_token', token)
+        const statusRes = await authApi.getUserStatus()
+        const { has_password } = statusRes.data.data
+
+        if (has_password) {
+          localStorage.removeItem('temp_invite_token')
+          localStorage.removeItem('temp_invite_email')
+          localStorage.removeItem('access_token')
+          toast.success('Password already set. Please login.')
+          navigate('/auth/login', { replace: true })
+        }
+
+        // Restore previous access token if any
+        if (prev) {
+          localStorage.setItem('access_token', prev)
+        } else {
+          localStorage.removeItem('access_token')
+        }
+      } catch (err) {
+        // On failure, stay on this page and allow password setup attempt.
+        const prev = localStorage.getItem('access_token')
+        if (!prev) {
+          localStorage.removeItem('access_token')
+        }
+      }
+    }
+
+    checkStatus()
+  }, [token, navigate])
 
   const {
     register,
