@@ -233,6 +233,19 @@ class AuthService:
             error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
             raise AuthError("SET_PASSWORD_ERROR", error_msg, resp.status_code)
 
+        # Update public.users table to reflect that password is set
+        try:
+            # We need to decode the JWT to get the user ID
+            import jwt
+            decoded = jwt.decode(user_jwt, options={"verify_signature": False})
+            user_id = decoded.get("sub")
+            if user_id:
+                admin = get_admin_client()
+                admin.table("users").update({"has_password": True}).eq("id", user_id).execute()
+        except Exception as e:
+            # Log error but don't fail the whole request as the password itself WAS set in Supabase Auth
+            print(f"Error updating has_password flag: {str(e)}")
+
         return {"message": "Password updated successfully"}
 
     # ── TOTP MFA enroll (Admin) ───────────────────────────────
@@ -344,6 +357,7 @@ class AuthService:
         name: str,
         role: str,
         tenant_id: str,
+        redirect_to: Optional[str] = None,
     ) -> dict:
         import httpx
         auth_headers = {
@@ -360,6 +374,8 @@ class AuthService:
                 "tenant_id": tenant_id,
             }
         }
+        if redirect_to:
+            payload["options"] = {"redirectTo": redirect_to}
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -374,6 +390,18 @@ class AuthService:
             
         data = resp.json()
         return {"user_id": data["id"], "email": email, "message": "Invite email sent"}
+
+    # ── User Status ───────────────────────────────────────────
+
+    @staticmethod
+    async def get_user_status(user_id: str) -> dict:
+        admin = get_admin_client()
+        res = admin.table("users").select("id, name, role, tenant_id, has_password, is_registered").eq("id", user_id).maybe_single().execute()
+        
+        if not res.data:
+            raise AuthError("NOT_FOUND", "User profile not found", 404)
+            
+        return res.data
 
     # ── Refresh Session ───────────────────────────────────────
 

@@ -70,10 +70,30 @@ function AuthEventListener() {
   return null
 }
 
+/**
+ * Handles Supabase redirects that land on the home page instead of /auth/callback.
+ * This happens if the redirect URL is not whitelisted in Supabase Dashboard.
+ */
+function HashHandler() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    const hashData = new URLSearchParams(window.location.hash.substring(1))
+    const accessToken = hashData.get('access_token')
+    const type = hashData.get('type')
+
+    if (accessToken && type === 'invite') {
+      console.log('Detected invite token in root hash, redirecting to callback...')
+      navigate('/auth/callback' + window.location.hash, { replace: true })
+    }
+  }, [navigate])
+  return null
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthEventListener />
+      <HashHandler />
       <Toaster
         position="top-right"
         toastOptions={{
