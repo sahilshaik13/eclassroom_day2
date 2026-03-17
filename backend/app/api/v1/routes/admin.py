@@ -276,7 +276,11 @@ async def invite_teacher(
     token: TokenData = Depends(require_admin),
 ):
     try:
-        redirect_to = f"{settings.FRONTEND_URL}/auth/callback"
+        # For teacher invites, always redirect through the password setup flow.
+        # Supabase will verify the invite token, then redirect to this URL
+        # with either ?token=... or #access_token=... so the frontend can
+        # check has_password and gate access accordingly.
+        redirect_to = f"{settings.FRONTEND_URL}/auth/setup-password"
         result = await AuthService.invite_user_by_email(
             email=body.email,
             name=body.name,

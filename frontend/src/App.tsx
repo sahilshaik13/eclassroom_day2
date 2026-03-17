@@ -77,13 +77,25 @@ function AuthEventListener() {
 function HashHandler() {
   const navigate = useNavigate()
   useEffect(() => {
+    // Handle both hash (#) and query (?) based Supabase redirects that land on "/"
     const hashData = new URLSearchParams(window.location.hash.substring(1))
-    const accessToken = hashData.get('access_token')
-    const type = hashData.get('type')
+    const searchData = new URLSearchParams(window.location.search.substring(1))
+
+    const accessToken =
+      hashData.get('access_token') ||
+      searchData.get('access_token') ||
+      searchData.get('token')
+
+    const type = hashData.get('type') || searchData.get('type')
 
     if (accessToken && type === 'invite') {
-      console.log('Detected invite token in root hash, redirecting to callback...')
-      navigate('/auth/callback' + window.location.hash, { replace: true })
+      console.log('Detected invite token on root, redirecting to callback...')
+      const suffix =
+        window.location.hash ||
+        (window.location.search
+          ? '#' + window.location.search.substring(1)
+          : '')
+      navigate('/auth/callback' + suffix, { replace: true })
     }
   }, [navigate])
   return null
