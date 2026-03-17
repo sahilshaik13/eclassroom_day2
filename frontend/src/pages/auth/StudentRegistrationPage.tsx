@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import { BookOpen, ArrowRight, ArrowLeft } from 'lucide-react'
 import { authApi } from '@/services/authApi'
 import { ApiClientError } from '@/services/api'
+import { useAuthStore } from '@/stores/authStore'
 
 const profileSchema = z.object({
   first_name: z.string().min(2, 'First name is required'),
@@ -29,6 +30,13 @@ export default function StudentRegistrationPage() {
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState(1)
 
+  const { user } = useAuthStore()
+
+  // Split name for pre-filling
+  const nameParts = user?.name ? user.name.split(' ') : ['', '']
+  const firstName = nameParts[0] || ''
+  const lastName = nameParts.slice(1).join(' ') || ''
+
   const {
     register,
     handleSubmit,
@@ -37,6 +45,8 @@ export default function StudentRegistrationPage() {
   } = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
+      first_name: firstName,
+      last_name: lastName,
       needs_transport: false
     }
   })
@@ -100,12 +110,12 @@ export default function StudentRegistrationPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="label text-white/60">First Name *</label>
-                    <input {...register('first_name')} className="input bg-white/5 border-white/10 text-white focus:border-gold mt-1.5" />
+                    <input {...register('first_name')} readOnly className="input bg-white/5 border-white/10 text-white/50 cursor-not-allowed focus:border-white/10 mt-1.5" />
                     {errors.first_name && <p className="mt-1 text-xs text-red-400">{errors.first_name.message}</p>}
                   </div>
                   <div>
                     <label className="label text-white/60">Last Name *</label>
-                    <input {...register('last_name')} className="input bg-white/5 border-white/10 text-white focus:border-gold mt-1.5" />
+                    <input {...register('last_name')} readOnly className="input bg-white/5 border-white/10 text-white/50 cursor-not-allowed focus:border-white/10 mt-1.5" />
                     {errors.last_name && <p className="mt-1 text-xs text-red-400">{errors.last_name.message}</p>}
                   </div>
                 </div>

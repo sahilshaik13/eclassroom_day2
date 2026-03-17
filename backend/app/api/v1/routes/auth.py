@@ -168,6 +168,17 @@ async def mfa_verify(
         return error(e.code, e.message, e.status)
 
 
+@router.get("/status")
+async def get_status(
+    token: TokenData = Depends(get_current_user),
+):
+    try:
+        result = await AuthService.get_user_status(token.user_id)
+        return success(result)
+    except AuthError as e:
+        return error(e.code, e.message, e.status)
+
+
 @router.post("/logout")
 async def logout(token: TokenData = Depends(get_current_user)):
     return success({"message": "Logged out successfully"})

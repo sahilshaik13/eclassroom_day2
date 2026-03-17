@@ -28,6 +28,7 @@ from app.core.deps import require_admin, TokenData
 from app.core.response import success, error, paginated
 from app.db.supabase import get_admin_client
 from app.services.auth_service import AuthService, AuthError
+from app.core.config import settings
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -113,7 +114,6 @@ async def create_student(
 
     # Create auth user (phone-based, no password) via REST API to avoid gotrue deadlocks
     import httpx
-    from app.core.config import settings
 
     auth_headers = {
         "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
@@ -180,9 +180,51 @@ async def update_student(
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
+    
+    # 1. Get current student to find user_id
+    stu = admin.table("students").select("user_id").eq("id", student_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not stu.data:
+        return error("NOT_FOUND", "Student not found", 404)
+    user_id = stu.data["user_id"]
+
+    # 2. Update auth user if phone or name changed
+    new_name = body.get("name")
+    new_phone = body.get("phone")
+    
+    if new_name or new_phone:
+        import httpx
+        
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        
+        payload = {}
+        if new_phone:
+            # Normalize new phone
+            new_phone = "".join(filter(lambda x: x.isdigit() or x == '+', new_phone))
+            payload["phone"] = new_phone
+        if new_name:
+            payload["user_metadata"] = {"name": new_name}
+
+        if payload:
+            async with httpx.AsyncClient() as client:
+                resp = await client.put(
+                    f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                    json=payload,
+                    headers=auth_headers
+                )
+                if resp.status_code >= 400:
+                    return error("AUTH_UPDATE_ERROR", resp.text, resp.status_code)
+
+    # 3. Update public schema
     allowed = {k: v for k, v in body.items() if k in ("name", "phone")}
-    res = admin.table("students").update(allowed).eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
-    return success(res.data[0] if res.data else {})
+    if allowed:
+        admin.table("students").update(allowed).eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
+        admin.table("users").update(allowed).eq("id", user_id).eq("tenant_id", token.tenant_id).execute()
+        
+    return success({"updated": True})
 
 
 @router.delete("/students/{student_id}")
@@ -234,26 +276,81 @@ async def invite_teacher(
     token: TokenData = Depends(require_admin),
 ):
     try:
+        redirect_to = f"{settings.FRONTEND_URL}/auth/callback"
         result = await AuthService.invite_user_by_email(
             email=body.email,
             name=body.name,
             role="teacher",
             tenant_id=token.tenant_id,
+            redirect_to=redirect_to,
         )
+
+        # Only sync to users table if invitation actually succeeded
+        admin = get_admin_client()
+        admin.table("users").upsert({
+            "id": result["user_id"],
+            "tenant_id": token.tenant_id,
+            "role": "teacher",
+            "email": body.email,
+            "name": body.name,
+            "is_active": True, # Ensure active upon invite
+        }).execute()
+
+        return success(result, status_code=201)
+
     except AuthError as e:
+        # Check for specific "user already exists" from Supabase
+        if "user already exists" in e.message.lower():
+            return error("ALREADY_EXISTS", f"A user with email {body.email} is already registered.", 400)
         return error(e.code, e.message, e.status)
+    except Exception as e:
+        return error("INTERNAL_ERROR", f"An unexpected error occurred: {str(e)}", 500)
 
-    # Pre-create users row (will be synced after invite accepted)
+
+@router.patch("/teachers/{teacher_id}")
+async def update_teacher(
+    teacher_id: str,
+    body: dict,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
     admin = get_admin_client()
-    admin.table("users").upsert({
-        "id": result["user_id"],
-        "tenant_id": token.tenant_id,
-        "role": "teacher",
-        "email": body.email,
-        "name": body.name,
-    }).execute()
+    
+    # 1. Update auth user if email or name changed
+    new_name = body.get("name")
+    new_email = body.get("email")
+    
+    if new_name or new_email:
+        import httpx
+        
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        
+        payload = {}
+        if new_email:
+            payload["email"] = new_email
+        if new_name:
+            payload["user_metadata"] = {"name": new_name}
 
-    return success(result, status_code=201)
+        if payload:
+            async with httpx.AsyncClient() as client:
+                resp = await client.put(
+                    f"{settings.SUPABASE_URL}/auth/v1/admin/users/{teacher_id}",
+                    json=payload,
+                    headers=auth_headers
+                )
+                if resp.status_code >= 400:
+                    return error("AUTH_UPDATE_ERROR", resp.text, resp.status_code)
+
+    # 2. Update public schema
+    allowed = {k: v for k, v in body.items() if k in ("name", "email")}
+    if allowed:
+        admin.table("users").update(allowed).eq("id", teacher_id).eq("role", "teacher").eq("tenant_id", token.tenant_id).execute()
+        
+    return success({"updated": True})
 
 
 # ── Classes ───────────────────────────────────────────────────

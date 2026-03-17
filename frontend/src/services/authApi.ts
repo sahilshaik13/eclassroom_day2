@@ -59,5 +59,10 @@ export const authApi = {
     )
   },
 
+  getUserStatus: () =>
+    api.get<{ success: true; data: { id: string; name: string; role: string; has_password: boolean; is_registered: boolean } }>(
+      '/auth/status'
+    ),
+
   logout: () => api.post('/auth/logout'),
 }

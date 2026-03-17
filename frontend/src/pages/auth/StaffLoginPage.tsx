@@ -42,7 +42,12 @@ export default function StaffLoginPage() {
 
       setSession(user, access_token, refresh_token)
       toast.success(`Welcome, ${user.name}!`)
-      navigate(user.role === 'teacher' ? '/teacher' : '/admin')
+      
+      if (user.role === 'teacher') {
+        navigate(user.is_registered ? '/teacher' : '/auth/teacher-registration', { replace: true })
+      } else {
+        navigate('/admin', { replace: true })
+      }
     } catch (e) {
       if (e instanceof ApiClientError) toast.error(e.message)
       else toast.error('Login failed. Check your credentials.')
