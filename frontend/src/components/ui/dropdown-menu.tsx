@@ -40,7 +40,7 @@ const DropdownMenu = ({ children }: any) => {
     )
 }
 
-const DropdownMenuTrigger = ({ asChild, children, onClick }: any) => {
+const DropdownMenuTrigger = ({ asChild: _asChild, children, onClick }: any) => {
     return React.cloneElement(children, { onClick });
 }
 

@@ -5,7 +5,6 @@ import toast from 'react-hot-toast'
 import api from '@/services/api'
 import type { Task } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
 const TASK_ICONS: Record<string, React.ReactNode> = {
@@ -104,10 +103,10 @@ export default function StudyPlanPage() {
               const isToday = d === new Date().toISOString().slice(0, 10)
               const isOpen = openDay === day
               const allDone = doneCount === tasks.length && tasks.length > 0
-              
+
               return (
-                <div 
-                  key={day} 
+                <div
+                  key={day}
                   className={clsx(
                     'group overflow-hidden rounded-[1.5rem] border transition-all duration-500',
                     isOpen ? 'border-primary/20 shadow-2xl shadow-primary/10 bg-white ring-4 ring-primary/5' : 'border-slate-200/50 bg-white/50 hover:bg-white hover:border-slate-300',
@@ -138,7 +137,7 @@ export default function StudyPlanPage() {
                         </p>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-4">
                       {allDone && !isOpen && (
                         <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-[9px] font-black uppercase tracking-widest border border-emerald-100">
@@ -170,16 +169,16 @@ export default function StudyPlanPage() {
                           )}
                         >
                           <div className={clsx(
-                             "h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-500",
-                             task.completed ? "bg-emerald-500 text-white" : "bg-slate-50 text-slate-300 group-hover/btn:bg-primary/10 group-hover/btn:text-primary"
+                            "h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-500",
+                            task.completed ? "bg-emerald-500 text-white" : "bg-slate-50 text-slate-300 group-hover/btn:bg-primary/10 group-hover/btn:text-primary"
                           )}>
-                             {togglingId === task.id ? (
-                               <Loader2 className="h-5 w-5 animate-spin" />
-                             ) : task.completed ? (
-                               <CheckCircle2 className="h-5 w-5" />
-                             ) : (
-                               <Circle className="h-5 w-5" />
-                             )}
+                            {togglingId === task.id ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : task.completed ? (
+                              <CheckCircle2 className="h-5 w-5" />
+                            ) : (
+                              <Circle className="h-5 w-5" />
+                            )}
                           </div>
 
                           <div className="flex-1 min-w-0">

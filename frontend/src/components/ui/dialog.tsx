@@ -13,7 +13,7 @@ const Dialog = ({ open, onOpenChange, children }: { open: boolean; onOpenChange:
     );
 };
 
-const DialogTrigger = ({ children, asChild }: { children: React.ReactElement; asChild?: boolean }) => {
+const DialogTrigger = ({ children, asChild: _asChild }: { children: React.ReactElement; asChild?: boolean }) => {
     const context = React.useContext(DialogContext);
     if (!context) return children;
 
