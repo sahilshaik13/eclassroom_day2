@@ -300,6 +300,22 @@ async def invite_teacher(
             "is_active": True, # Ensure active upon invite
         }).execute()
 
+        # Update Supabase auth user's app_metadata so the JWT contains
+        # the correct role and tenant_id claims.  The /invite endpoint
+        # puts data into user_metadata only, NOT app_metadata.
+        import httpx
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient() as client:
+            await client.put(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{result['user_id']}",
+                json={"app_metadata": {"role": "teacher", "tenant_id": token.tenant_id}},
+                headers=auth_headers,
+            )
+
         return success(result, status_code=201)
 
     except AuthError as e:

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -32,6 +32,19 @@ export default function StudentRegistrationPage() {
 
   const { user } = useAuthStore()
 
+  // Prevent browser back button from leaving the registration form
+  useEffect(() => {
+    window.history.pushState(null, '', window.location.href)
+
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href)
+      toast('Please complete your registration first', { icon: '📝' })
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   // Split name for pre-filling
   const nameParts = user?.name ? user.name.split(' ') : ['', '']
   const firstName = nameParts[0] || ''
@@ -61,10 +74,35 @@ export default function StudentRegistrationPage() {
 
   const prevStep = () => setStep(s => s - 1)
 
+  // Field groups per step for validation
+  const stepFields: Record<number, (keyof ProfileForm)[]> = {
+    1: ['first_name', 'last_name', 'gender', 'dob'],
+    2: ['nationality', 'whatsapp_number'],
+    3: ['city'],
+  }
+
   const onSubmit = async (data: ProfileForm) => {
+    // Validate all steps before submitting
+    for (const s of [1, 2, 3] as const) {
+      const valid = await trigger(stepFields[s])
+      if (!valid) {
+        setStep(s)
+        toast.error(`Please fix the errors in Step ${s}`)
+        return
+      }
+    }
+
     setLoading(true)
     try {
       await authApi.completeStudentProfile(data)
+      // Update store so route guards know registration is complete
+      if (user) {
+        useAuthStore.getState().setSession(
+          { ...user, is_registered: true },
+          useAuthStore.getState().accessToken!,
+          useAuthStore.getState().refreshToken!,
+        )
+      }
       toast.success('Registration complete! Welcome to ThinkTarteeb.')
       navigate('/student', { replace: true })
     } catch (e) {
@@ -74,6 +112,7 @@ export default function StudentRegistrationPage() {
       setLoading(false)
     }
   }
+
 
   return (
     <div className="min-h-screen bg-slate-950 auth-pattern flex flex-col items-center justify-center py-12 px-4">
