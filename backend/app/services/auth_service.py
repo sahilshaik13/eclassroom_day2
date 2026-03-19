@@ -191,13 +191,42 @@ class AuthService:
 
         user_row = (
             admin.table("users")
-            .select("id, name, role, tenant_id")
+            .select("id, name, role, tenant_id, is_registered")
             .eq("id", user.id)
             .single()
             .execute()
         )
 
         role = user_row.data.get("role", "")
+        tenant_id = user_row.data.get("tenant_id", "")
+
+        # Backfill app_metadata if missing (e.g. teachers invited before
+        # the app_metadata patch was added to the invite flow).
+        auth_meta = (user.app_metadata or {}) if user else {}
+        if auth_meta.get("role") != role or auth_meta.get("tenant_id") != tenant_id:
+            try:
+                import httpx
+                auth_headers = {
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                    "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                    "Content-Type": "application/json",
+                }
+                async with httpx.AsyncClient() as client:
+                    await client.put(
+                        f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user.id}",
+                        json={"app_metadata": {"role": role, "tenant_id": tenant_id}},
+                        headers=auth_headers,
+                    )
+                # Re-sign so this session already carries the right claims
+                try:
+                    result2 = admin.auth.sign_in_with_password({"email": email, "password": password})
+                    if result2.session:
+                        session = result2.session
+                except Exception:
+                    pass  # fallback: user can refresh on next request
+            except Exception as e:
+                print(f"Warning: could not backfill app_metadata: {e}")
+
         mfa_enrolled = any(
             getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
             for f in (user.factors or [])

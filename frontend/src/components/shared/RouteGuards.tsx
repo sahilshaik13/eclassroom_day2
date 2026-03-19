@@ -37,6 +37,15 @@ export function RequireRole({ children, role, redirectTo }: Props) {
     return <Navigate to={portalMap[user.role]} replace />
   }
 
+  // Redirect unregistered teachers/students to their registration form
+  const isRegistrationPath = location.pathname.includes('-registration')
+  if (!isRegistrationPath && user.is_registered === false && role !== 'admin') {
+    const regPath = role === 'student'
+      ? '/auth/student-registration'
+      : '/auth/teacher-registration'
+    return <Navigate to={regPath} replace />
+  }
+
   return <>{children}</>
 }
 
