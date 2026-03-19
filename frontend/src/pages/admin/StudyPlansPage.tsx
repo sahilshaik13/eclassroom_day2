@@ -1,8 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Plus, BookOpen, Play, Trash2 } from 'lucide-react'
+import { Plus, Play, Trash2, Calendar, ClipboardList, Layers, ChevronRight, LayoutGrid } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import type { StudyPlanTemplate, StudyPlanTaskItem, ClassItem } from '@/types'
+import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 export default function StudyPlansPage() {
   const [templates, setTemplates]   = useState<StudyPlanTemplate[]>([])
@@ -17,7 +29,10 @@ export default function StudyPlansPage() {
   const load = () => {
     setLoading(true)
     Promise.all([api.get('/admin/study-plans'), api.get('/admin/classes')])
-      .then(([t, c]) => { setTemplates(t.data.data); setClasses(c.data.data) })
+      .then(([t, c]) => { 
+        setTemplates(t.data.data)
+        setClasses(c.data.data) 
+      })
       .catch(() => toast.error('Could not load plans'))
       .finally(() => setLoading(false))
   }
@@ -26,8 +41,12 @@ export default function StudyPlansPage() {
 
   const selectTemplate = async (t: StudyPlanTemplate) => {
     setSelected(t)
-    const r = await api.get(`/admin/study-plans/${t.id}/tasks`)
-    setTasks(r.data.data)
+    try {
+      const r = await api.get(`/admin/study-plans/${t.id}/tasks`)
+      setTasks(r.data.data)
+    } catch (error) {
+      toast.error("Failed to load tasks")
+    }
   }
 
   const addTask = async () => {
@@ -54,109 +73,234 @@ export default function StudyPlansPage() {
     setApplying(true)
     try {
       const r = await api.post(`/admin/study-plans/${selected.id}/apply`, { class_id: applyClassId })
-      toast.success(`Applied! ${r.data.data.tasks_assigned} tasks assigned to ${r.data.data.students} students.`)
+      toast.success(`Applied! ${r.data.data.tasks_assigned} tasks assigned.`)
     } catch { toast.error('Could not apply plan') }
     finally { setApplying(false) }
   }
 
   // Group tasks by day
   const byDay: Record<number, StudyPlanTaskItem[]> = {}
-  tasks.forEach(t => { if (!byDay[t.day_number]) byDay[t.day_number] = []; byDay[t.day_number].push(t) })
+  tasks.forEach(t => { 
+    if (!byDay[t.day_number]) byDay[t.day_number] = []
+    byDay[t.day_number].push(t) 
+  })
 
   return (
-    <div className="p-6 animate-fade-in">
-      <div className="mb-6">
-        <h1 className="font-display text-xl text-ink">Study Plans</h1>
-        <p className="text-sm text-ink-muted mt-0.5">Create templates and apply them to classes</p>
-      </div>
-
-      <div className="flex gap-6 flex-col lg:flex-row">
-        {/* Template list */}
-        <div className="w-full lg:w-64 shrink-0 space-y-2">
-          <p className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-2">Templates</p>
-          {loading ? <div className="skeleton h-40 rounded-xl" /> : (
-            templates.map(t => (
-              <button key={t.id} onClick={() => selectTemplate(t)}
-                className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all text-sm ${selected?.id === t.id ? 'bg-gold/5 border-gold/30 font-semibold text-ink' : 'bg-white border-border text-ink-muted hover:text-ink'}`}>
-                <p className="font-medium truncate">{t.name}</p>
-                <p className="text-xs opacity-60 mt-0.5">{t.total_days} days · {t.task_count} tasks</p>
-              </button>
-            ))
-          )}
+    <DashboardPageLayout
+      title="Study Plans"
+      description="Design curriculum templates and deploy them across active classrooms."
+      actions={
+        <Button className="gap-2">
+          <Plus className="h-4 w-4" /> New Template
+        </Button>
+      }
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Template Sidebar */}
+        <div className="lg:col-span-3 space-y-4">
+          <div className="flex items-center justify-between px-1">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Layers className="h-3.5 w-3.5" />
+              Templates
+            </h3>
+          </div>
+          
+          <div className="grid gap-2">
+            {loading ? (
+              [1, 2, 3].map(i => (
+                <div key={i} className="h-16 w-full bg-slate-50 animate-pulse rounded-xl border border-slate-100" />
+              ))
+            ) : (
+              templates.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => selectTemplate(t)}
+                  className={`group relative flex flex-col items-start p-4 rounded-xl border text-left transition-all duration-300 ${
+                    selected?.id === t.id 
+                      ? 'bg-primary/5 border-primary/30 shadow-sm' 
+                      : 'bg-white border-slate-200/60 hover:border-primary/20 hover:bg-slate-50/50'
+                  }`}
+                >
+                  <p className={`font-bold text-sm truncate w-full ${selected?.id === t.id ? 'text-primary' : 'text-slate-900 group-hover:text-primary transition-colors'}`}>
+                    {t.name}
+                  </p>
+                  <div className="flex items-center gap-3 mt-1.5 opacity-60">
+                    <span className="text-[10px] flex items-center gap-1 font-medium">
+                      <Calendar className="h-3 w-3" />
+                      {t.total_days} Days
+                    </span>
+                    <span className="text-[10px] flex items-center gap-1 font-medium">
+                      <ClipboardList className="h-3 w-3" />
+                      {t.task_count} Tasks
+                    </span>
+                  </div>
+                  {selected?.id === t.id && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <ChevronRight className="h-4 w-4 text-primary opacity-50" />
+                    </div>
+                  )}
+                </button>
+              ))
+            )}
+            {!loading && templates.length === 0 && (
+              <div className="text-center py-8 px-4 rounded-xl border border-dashed border-slate-200">
+                <p className="text-xs text-slate-500">No templates found</p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Task editor */}
-        {selected && (
-          <div className="flex-1 min-w-0 space-y-4">
-            <div className="card">
-              <h2 className="font-display text-base font-semibold text-ink mb-1">{selected.name}</h2>
-              <p className="text-xs text-ink-muted">{selected.total_days} days · {tasks.length} tasks</p>
-            </div>
-
-            {/* Apply to class */}
-            <div className="card border-gold/20 flex items-end gap-3">
-              <div className="flex-1">
-                <label className="label">Apply to Class</label>
-                <select value={applyClassId} onChange={e => setApplyClassId(e.target.value)} className="input">
-                  <option value="">Select class…</option>
-                  {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <button onClick={apply} disabled={applying} className="btn-primary shrink-0">
-                {applying ? 'Applying…' : <><Play className="w-4 h-4" /> Apply</>}
-              </button>
-            </div>
-
-            {/* Add task */}
-            <div className="card flex gap-3 flex-wrap">
-              <input type="number" min="1" value={newTask.day_number}
-                onChange={e => setNewTask(p => ({...p, day_number: Number(e.target.value)}))}
-                className="input w-20" placeholder="Day" />
-              <input value={newTask.title}
-                onChange={e => setNewTask(p => ({...p, title: e.target.value}))}
-                onKeyDown={e => e.key === 'Enter' && addTask()}
-                className="input flex-1" placeholder="Task title…" />
-              <select value={newTask.task_type}
-                onChange={e => setNewTask(p => ({...p, task_type: e.target.value}))}
-                className="input w-36">
-                {['memorise','review','recite','listen','read'].map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <button onClick={addTask} className="btn-primary">
-                <Plus className="w-4 h-4" /> Add
-              </button>
-            </div>
-
-            {/* Task list by day */}
-            <div className="space-y-2">
-              {Object.entries(byDay).sort(([a],[b])=>Number(a)-Number(b)).map(([day, dayTasks]) => (
-                <div key={day} className="card">
-                  <p className="text-xs font-bold text-ink-muted uppercase mb-2">Day {day}</p>
-                  {dayTasks.map(t => (
-                    <div key={t.id} className="flex items-center justify-between py-1.5">
-                      <span className="text-sm text-ink">{t.title}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="badge badge-gold text-[10px] capitalize">{t.task_type}</span>
-                        <button onClick={() => deleteTask(t.id)} className="text-ink-faint hover:text-red-500 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+        {/* Task Editor Workspace */}
+        <div className="lg:col-span-9">
+          {selected ? (
+            <div className="space-y-6">
+              {/* Workspace Header */}
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 bg-white/50 backdrop-blur-sm border border-slate-200/60 p-6 rounded-2xl shadow-sm">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-tighter bg-slate-50 text-slate-500 border-slate-200">
+                      Template Editor
+                    </Badge>
+                  </div>
+                  <h2 className="text-xl font-black text-slate-900 leading-tight">
+                    {selected.name}
+                  </h2>
+                  <p className="text-sm text-slate-500 mt-1 flex items-center gap-3">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5" />
+                      Duration: {selected.total_days} days
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <ClipboardList className="h-3.5 w-3.5" />
+                      Total Content: {tasks.length} tasks
+                    </span>
+                  </p>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
 
-        {!selected && !loading && (
-          <div className="flex-1 card flex items-center justify-center py-16 text-center">
-            <div>
-              <BookOpen className="w-8 h-8 text-ink-faint mx-auto mb-3" />
-              <p className="text-sm text-ink-muted">Select a template to edit its tasks</p>
+                <div className="flex items-center gap-3 bg-slate-900 p-1.5 pl-4 rounded-xl shadow-inner border border-white/10">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase leading-none mb-0.5">Deploy to</span>
+                    <select 
+                      value={applyClassId} 
+                      onChange={e => setApplyClassId(e.target.value)}
+                      className="bg-transparent text-white text-xs font-bold border-none focus:ring-0 p-0 pr-8 min-w-[120px] cursor-pointer appearance-none"
+                    >
+                      <option value="" className="bg-slate-900">Select Class</option>
+                      {classes.map(c => <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>)}
+                    </select>
+                  </div>
+                  <Button 
+                    onClick={apply} 
+                    disabled={applying || !applyClassId} 
+                    size="sm"
+                    className="h-9 px-4 bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20"
+                  >
+                    {applying ? (
+                      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Play className="h-3.5 w-3.5 mr-2 fill-current" />
+                        Apply Plan
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Task Add Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end p-4 bg-white/80 rounded-xl border border-slate-200/60 shadow-sm ring-1 ring-slate-100">
+                <div className="sm:col-span-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5 ml-1">Day</span>
+                  <Input 
+                    type="number" 
+                    min="1" 
+                    value={newTask.day_number}
+                    onChange={e => setNewTask(p => ({...p, day_number: Number(e.target.value)}))}
+                    className="h-10 text-center font-bold"
+                  />
+                </div>
+                <div className="sm:col-span-6">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5 ml-1">Task Title</span>
+                  <Input 
+                    placeholder="Enter objective..."
+                    value={newTask.title}
+                    onChange={e => setNewTask(p => ({...p, title: e.target.value}))}
+                    onKeyDown={e => e.key === 'Enter' && addTask()}
+                    className="h-10"
+                  />
+                </div>
+                <div className="sm:col-span-3">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5 ml-1">Modal</span>
+                  <Select 
+                    value={newTask.task_type} 
+                    onValueChange={v => setNewTask(p => ({...p, task_type: v}))}
+                  >
+                    <SelectTrigger className="h-10 font-medium capitalize">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['memorise','review','recite','listen','read'].map(t => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2">
+                  <Button onClick={addTask} className="w-full h-10 gap-2">
+                    <Plus className="h-4 w-4" /> Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Day-by-Day View */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(byDay).sort(([a],[b])=>Number(a)-Number(b)).map(([day, dayTasks]) => (
+                  <Card key={day} className="border-slate-200/60 bg-white/40 shadow-sm group">
+                    <CardHeader className="py-3 px-5 border-b border-slate-100 bg-slate-50/50 rounded-t-xl flex flex-row items-center justify-between">
+                      <Badge variant="secondary" className="bg-slate-900 text-white font-black text-[10px] rounded hover:bg-slate-800 transition-colors">
+                        DAY {day}
+                      </Badge>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="divide-y divide-slate-50">
+                        {dayTasks.map(t => (
+                          <div key={t.id} className="flex items-center justify-between p-4 px-5 hover:bg-slate-50/80 transition-colors">
+                            <span className="text-sm font-semibold text-slate-800">{t.title}</span>
+                            <div className="flex items-center gap-3">
+                              <Badge 
+                                variant="outline" 
+                                className="text-[9px] uppercase font-bold bg-white text-slate-500 border-slate-200 px-1.5 py-0"
+                              >
+                                {t.task_type}
+                              </Badge>
+                              <button 
+                                onClick={() => deleteTask(t.id)} 
+                                className="text-slate-300 hover:text-red-500 transition-all p-1"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24 bg-white/30 backdrop-blur-sm rounded-3xl border border-dashed border-slate-200">
+              <div className="h-16 w-16 bg-white rounded-2xl flex items-center justify-center shadow-sm mb-4 border border-slate-100 italic">
+                <LayoutGrid className="h-8 w-8 text-slate-300" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Workspace Inactive</h3>
+              <p className="text-sm text-slate-500 max-w-xs text-center mt-2 leading-relaxed">
+                Select a template from the left panel to begin editing tasks and applying curriculum.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </DashboardPageLayout>
   )
 }

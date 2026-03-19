@@ -1,27 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Plus, X, Send } from 'lucide-react'
+import { Plus, Download, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { useForm } from 'react-hook-form'
-import { z } from 'zod'
-import { zodResolver } from '@hookform/resolvers/zod'
 import api from '@/services/api'
 import type { Teacher } from '@/types'
-
-const schema = z.object({
-  email: z.string().email('Valid email required'),
-  firstName: z.string().min(2, 'First name required'),
-  lastName: z.string().min(2, 'Last name required'),
-})
-type Form = z.infer<typeof schema>
+import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
+import { ParticipantsTable } from '@/components/admin/ParticipantsTable'
+import { Button } from '@/components/ui/button'
 
 export default function AdminTeachersPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [inviting, setInviting]  = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<Form>({ resolver: zodResolver(schema) })
+  const [loading, setLoading] = useState(true)
 
   const load = () => {
     setLoading(true)
@@ -33,108 +21,38 @@ export default function AdminTeachersPage() {
 
   useEffect(load, [])
 
-  const handleEdit = (t: Teacher) => {
-    setEditingId(t.id)
-    const parts = (t.name || '').trim().split(/\s+/).filter(Boolean)
-    const firstName = parts[0] ?? ''
-    const lastName = parts.slice(1).join(' ') ?? ''
-    setValue('firstName', firstName)
-    setValue('lastName', lastName)
-    setValue('email', t.email)
-    setShowModal(true)
-  }
-
-  const handleSave = async (data: Form) => {
-    setInviting(true)
-    try {
-      const payload = {
-        email: data.email,
-        name: `${data.firstName} ${data.lastName}`.trim(),
-      }
-      if (editingId) {
-        await api.patch(`/admin/teachers/${editingId}`, payload)
-        toast.success('Teacher updated successfully')
-      } else {
-        await api.post('/admin/teachers', payload)
-        toast.success(`Invite sent to ${data.email}`)
-      }
-      reset(); setShowModal(false); setEditingId(null); load()
-    } catch { toast.error(editingId ? 'Could not update' : 'Could not send invite') }
-    finally { setInviting(false) }
-  }
+  const actions = (
+    <>
+      <Button variant="outline" size="sm" className="hidden md:flex gap-2">
+        <Download className="h-4 w-4" /> Export CSV
+      </Button>
+      <Button variant="outline" size="sm" className="hidden md:flex gap-2">
+        <FileText className="h-4 w-4" /> Export PDF
+      </Button>
+      <Button className="gap-2">
+        <Plus className="h-4 w-4" /> Invite Teacher
+      </Button>
+    </>
+  )
 
   return (
-    <div className="p-6 max-w-3xl mx-auto animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-display text-xl text-ink">Teachers</h1>
-          <p className="text-sm text-ink-muted mt-0.5">{teachers.length} total</p>
+    <DashboardPageLayout
+      title="Teacher Management"
+      description={`Manage and monitor ${teachers.length} registered teachers.`}
+      actions={actions}
+    >
+      {loading ? (
+        <div className="grid gap-4">
+          <div className="h-10 w-full bg-slate-100 animate-pulse rounded-lg" />
+          <div className="h-64 w-full bg-slate-50 animate-pulse rounded-xl border border-slate-100" />
         </div>
-        <button onClick={() => { setEditingId(null); reset(); setShowModal(true) }} className="btn-primary text-sm">
-          <Plus className="w-4 h-4" /> Invite Teacher
-        </button>
-      </div>
-
-      {loading ? <div className="skeleton h-48 rounded-2xl" /> : (
-        <div className="table-wrapper">
-          <table className="table">
-            <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>
-              {teachers.map(t => (
-                <tr key={t.id}>
-                  <td className="font-medium cursor-pointer hover:text-gold transition-colors" onClick={() => handleEdit(t)}>{t.name}</td>
-                  <td className="text-ink-muted text-sm">{t.email}</td>
-                  <td>{t.deactivated_at ? <span className="badge badge-red">Inactive</span> : <span className="badge badge-green">Active</span>}</td>
-                  <td>
-                    <button onClick={() => handleEdit(t)} className="text-gold hover:text-gold/80 p-1 text-xs">
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {teachers.length === 0 && (
-                <tr><td colSpan={4} className="text-center text-ink-muted py-8">No teachers yet. Invite one!</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      ) : (
+        <ParticipantsTable 
+          data={teachers} 
+          type="teacher" 
+          onRefresh={load} 
+        />
       )}
-
-      {/* Invite/Edit modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl animate-fade-up">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-display text-lg text-ink">{editingId ? 'Edit Teacher' : 'Invite Teacher'}</h2>
-              <button onClick={() => setShowModal(false)} className="text-ink-faint hover:text-ink"><X className="w-5 h-5" /></button>
-            </div>
-            <form onSubmit={handleSubmit(handleSave)} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">First Name</label>
-                  <input {...register('firstName')} className="input" placeholder="Fatima" autoFocus />
-                  {errors.firstName && <p className="mt-1 text-xs text-red-500">{errors.firstName.message}</p>}
-                </div>
-                <div>
-                  <label className="label">Last Name</label>
-                  <input {...register('lastName')} className="input" placeholder="Ahmed" />
-                  {errors.lastName && <p className="mt-1 text-xs text-red-500">{errors.lastName.message}</p>}
-                </div>
-              </div>
-              <div>
-                <label className="label">Email Address {editingId && <span className="text-[10px] text-gold ml-1">(Updates Account)</span>}</label>
-                <input {...register('email')} type="email" className="input" placeholder="teacher@example.com" />
-                {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>}
-              </div>
-              {!editingId && <p className="text-xs text-ink-muted">An invite email will be sent with a link to set their password.</p>}
-              <button type="submit" disabled={inviting} className="btn-primary w-full">
-                {inviting ? 'Saving…' : <><Send className="w-4 h-4" /> {editingId ? 'Update Teacher' : 'Send Invite'}</>}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+    </DashboardPageLayout>
   )
 }

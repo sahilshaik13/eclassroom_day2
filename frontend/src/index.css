@@ -2,31 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Google Fonts already loaded via index.html ── */
-
 @layer base {
   :root {
-    --gold:         #D4AF37;
-    --gold-dark:    #AA8C2E;
-    --gold-light:   #E8D4A8;
-    --gold-faint:   #fdf8e7;
+    /* Base Radius */
+    --radius: 1.5rem;
+    --radius-xs: 6px;
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: 40px;
+    --radius-pill: 9999px;
 
-    --ink:          #1a1f2e;
-    --ink-muted:    #4a5568;
-    --ink-faint:    #718096;
+    /* Colors - Light Mode (RGB space-separated for Tailwind opacity support) */
+    --color-background: 255 255 255;
+    --color-foreground: 42 41 51;
 
-    --surface:      #ffffff;
-    --surface-alt:  #f8f9fc;
-    --border:       #e8eaf0;
-    --border-focus: #D4AF37;
+    --color-card: 255 255 255;
+    --color-card-foreground: 42 41 51;
 
-    --success:      #10B981;
-    --error:        #EF4444;
-    --warning:      #F59E0B;
-    --info:         #3B82F6;
+    --color-popover: 255 255 255;
+    --color-popover-foreground: 42 41 51;
+
+    --color-primary: 87 73 244;
+    --color-primary-foreground: 255 255 255;
+
+    --color-secondary: 217 217 219;
+    --color-secondary-foreground: 42 41 51;
+
+    --color-muted: 245 245 245;
+    --color-muted-foreground: 97 97 103;
+
+    --color-accent: 245 245 245;
+    --color-accent-foreground: 42 41 51;
+
+    --color-destructive: 204 51 20;
+    --color-destructive-foreground: 255 255 255;
+
+    --color-border: 197 197 203;
+    --color-input: 197 197 203;
+    --color-ring: 87 73 244;
+
+    /* Semantic Colors */
+    --color-success: 161 229 161;
+    --color-success-foreground: 0 51 0;
+    --color-warning: 255 217 178;
+    --color-warning-foreground: 77 39 0;
+    --color-error: 255 191 178;
+    --color-error-foreground: 89 15 0;
+    --color-info: 201 214 240;
+    --color-info-foreground: 0 17 51;
+
+    /* Custom Brand Colors for legacy support */
+    --color-gold: 212 175 55;
+    --color-gold-foreground: 255 255 255;
   }
 
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; border-color: var(--color-border); }
 
   html {
     -webkit-font-smoothing: antialiased;
@@ -34,15 +65,10 @@
   }
 
   body {
-    font-family: 'DM Sans', system-ui, sans-serif;
-    color: var(--ink);
-    background: var(--surface-alt);
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--color-foreground);
+    background: var(--color-background);
     line-height: 1.55;
-  }
-
-  h1, h2, h3 {
-    font-family: 'Playfair Display', Georgia, serif;
-    line-height: 1.25;
   }
 
   /* Remove default button styles */
@@ -51,8 +77,8 @@
   /* Custom scrollbar */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+  ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-muted-foreground); }
 }
 
 @layer components {
@@ -60,8 +86,8 @@
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2
            px-5 py-2.5 rounded-lg font-body font-medium text-sm
-           bg-gold text-white
-           hover:bg-gold-600 active:scale-[0.98]
+           bg-primary text-primary-foreground
+           hover:bg-primary/90 active:scale-[0.98]
            transition-all duration-150
            disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none;
   }
@@ -70,29 +96,29 @@
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-2
            px-5 py-2.5 rounded-lg font-body font-medium text-sm
-           text-ink-muted border border-border
-           hover:border-gold hover:text-gold active:scale-[0.98]
+           text-muted-foreground border border-border
+           hover:border-primary hover:text-primary active:scale-[0.98]
            transition-all duration-150;
   }
 
   /* ── Card ── */
   .card {
-    @apply bg-white rounded-2xl shadow-card border border-border;
+    @apply bg-card text-card-foreground rounded-2xl shadow-card border border-border;
   }
 
   /* ── Input ── */
   .input {
-    @apply w-full px-4 py-2.5 rounded-lg border border-border
-           bg-white text-ink text-sm font-body
-           placeholder:text-ink-faint
-           focus:outline-none focus:ring-2 focus:ring-gold/30 focus:border-gold
+    @apply w-full px-4 py-2.5 rounded-lg border border-input
+           bg-background text-foreground text-sm font-body
+           placeholder:text-muted-foreground
+           focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring
            transition-colors duration-150
-           disabled:bg-surface-alt disabled:cursor-not-allowed;
+           disabled:bg-muted disabled:cursor-not-allowed;
   }
 
   /* ── Label ── */
   .label {
-    @apply block text-xs font-medium text-ink-muted mb-1.5 tracking-wide uppercase;
+    @apply block text-xs font-medium text-muted-foreground mb-1.5 tracking-wide uppercase;
   }
 
   /* ── Badge ── */
@@ -103,24 +129,11 @@
   /* ── Sidebar nav link ── */
   .nav-link {
     @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-           text-ink-muted
-           hover:bg-gold-faint hover:text-gold
+           text-muted-foreground
+           hover:bg-accent hover:text-accent-foreground
            transition-all duration-150;
   }
   .nav-link.active {
-    @apply bg-gold-faint text-gold;
+    @apply bg-primary/10 text-primary;
   }
-}
-
-/* ── Staggered animation helpers ── */
-.animate-delay-100 { animation-delay: 100ms; }
-.animate-delay-200 { animation-delay: 200ms; }
-.animate-delay-300 { animation-delay: 300ms; }
-.animate-delay-400 { animation-delay: 400ms; }
-
-/* ── Auth page geometric pattern ── */
-.auth-pattern {
-  background-image:
-    radial-gradient(circle at 25% 25%, rgba(212,175,55,0.08) 0%, transparent 50%),
-    radial-gradient(circle at 75% 75%, rgba(212,175,55,0.06) 0%, transparent 50%);
 }

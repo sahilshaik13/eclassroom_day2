@@ -101,70 +101,73 @@ export default function MFASetupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 auth-pattern flex flex-col items-center justify-center px-4">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-gold/5 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden">
+      {/* Background glow and patterns */}
+      <div className="absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
 
-      <div className="w-full max-w-sm relative animate-fade-up">
-        <div className="flex items-center justify-center gap-2.5 mb-10">
-          <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center">
-            <BookOpen className="w-5 h-5 text-gold" />
+      <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-700">
+        <div className="flex items-center justify-center gap-3 mb-10">
+          <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shadow-lg shadow-primary/20 ring-1 ring-primary/50">
+            <BookOpen className="w-6 h-6 text-primary" />
           </div>
-          <span className="font-display text-xl text-white font-semibold tracking-tight">
+          <span className="font-display text-2xl text-white font-bold tracking-tight">
             ThinkTarteeb
           </span>
         </div>
 
-        <div className="bg-white/[0.04] backdrop-blur border border-white/10 rounded-2xl p-8">
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 relative overflow-hidden">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
           {step === 'loading' && (
             <div className="flex flex-col items-center py-8 gap-4">
-              <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
-              <p className="text-sm text-white/50">Setting up MFA…</p>
+              <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              <p className="text-sm text-slate-400">Setting up MFA…</p>
             </div>
           )}
 
           {step === 'scan' && enrollData && (
-            <>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center shrink-0">
-                  <ShieldCheck className="w-5 h-5 text-gold" />
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-inner">
+                  <ShieldCheck className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <h1 className="font-display text-xl text-white leading-tight">Two-Factor Auth</h1>
-                  <p className="text-xs text-white/40">Required for admin access</p>
+                  <h1 className="font-display text-xl text-white font-bold leading-tight">Two-Factor Auth</h1>
+                  <p className="text-xs text-slate-400 font-medium">Required for admin access</p>
                 </div>
               </div>
 
-              <p className="text-sm text-white/60 mb-5">
+              <p className="text-sm text-slate-300 mb-5">
                 Scan this QR code with{' '}
-                <strong className="text-white/80">Google Authenticator</strong> or any TOTP app:
+                <strong className="text-white font-semibold">Google Authenticator</strong> or any TOTP app:
               </p>
 
               <div className="flex justify-center mb-5">
                 <div
-                  className="p-3 bg-white rounded-xl"
+                  className="p-3 bg-white rounded-xl shadow-lg ring-1 ring-white/10"
                   style={{ lineHeight: 0 }}
                   dangerouslySetInnerHTML={{ __html: enrollData.qr_code }}
                 />
               </div>
 
               <div className="mb-4">
-                <p className="text-xs text-white/40 mb-2">Can't scan? Enter this key manually:</p>
-                <div className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg">
-                  <code className="flex-1 text-xs font-mono text-gold/80 break-all">
+                <p className="text-xs text-slate-400 font-medium mb-2">Can't scan? Enter this key manually:</p>
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-950/50 border border-slate-800 rounded-lg">
+                  <code className="flex-1 text-xs font-mono text-primary break-all">
                     {enrollData.secret}
                   </code>
                   <button
                     onClick={copySecret}
-                    className="text-white/30 hover:text-white/70 transition-colors shrink-0"
+                    className="text-slate-400 hover:text-white transition-colors shrink-0 p-1"
                   >
-                    {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                    {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
 
-              <div className="mb-6 px-3 py-2.5 bg-gold/8 border border-gold/20 rounded-lg">
-                <p className="text-xs text-gold/80">
+              <div className="mb-6 px-3 py-2.5 bg-primary/10 border border-primary/20 rounded-lg">
+                <p className="text-xs text-primary/80 leading-relaxed font-medium">
                   <strong>Multiple phones?</strong> Scan the QR or enter the key on each
                   device before continuing — all devices will generate the same codes.
                 </p>
@@ -175,21 +178,21 @@ export default function MFASetupPage() {
                   setStep('verify')
                   setTimeout(() => inputRefs.current[0]?.focus(), 100)
                 }}
-                className="btn-primary w-full"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center"
               >
                 I've scanned it — Continue
               </button>
-            </>
+            </div>
           )}
 
           {step === 'verify' && (
-            <>
-              <h1 className="font-display text-2xl text-white mb-1">Enter Code</h1>
-              <p className="text-sm text-white/50 mb-7">
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <h1 className="font-display text-2xl text-white font-bold mb-2">Enter Code</h1>
+              <p className="text-sm text-slate-400 mb-7">
                 Enter the 6-digit code from your authenticator app
               </p>
 
-              <div className="flex gap-2.5 mb-6" onPaste={handlePaste}>
+              <div className="flex gap-2.5 mb-6 justify-center" onPaste={handlePaste}>
                 {digits.map((d, i) => (
                   <input
                     key={i}
@@ -200,10 +203,10 @@ export default function MFASetupPage() {
                     value={d}
                     onChange={(e) => handleDigit(i, e.target.value)}
                     onKeyDown={(e) => handleDigitKey(i, e)}
-                    className="w-12 h-14 text-center text-2xl font-mono font-semibold rounded-xl
-                               bg-white/5 border border-white/10 text-white
-                               focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20
-                               transition-all"
+                    className="w-12 h-14 text-center text-2xl font-mono font-bold rounded-xl
+                               bg-slate-950/50 border border-slate-800 text-white
+                               focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
+                               transition-all shadow-inner"
                   />
                 ))}
               </div>
@@ -211,11 +214,11 @@ export default function MFASetupPage() {
               <button
                 onClick={verifyCode}
                 disabled={loading || digits.join('').length < 6}
-                className="btn-primary w-full mb-4"
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 rounded-xl transition-all shadow-md mb-4 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <span className="flex items-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Verifying…
                   </span>
                 ) : 'Verify & Enable MFA'}
@@ -223,25 +226,25 @@ export default function MFASetupPage() {
 
               <button
                 onClick={() => setStep('scan')}
-                className="w-full text-xs text-white/30 hover:text-white/60 transition-colors"
+                className="w-full text-sm font-medium text-slate-400 hover:text-white transition-colors"
               >
                 ← Back to QR code
               </button>
-            </>
+            </div>
           )}
 
           {step === 'done' && (
-            <div className="flex flex-col items-center py-8 gap-4 text-center">
-              <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center">
-                <Check className="w-8 h-8 text-green-400" />
+            <div className="flex flex-col items-center py-8 gap-4 text-center animate-in zoom-in-95 duration-500">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shadow-lg shadow-emerald-500/10 mb-2">
+                <Check className="w-8 h-8 text-emerald-400" />
               </div>
-              <h2 className="font-display text-xl text-white">MFA Enabled</h2>
-              <p className="text-sm text-white/50">Redirecting to admin portal…</p>
+              <h2 className="font-display text-2xl font-bold text-white">MFA Enabled</h2>
+              <p className="text-sm font-medium text-slate-400">Redirecting to admin portal…</p>
             </div>
           )}
         </div>
 
-        <p className="mt-5 text-center text-xs text-white/25">
+        <p className="mt-6 text-center text-sm font-medium text-slate-500">
           Admin account: {user?.email}
         </p>
       </div>

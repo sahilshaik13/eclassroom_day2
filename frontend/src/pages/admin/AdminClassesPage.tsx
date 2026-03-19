@@ -1,94 +1,110 @@
 import { useEffect, useState } from 'react'
-import { Plus, Video, Users } from 'lucide-react'
+import { Plus, Video, Users, MoreVertical, Calendar } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
-import type { ClassItem, Teacher } from '@/types'
+import type { ClassItem } from '@/types'
+import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
+import { Button } from '@/components/ui/button'
+import { 
+  Card, 
+  CardContent, 
+  CardDescription, 
+  CardFooter, 
+  CardHeader, 
+  CardTitle 
+} from "@/components/ui/card"
+import { Badge } from '@/components/ui/badge'
 
 export default function AdminClassesPage() {
   const [classes, setClasses]   = useState<ClassItem[]>([])
-  const [teachers, setTeachers] = useState<Teacher[]>([])
   const [loading, setLoading]   = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', teacher_id: '', zoom_link: '' })
-  const [saving, setSaving] = useState(false)
 
   const load = () => {
     setLoading(true)
-    Promise.all([api.get('/admin/classes'), api.get('/admin/teachers')])
-      .then(([c, t]) => { setClasses(c.data.data); setTeachers(t.data.data) })
+    api.get('/admin/classes')
+      .then(c => { 
+        setClasses(c.data.data)
+      })
       .catch(() => toast.error('Could not load data'))
       .finally(() => setLoading(false))
   }
 
   useEffect(load, [])
 
-  const createClass = async () => {
-    if (!form.name || !form.teacher_id) return toast.error('Name and teacher required')
-    setSaving(true)
-    try {
-      await api.post('/admin/classes', form)
-      toast.success('Class created!')
-      setForm({ name: '', teacher_id: '', zoom_link: '' })
-      setShowForm(false); load()
-    } catch { toast.error('Could not create class') }
-    finally { setSaving(false) }
-  }
+  const actions = (
+    <Button className="gap-2">
+      <Plus className="h-4 w-4" /> New Class
+    </Button>
+  )
 
   return (
-    <div className="p-6 max-w-4xl mx-auto animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-display text-xl text-ink">Classes</h1>
-          <p className="text-sm text-ink-muted mt-0.5">{classes.length} total</p>
-        </div>
-        <button onClick={() => setShowForm(v => !v)} className="btn-primary text-sm">
-          <Plus className="w-4 h-4" /> New Class
-        </button>
-      </div>
-
-      {showForm && (
-        <div className="card mb-5 border-gold/20 animate-fade-in">
-          <h2 className="font-semibold text-sm text-ink mb-4">Create Class</h2>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Class Name</label>
-              <input value={form.name} onChange={e => setForm(p => ({...p, name: e.target.value}))} className="input" placeholder="Juz 30 — Beginner" />
-            </div>
-            <div>
-              <label className="label">Teacher</label>
-              <select value={form.teacher_id} onChange={e => setForm(p => ({...p, teacher_id: e.target.value}))} className="input">
-                <option value="">Select teacher…</option>
-                {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            </div>
-            <div className="sm:col-span-2">
-              <label className="label">Zoom Link</label>
-              <input value={form.zoom_link} onChange={e => setForm(p => ({...p, zoom_link: e.target.value}))} className="input" placeholder="https://zoom.us/j/…" />
-            </div>
-          </div>
-          <button onClick={createClass} disabled={saving} className="btn-primary mt-4">
-            {saving ? 'Creating…' : 'Create Class'}
-          </button>
-        </div>
-      )}
-
-      {loading ? <div className="skeleton h-64 rounded-2xl" /> : (
-        <div className="grid gap-4 sm:grid-cols-2 stagger">
-          {classes.map(c => (
-            <div key={c.id} className="card-hover">
-              <div className="flex items-start justify-between mb-3">
-                <h2 className="font-semibold text-sm text-ink">{c.name}</h2>
-                {c.is_active ? <span className="badge badge-green">Active</span> : <span className="badge badge-red">Inactive</span>}
-              </div>
-              <div className="space-y-1.5 text-xs text-ink-muted">
-                <p className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> {c.teacher_name} · {c.enrollment_count} students</p>
-                {c.zoom_link && <p className="flex items-center gap-1.5"><Video className="w-3.5 h-3.5" /> Zoom configured</p>}
-              </div>
-            </div>
+    <DashboardPageLayout
+      title="Class Management"
+      description={`Monitor and organize ${classes.length} active learning environments.`}
+      actions={actions}
+    >
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-48 w-full bg-slate-50 animate-pulse rounded-xl border border-slate-100" />
           ))}
-          {classes.length === 0 && <p className="text-sm text-ink-muted col-span-2 text-center py-8">No classes yet.</p>}
+        </div>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {classes.map(c => (
+            <Card key={c.id} className="group hover:shadow-md transition-all duration-300 border-slate-200/60 bg-white/50 backdrop-blur-sm overflow-hidden flex flex-col">
+              <CardHeader className="pb-3">
+                <div className="flex justify-between items-start mb-1">
+                  <Badge variant={c.is_active ? "default" : "secondary"} className={c.is_active ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : ""}>
+                    {c.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 group-hover:text-slate-600">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </div>
+                <CardTitle className="text-lg font-bold text-slate-900 group-hover:text-primary transition-colors">
+                  {c.name}
+                </CardTitle>
+                <CardDescription className="flex items-center gap-1.5 mt-1 text-slate-500">
+                  <Users className="h-3.5 w-3.5" />
+                  {c.teacher_name || 'No teacher assigned'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pb-4 flex-grow">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 rounded-lg p-2.5">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-3.5 w-3.5 text-slate-400" />
+                      <span>{c.enrollment_count} Students</span>
+                    </div>
+                    {c.zoom_link && (
+                      <div className="flex items-center gap-2 text-primary font-medium">
+                        <Video className="h-3.5 w-3.5" />
+                        <span>Link Set</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter className="pt-0 border-t border-slate-50 mt-auto">
+                <Button variant="ghost" className="w-full justify-center text-xs text-slate-500 hover:text-primary hover:bg-primary/5 gap-2 h-9">
+                  <Calendar className="h-3.5 w-3.5" />
+                  View Schedule
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+          {classes.length === 0 && (
+            <div className="col-span-full py-12 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+              <h3 className="text-slate-900 font-medium">No classes yet</h3>
+              <p className="text-slate-500 text-sm mt-1">Start by creating your first class.</p>
+              <Button variant="outline" className="mt-4 gap-2">
+                <Plus className="h-4 w-4" /> New Class
+              </Button>
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </DashboardPageLayout>
   )
 }

@@ -1,80 +1,121 @@
-import { ShieldCheck, Database, Bell, Globe } from 'lucide-react'
+import { ShieldCheck, Database, Bell, Globe, Mail, Fingerprint, Lock, Shield } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
+import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 export default function AdminSettingsPage() {
   const { user } = useAuthStore()
 
   return (
-    <div className="p-6 max-w-2xl mx-auto animate-fade-in">
-      <div className="mb-6">
-        <h1 className="font-display text-xl text-ink">Settings</h1>
-        <p className="text-sm text-ink-muted mt-0.5">Organization and security configuration</p>
-      </div>
+    <DashboardPageLayout
+      title="System Settings"
+      description="Configure organization rules, security policies, and notification preferences."
+    >
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Organization Information */}
+        <Card className="border-slate-200/60 bg-white/50 backdrop-blur-sm shadow-sm">
+          <CardHeader className="flex flex-row items-center gap-4 pb-2">
+            <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center text-violet-600">
+              <Globe className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-bold">Organization</CardTitle>
+              <CardDescription>Core identity and account details</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                <Mail className="h-3 w-3" /> Admin Account
+              </span>
+              <span className="text-sm font-semibold text-slate-900">{user?.email}</span>
+            </div>
+            <div className="flex flex-col gap-1 pt-2 border-t border-slate-50">
+              <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                <Fingerprint className="h-3 w-3" /> Tenant ID
+              </span>
+              <span className="text-xs font-mono text-slate-400 truncate bg-slate-50 p-1.5 rounded">{user?.tenant_id}</span>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Org info */}
-      <div className="card mb-4">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="stat-icon bg-violet-50 text-violet-600"><Globe className="w-5 h-5" /></div>
-          <h2 className="font-semibold text-sm text-ink">Organization</h2>
-        </div>
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-ink-muted">Admin account</span>
-            <span className="font-medium text-ink">{user?.email}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-ink-muted">Tenant ID</span>
-            <span className="font-mono text-xs text-ink-faint">{user?.tenant_id}</span>
-          </div>
-        </div>
-      </div>
+        {/* Security & Access Control */}
+        <Card className="border-slate-200/60 bg-white/50 backdrop-blur-sm shadow-sm">
+          <CardHeader className="flex flex-row items-center gap-4 pb-2">
+            <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-bold">Security</CardTitle>
+              <CardDescription>Access control and data protection</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition-colors">
+              <div className="flex items-center gap-2">
+                <Lock className="h-4 w-4 text-slate-400" />
+                <span className="text-sm text-slate-700">Multi-factor Auth</span>
+              </div>
+              <Badge variant="default" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px] px-2">Enabled</Badge>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition-colors">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-slate-400" />
+                <span className="text-sm text-slate-700">Data Isolation</span>
+              </div>
+              <Badge variant="default" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px] px-2">RLS Active</Badge>
+            </div>
+            <div className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 transition-colors pt-1">
+              <span className="text-sm text-slate-500">Session Timeout</span>
+              <span className="text-sm font-medium text-slate-900">8 Hours</span>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Security */}
-      <div className="card mb-4">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="stat-icon bg-emerald-50 text-emerald-600"><ShieldCheck className="w-5 h-5" /></div>
-          <h2 className="font-semibold text-sm text-ink">Security</h2>
-        </div>
-        <div className="space-y-3 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-ink-muted">TOTP MFA</span>
-            <span className="badge badge-green">Enabled</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-ink-muted">Session TTL</span>
-            <span className="text-ink">8 hours</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-ink-muted">Data isolation</span>
-            <span className="badge badge-green">RLS active</span>
-          </div>
-        </div>
-      </div>
+        {/* Logging & Auditing */}
+        <Card className="border-slate-200/60 bg-white/50 backdrop-blur-sm shadow-sm">
+          <CardHeader className="flex flex-row items-center gap-4 pb-2">
+            <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-600">
+              <Database className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-bold">Audit Logs</CardTitle>
+              <CardDescription>Event tracking and history</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <p className="text-xs text-slate-500 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
+              "All administrative actions are captured automatically. Detailed logs are available in the Supabase Cloud console under the system observability module."
+            </p>
+          </CardContent>
+        </Card>
 
-      {/* Audit logs */}
-      <div className="card mb-4">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="stat-icon bg-blue-50 text-blue-600"><Database className="w-5 h-5" /></div>
-          <h2 className="font-semibold text-sm text-ink">Audit Logs</h2>
-        </div>
-        <p className="text-xs text-ink-muted">
-          All admin actions are logged automatically. View them directly in your Supabase dashboard
-          under <span className="font-mono bg-surface-alt px-1 rounded">audit_logs</span> table.
-        </p>
+        {/* Communication Channels */}
+        <Card className="border-slate-200/60 bg-white/50 backdrop-blur-sm shadow-sm">
+          <CardHeader className="flex flex-row items-center gap-4 pb-2">
+            <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600">
+              <Bell className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-bold">WhatsApp Channel</CardTitle>
+              <CardDescription>Automated mobile notifications</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Connect your Twilio or Interakt integration to enable real-time student updates and class reminders.
+              </p>
+              <div className="flex items-center justify-between">
+                <Badge variant="secondary" className="bg-amber-500/5 text-amber-600 border-amber-500/10 text-[10px]">Post-launch Roadmap</Badge>
+                <Button variant="ghost" size="sm" className="text-xs h-7">Contact Dev</Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-
-      {/* Notifications */}
-      <div className="card">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="stat-icon bg-amber-50 text-amber-600"><Bell className="w-5 h-5" /></div>
-          <h2 className="font-semibold text-sm text-ink">WhatsApp Notifications</h2>
-        </div>
-        <p className="text-xs text-ink-muted mb-3">
-          Automated WhatsApp reminders (class starts, daily nudge) are a post-launch feature.
-          Configure your Twilio/Interakt integration once the core platform is live.
-        </p>
-        <span className="badge badge-amber">Post-launch</span>
-      </div>
-    </div>
+    </DashboardPageLayout>
   )
 }
