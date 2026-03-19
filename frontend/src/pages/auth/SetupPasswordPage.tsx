@@ -164,61 +164,65 @@ export default function SetupPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 auth-pattern flex flex-col items-center justify-center px-4">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-gold/5 rounded-full blur-3xl pointer-events-none" />
-      <div className="w-full max-w-sm relative animate-fade-up">
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden">
+      {/* Background glow and patterns */}
+      <div className="absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
+      
+      <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-700">
         {/* Logo */}
-        <div className="flex items-center justify-center gap-2.5 mb-10">
-          <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center">
-            <BookOpen className="w-5 h-5 text-gold" />
+        <div className="flex items-center justify-center gap-3 mb-10">
+          <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shadow-lg shadow-primary/20 ring-1 ring-primary/50">
+            <BookOpen className="w-6 h-6 text-primary" />
           </div>
-          <span className="font-display text-xl text-white font-semibold tracking-tight">
+          <span className="font-display text-2xl text-white font-bold tracking-tight">
             ThinkTarteeb
           </span>
         </div>
 
-        <div className="bg-white/[0.04] backdrop-blur border border-white/10 rounded-2xl p-8">
-          <h1 className="font-display text-2xl text-white mb-1">Set Password</h1>
-          <p className="text-sm text-white/50 mb-8">Welcome! Set a password for your account to get started.</p>
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 relative overflow-hidden">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+          <h1 className="font-display text-2xl text-white font-bold mb-2">Set Password</h1>
+          <p className="text-sm text-slate-400 mb-8">Welcome! Set a password for your account to get started.</p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div>
-              <label className="label text-white/60">New Password</label>
+              <label className="block text-sm font-medium text-slate-300 mb-2">New Password</label>
               <input
                 {...register('password')}
                 type="password"
-                className="input bg-white/5 border-white/10 text-white focus:border-gold mt-1.5"
+                className="w-full bg-slate-950/50 border border-slate-800 text-white placeholder:text-slate-600 rounded-xl px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                 placeholder="••••••"
                 disabled={loading || loggingIn}
               />
-              {errors.password && <p className="mt-1.5 text-xs text-red-400">{errors.password.message}</p>}
+              {errors.password && <p className="mt-1.5 text-xs text-red-400 font-medium">{errors.password.message}</p>}
             </div>
             
             <div>
-              <label className="label text-white/60">Confirm Password</label>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Confirm Password</label>
               <input
                 {...register('confirmPassword')}
                 type="password"
-                className="input bg-white/5 border-white/10 text-white focus:border-gold mt-1.5"
+                className="w-full bg-slate-950/50 border border-slate-800 text-white placeholder:text-slate-600 rounded-xl px-4 py-3 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
                 placeholder="••••••"
                 disabled={loading || loggingIn}
               />
-              {errors.confirmPassword && <p className="mt-1.5 text-xs text-red-400">{errors.confirmPassword.message}</p>}
+              {errors.confirmPassword && <p className="mt-1.5 text-xs text-red-400 font-medium">{errors.confirmPassword.message}</p>}
             </div>
 
-            <button type="submit" disabled={loading || loggingIn || !token} className="btn-primary w-full mt-4">
+            <button type="submit" disabled={loading || loggingIn || !token} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center mt-6 disabled:opacity-50 disabled:cursor-not-allowed">
               {loading || loggingIn ? (
                 <span className="flex items-center justify-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-5 h-5 animate-spin" />
                   {loggingIn ? 'Logging you in...' : 'Setting password...'}
                 </span>
               ) : (
-                <span className="flex items-center gap-2">Set Password <ArrowRight className="w-4 h-4"/></span>
+                <span className="flex items-center gap-2">Set Password <ArrowRight className="w-5 h-5"/></span>
               )}
             </button>
           </form>
 
-          <p className="text-xs text-white/40 text-center mt-6">
+          <p className="text-xs text-slate-500 text-center mt-6">
             You will be redirected to complete your profile after setting your password.
           </p>
         </div>

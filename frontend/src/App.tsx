@@ -10,6 +10,7 @@ import { RequireRole, RedirectIfAuthed } from '@/components/shared/RouteGuards'
 
 // Layout
 import PortalLayout from '@/components/shared/PortalLayout'
+import LandingPage from '@/pages/LandingPage'
 
 // Auth pages
 import StudentLoginPage from '@/pages/auth/StudentLoginPage'
@@ -121,8 +122,8 @@ export default function App() {
       />
 
       <Routes>
-        {/* ── Root redirect ─────────────────────────── */}
-        <Route path="/" element={<Navigate to="/auth/login" replace />} />
+        {/* ── Root Route ─────────────────────────── */}
+        <Route path="/" element={<LandingPage />} />
 
         {/* ── Auth routes ───────────────────────────── */}
         <Route

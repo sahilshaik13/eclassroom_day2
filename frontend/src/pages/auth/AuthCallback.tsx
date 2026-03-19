@@ -31,8 +31,6 @@ export default function AuthCallback() {
         searchData.get('access_token') ||
         searchData.get('token')
 
-      const type = hashData.get('type') || searchData.get('type')
-
       // Treat any callback that contains an access_token (or token) as a valid invite/session.
       // Some Supabase flows don't pass type=invite or use query params instead of hash.
       if (accessToken) {

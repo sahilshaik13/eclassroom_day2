@@ -81,42 +81,46 @@ export default function MFAVerifyPage() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 auth-pattern flex flex-col items-center justify-center px-4">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-gold/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden">
+            {/* Background glow and patterns */}
+            <div className="absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
 
-            <div className="w-full max-w-sm relative animate-fade-up">
-                <div className="flex items-center justify-center gap-2.5 mb-10">
-                    <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center">
-                        <BookOpen className="w-5 h-5 text-gold" />
+            <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-700">
+                <div className="flex items-center justify-center gap-3 mb-10">
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shadow-lg shadow-primary/20 ring-1 ring-primary/50">
+                        <BookOpen className="w-6 h-6 text-primary" />
                     </div>
-                    <span className="font-display text-xl text-white font-semibold tracking-tight">
+                    <span className="font-display text-2xl text-white font-bold tracking-tight">
                         ThinkTarteeb
                     </span>
                 </div>
 
-                <div className="bg-white/[0.04] backdrop-blur border border-white/10 rounded-2xl p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/20 flex items-center justify-center shrink-0">
-                            <ShieldCheck className="w-5 h-5 text-gold" />
+                <div className="bg-slate-900/50 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 relative overflow-hidden">
+                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+
+                    <div className="flex items-center gap-4 mb-8">
+                        <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-inner">
+                            <ShieldCheck className="w-6 h-6 text-primary" />
                         </div>
                         <div>
-                            <h1 className="font-display text-xl text-white leading-tight">Verify Identity</h1>
-                            <p className="text-xs text-white/40">Two-factor authentication</p>
+                            <h1 className="font-display text-xl text-white font-bold leading-tight">Verify Identity</h1>
+                            <p className="text-xs text-slate-400 font-medium">Two-factor authentication</p>
                         </div>
                     </div>
 
                     {fetching ? (
                         <div className="flex flex-col items-center py-8 gap-4">
-                            <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
-                            <p className="text-sm text-white/50">Loading…</p>
+                            <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                            <p className="text-sm text-slate-400">Loading…</p>
                         </div>
                     ) : (
-                        <>
-                            <p className="text-sm text-white/50 mb-7">
+                        <div className="animate-in fade-in duration-300">
+                            <p className="text-sm font-medium text-slate-300 mb-7">
                                 Enter the 6-digit code from your authenticator app
                             </p>
 
-                            <div className="flex gap-2.5 mb-6" onPaste={handlePaste}>
+                            <div className="flex gap-2.5 mb-8 justify-center" onPaste={handlePaste}>
                                 {digits.map((d, i) => (
                                     <input
                                         key={i}
@@ -127,10 +131,10 @@ export default function MFAVerifyPage() {
                                         value={d}
                                         onChange={(e) => handleDigit(i, e.target.value)}
                                         onKeyDown={(e) => handleDigitKey(i, e)}
-                                        className="w-12 h-14 text-center text-2xl font-mono font-semibold rounded-xl
-                               bg-white/5 border border-white/10 text-white
-                               focus:outline-none focus:border-gold focus:ring-2 focus:ring-gold/20
-                               transition-all"
+                                        className="w-12 h-14 text-center text-2xl font-mono font-bold rounded-xl
+                               bg-slate-950/50 border border-slate-800 text-white
+                               focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
+                               transition-all z-10 relative shadow-inner"
                                     />
                                 ))}
                             </div>
@@ -138,11 +142,11 @@ export default function MFAVerifyPage() {
                             <button
                                 onClick={verifyCode}
                                 disabled={loading || digits.join('').length < 6}
-                                className="btn-primary w-full mb-4"
+                                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 rounded-xl transition-all shadow-md mb-6 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {loading ? (
                                     <span className="flex items-center gap-2">
-                                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                         Verifying…
                                     </span>
                                 ) : 'Verify & Sign In'}
@@ -150,15 +154,15 @@ export default function MFAVerifyPage() {
 
                             <button
                                 onClick={() => navigate('/auth/login')}
-                                className="w-full text-xs text-white/30 hover:text-white/60 transition-colors"
+                                className="w-full text-sm font-medium text-slate-400 hover:text-white transition-colors"
                             >
                                 ← Back to login
                             </button>
-                        </>
+                        </div>
                     )}
                 </div>
 
-                <p className="mt-5 text-center text-xs text-white/25">
+                <p className="mt-6 text-center text-sm font-medium text-slate-500">
                     Admin account: {user?.email}
                 </p>
             </div>
