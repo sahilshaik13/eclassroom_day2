@@ -360,6 +360,7 @@ class AuthService:
         redirect_to: Optional[str] = None,
     ) -> dict:
         import httpx
+        from urllib.parse import quote
         auth_headers = {
             "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
             "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
@@ -374,12 +375,15 @@ class AuthService:
                 "tenant_id": tenant_id,
             }
         }
+        # For /invite, GoTrue expects redirect_to as a query parameter.
+        # If it is not present (or not allowlisted), Supabase falls back to SITE_URL.
+        invite_url = f"{settings.SUPABASE_URL}/auth/v1/invite"
         if redirect_to:
-            payload["options"] = {"redirectTo": redirect_to}
+            invite_url = invite_url + "?redirect_to=" + quote(redirect_to, safe="")
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                f"{settings.SUPABASE_URL}/auth/v1/invite",
+                invite_url,
                 json=payload,
                 headers=auth_headers
             )

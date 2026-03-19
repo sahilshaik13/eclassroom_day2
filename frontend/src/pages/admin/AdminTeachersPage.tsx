@@ -9,7 +9,8 @@ import type { Teacher } from '@/types'
 
 const schema = z.object({
   email: z.string().email('Valid email required'),
-  name: z.string().min(2, 'Name required'),
+  firstName: z.string().min(2, 'First name required'),
+  lastName: z.string().min(2, 'Last name required'),
 })
 type Form = z.infer<typeof schema>
 
@@ -34,7 +35,11 @@ export default function AdminTeachersPage() {
 
   const handleEdit = (t: Teacher) => {
     setEditingId(t.id)
-    setValue('name', t.name)
+    const parts = (t.name || '').trim().split(/\s+/).filter(Boolean)
+    const firstName = parts[0] ?? ''
+    const lastName = parts.slice(1).join(' ') ?? ''
+    setValue('firstName', firstName)
+    setValue('lastName', lastName)
     setValue('email', t.email)
     setShowModal(true)
   }
@@ -42,11 +47,15 @@ export default function AdminTeachersPage() {
   const handleSave = async (data: Form) => {
     setInviting(true)
     try {
+      const payload = {
+        email: data.email,
+        name: `${data.firstName} ${data.lastName}`.trim(),
+      }
       if (editingId) {
-        await api.patch(`/admin/teachers/${editingId}`, data)
+        await api.patch(`/admin/teachers/${editingId}`, payload)
         toast.success('Teacher updated successfully')
       } else {
-        await api.post('/admin/teachers', data)
+        await api.post('/admin/teachers', payload)
         toast.success(`Invite sent to ${data.email}`)
       }
       reset(); setShowModal(false); setEditingId(null); load()
@@ -101,10 +110,17 @@ export default function AdminTeachersPage() {
               <button onClick={() => setShowModal(false)} className="text-ink-faint hover:text-ink"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSubmit(handleSave)} className="space-y-4">
-              <div>
-                <label className="label">Full Name</label>
-                <input {...register('name')} className="input" placeholder="Ustazah Fatima" autoFocus />
-                {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name.message}</p>}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">First Name</label>
+                  <input {...register('firstName')} className="input" placeholder="Fatima" autoFocus />
+                  {errors.firstName && <p className="mt-1 text-xs text-red-500">{errors.firstName.message}</p>}
+                </div>
+                <div>
+                  <label className="label">Last Name</label>
+                  <input {...register('lastName')} className="input" placeholder="Ahmed" />
+                  {errors.lastName && <p className="mt-1 text-xs text-red-500">{errors.lastName.message}</p>}
+                </div>
               </div>
               <div>
                 <label className="label">Email Address {editingId && <span className="text-[10px] text-gold ml-1">(Updates Account)</span>}</label>
