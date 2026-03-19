@@ -191,3 +191,7 @@ async def refresh_session(body: RefreshRequest):
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)
+
+@router.get("/debug-config")
+async def debug_config():
+    return {"frontend_url": settings.FRONTEND_URL}

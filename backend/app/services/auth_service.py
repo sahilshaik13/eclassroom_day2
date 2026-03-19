@@ -411,7 +411,7 @@ class AuthService:
         # If it is not present (or not allowlisted), Supabase falls back to SITE_URL.
         invite_url = f"{settings.SUPABASE_URL}/auth/v1/invite"
         if redirect_to:
-            invite_url = invite_url + "?redirect_to=" + quote(redirect_to, safe="")
+            invite_url = invite_url + "?redirect_to=" + quote(redirect_to, safe=":/")
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(
