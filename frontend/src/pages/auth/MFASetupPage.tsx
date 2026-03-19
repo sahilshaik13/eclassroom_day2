@@ -38,8 +38,12 @@ export default function MFASetupPage() {
           setStep('scan')
         })
         .catch((e) => {
-          if (e instanceof ApiClientError) toast.error(e.message)
-          else toast.error('Could not start MFA setup — please log in again')
+          let msg = 'Could not start MFA setup — please log in again'
+          if (e instanceof ApiClientError) msg = e.message
+          else if (e.response?.data?.error?.message) msg = e.response.data.error.message
+          else if (e.message) msg = e.message
+          
+          toast.error(msg)
           navigate('/auth/login')
         })
     }, 500)

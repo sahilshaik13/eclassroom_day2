@@ -6,10 +6,12 @@ import type { Teacher } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { ParticipantsTable } from '@/components/admin/ParticipantsTable'
 import { Button } from '@/components/ui/button'
+import { InviteUserModal } from '@/components/admin/InviteUserModal'
 
 export default function AdminTeachersPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([])
   const [loading, setLoading] = useState(true)
+  const [inviteOpen, setInviteOpen] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -29,7 +31,7 @@ export default function AdminTeachersPage() {
       <Button variant="outline" size="sm" className="hidden md:flex gap-2">
         <FileText className="h-4 w-4" /> Export PDF
       </Button>
-      <Button className="gap-2">
+      <Button className="gap-2" onClick={() => setInviteOpen(true)}>
         <Plus className="h-4 w-4" /> Invite Teacher
       </Button>
     </>
@@ -53,6 +55,12 @@ export default function AdminTeachersPage() {
           onRefresh={load} 
         />
       )}
+      <InviteUserModal 
+        type="teacher" 
+        open={inviteOpen} 
+        onOpenChange={setInviteOpen} 
+        onSuccess={load} 
+      />
     </DashboardPageLayout>
   )
 }
