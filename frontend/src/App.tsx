@@ -10,7 +10,6 @@ import { RequireRole, RedirectIfAuthed } from '@/components/shared/RouteGuards'
 
 // Layout
 import PortalLayout from '@/components/shared/PortalLayout'
-import LandingPage from '@/pages/LandingPage'
 
 // Auth pages
 import StudentLoginPage from '@/pages/auth/StudentLoginPage'
