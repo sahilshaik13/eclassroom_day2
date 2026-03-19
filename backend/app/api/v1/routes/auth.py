@@ -195,3 +195,10 @@ async def refresh_session(body: RefreshRequest):
 @router.get("/debug-config")
 async def debug_config():
     return {"frontend_url": settings.FRONTEND_URL}
+
+@router.get("/debug-invite-url")
+async def debug_invite_url():
+    from urllib.parse import quote
+    redirect_to = f"{settings.FRONTEND_URL}/auth/callback"
+    encoded = quote(redirect_to, safe=":/")
+    return {"redirect_to": redirect_to, "encoded": encoded}
