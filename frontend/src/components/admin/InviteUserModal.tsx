@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { User, Mail, Phone, Plus, GraduationCap } from "lucide-react";
 import api, { ApiClientError } from "@/services/api";
 import toast from "react-hot-toast";
+import { useAuthStore } from "@/stores/authStore";
 
 interface InviteUserModalProps {
     type: 'teacher' | 'student';
@@ -29,6 +30,9 @@ export function InviteUserModal({ type, open, onOpenChange, onSuccess }: InviteU
     const [classId, setClassId] = useState("");
     const [classes, setClasses] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
+    const { user } = useAuthStore();
+    const isAdmin = user?.role === 'admin';
+    const baseRoute = isAdmin ? '/admin' : '/teacher';
 
     useEffect(() => {
         if (open) {
@@ -37,7 +41,7 @@ export function InviteUserModal({ type, open, onOpenChange, onSuccess }: InviteU
             setPhone("");
             setClassId("");
             if (type === 'student') {
-                api.get('/admin/classes?limit=100')
+                api.get(`${baseRoute}/classes?limit=100`)
                     .then(res => setClasses(res.data.data))
                     .catch(() => toast.error("Could not load classes"));
             }
@@ -54,7 +58,7 @@ export function InviteUserModal({ type, open, onOpenChange, onSuccess }: InviteU
                 toast.success("Teacher invited successfully");
             } else {
                 if (!name || !phone) return toast.error("Name and Phone are required");
-                await api.post('/admin/students', { name, phone, class_id: classId || undefined });
+                await api.post(`${baseRoute}/students`, { name, phone, class_id: classId || undefined });
                 toast.success("Student added successfully");
             }
             if (onSuccess) onSuccess();
