@@ -84,11 +84,15 @@ export default function MFASetupPage() {
       const { access_token } = res.data.data
       // Now fully authenticate — user has completed MFA
       const refreshToken = localStorage.getItem('refresh_token') ?? ''
-      setSession(user!, access_token, refreshToken)
+      setSession({ ...user!, mfa_enabled: true }, access_token, refreshToken)
       setStep('done')
       setTimeout(() => {
         toast.success("MFA enabled — you're in!")
-        navigate('/admin')
+        // Dynamic redirect based on role
+        if (user?.role === 'admin') navigate('/admin')
+        else if (user?.role === 'teacher') navigate('/teacher/profile')
+        else if (user?.role === 'student') navigate('/student/profile')
+        else navigate('/')
       }, 1200)
     } catch (e) {
       if (e instanceof ApiClientError) toast.error(e.message)
@@ -134,7 +138,7 @@ export default function MFASetupPage() {
                 </div>
                 <div>
                   <h1 className="font-display text-xl text-white font-bold leading-tight">Two-Factor Auth</h1>
-                  <p className="text-xs text-slate-400 font-medium">Required for admin access</p>
+                  <p className="text-xs text-slate-400 font-medium">Protect your account</p>
                 </div>
               </div>
 
@@ -239,13 +243,13 @@ export default function MFASetupPage() {
                 <Check className="w-8 h-8 text-emerald-400" />
               </div>
               <h2 className="font-display text-2xl font-bold text-white">MFA Enabled</h2>
-              <p className="text-sm font-medium text-slate-400">Redirecting to admin portal…</p>
+              <p className="text-sm font-medium text-slate-400">Secure entry authorized. Redirecting…</p>
             </div>
           )}
         </div>
 
         <p className="mt-6 text-center text-sm font-medium text-slate-500">
-          Admin account: {user?.email}
+          Account: {user?.email || user?.phone}
         </p>
       </div>
     </div>

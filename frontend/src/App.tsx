@@ -35,6 +35,7 @@ import AttendancePage from '@/pages/teacher/AttendancePage'
 import TeacherDoubtsPage from '@/pages/teacher/TeacherDoubtsPage'
 import GradesPage from '@/pages/teacher/GradesPage'
 import ReportsPage from '@/pages/teacher/ReportsPage'
+import TeacherProfilePage from '@/pages/teacher/TeacherProfilePage'
 
 // Admin pages
 import AdminDashboard from '@/pages/admin/AdminDashboard'
@@ -193,6 +194,7 @@ export default function App() {
           <Route path="doubts" element={<TeacherDoubtsPage />} />
           <Route path="grades" element={<GradesPage />} />
           <Route path="reports" element={<ReportsPage />} />
+          <Route path="profile" element={<TeacherProfilePage />} />
         </Route>
 
         {/* ── Admin portal ──────────────────────────── */}

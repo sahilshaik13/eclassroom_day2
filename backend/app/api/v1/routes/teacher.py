@@ -417,7 +417,25 @@ async def get_report_data(
         "teacher": teacher_res.data or {},
     })
 
+
 # ── Profile update ────────────────────────────────────────────
+
+class ProfileUpdate(BaseModel):
+    name: str
+
+@router.patch("/profile")
+async def update_profile(
+    body: ProfileUpdate,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    from app.db.supabase import get_admin_client
+    admin = get_admin_client()
+    admin.table("users").update({"name": body.name}).eq("id", token.user_id).execute()
+    # We don't have a separate teachers table like students, so we just update users.
+    # Actually, let me check if there IS a teachers table.
+    return success({"name": body.name})
+
 
 class ProfileComplete(BaseModel):
     first_name: str

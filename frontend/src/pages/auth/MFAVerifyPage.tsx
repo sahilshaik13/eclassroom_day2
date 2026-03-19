@@ -69,7 +69,11 @@ export default function MFAVerifyPage() {
             const rt = refresh_token || localStorage.getItem('refresh_token') || ''
             setSession(user!, access_token, rt)
             toast.success('Welcome back!')
-            navigate('/admin')
+            // Dynamic redirect based on role
+            if (user?.role === 'admin') navigate('/admin')
+            else if (user?.role === 'teacher') navigate('/teacher/profile')
+            else if (user?.role === 'student') navigate('/student/profile')
+            else navigate('/')
         } catch (e) {
             if (e instanceof ApiClientError) toast.error(e.message)
             else toast.error('Invalid code. Try again.')
@@ -163,7 +167,7 @@ export default function MFAVerifyPage() {
                 </div>
 
                 <p className="mt-6 text-center text-sm font-medium text-slate-500">
-                    Admin account: {user?.email}
+                    Account: {user?.email || user?.phone}
                 </p>
             </div>
         </div>

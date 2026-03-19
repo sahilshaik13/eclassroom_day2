@@ -104,8 +104,8 @@ async def mfa_enroll(
     request: Request,
     token: TokenData = Depends(get_current_user),
 ):
-    if token.role != "admin":
-        return error("UNAUTHORIZED", "MFA enroll is for admins only", 403)
+    # MFA enrollment is allowed for all authenticated users to enhance security.
+    # Previously restricted to admin only.
     refresh_token = request.headers.get("x-refresh-token", "")
     try:
         result = await AuthService.mfa_enroll(request.state.jwt_token, refresh_token)
