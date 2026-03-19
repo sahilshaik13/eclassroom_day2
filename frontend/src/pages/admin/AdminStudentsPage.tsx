@@ -6,10 +6,12 @@ import type { Student } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { ParticipantsTable } from '@/components/admin/ParticipantsTable'
 import { Button } from '@/components/ui/button'
+import { InviteUserModal } from '@/components/admin/InviteUserModal'
 
 export function AdminStudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
+  const [addOpen, setAddOpen] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -29,7 +31,7 @@ export function AdminStudentsPage() {
       <Button variant="outline" size="sm" className="hidden md:flex gap-2">
         <FileText className="h-4 w-4" /> Export PDF
       </Button>
-      <Button className="gap-2">
+      <Button className="gap-2" onClick={() => setAddOpen(true)}>
         <Plus className="h-4 w-4" /> Add Student
       </Button>
     </>
@@ -53,6 +55,12 @@ export function AdminStudentsPage() {
           onRefresh={load} 
         />
       )}
+      <InviteUserModal 
+        type="student" 
+        open={addOpen} 
+        onOpenChange={setAddOpen} 
+        onSuccess={load} 
+      />
     </DashboardPageLayout>
   )
 }
