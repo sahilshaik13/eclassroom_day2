@@ -14,7 +14,8 @@ GET  /api/v1/teacher/reports/{student_id}
 from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+from app.core.config import settings
 
 from app.core.deps import require_teacher, TokenData
 from app.core.response import success, error
@@ -157,6 +158,85 @@ async def get_students(
         students.append({**s, "class_id": row["class_id"]})
 
     return success(students)
+
+
+class StudentCreate(BaseModel):
+    name: str
+    phone: str
+    class_id: Optional[str] = None
+
+@router.post("/students")
+async def create_student(
+    body: StudentCreate,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    from app.db.supabase import get_admin_client
+    import httpx
+    admin = get_admin_client()
+
+    # 1. If class_id is provided, verify it belongs to this teacher
+    if body.class_id:
+        class_check = admin.table("classes").select("id").eq("id", body.class_id).eq("teacher_id", token.user_id).maybe_single().execute()
+        if not class_check.data:
+            return error("UNAUTHORIZED", "You can only assign students to your own classes", 403)
+
+    # 2. Create auth user (phone-based)
+    auth_headers = {
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "phone": body.phone,
+        "phone_confirm": True,
+        "app_metadata": {"role": "student", "tenant_id": token.tenant_id},
+        "user_metadata": {"name": body.name},
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+            json=payload,
+            headers=auth_headers
+        )
+
+    if resp.status_code >= 400:
+        error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+        return error("CREATE_ERROR", error_msg, 400)
+
+    auth_res = resp.json()
+    user_id = auth_res.get("id")
+
+    # 3. Synchronize to public schema
+    admin.table("users").upsert({
+        "id": user_id,
+        "tenant_id": token.tenant_id,
+        "role": "student",
+        "phone": body.phone,
+        "name": body.name,
+        "is_active": True,
+    }).execute()
+
+    stu_res = admin.table("students").upsert({
+        "user_id": user_id,
+        "tenant_id": token.tenant_id,
+        "name": body.name,
+        "phone": body.phone,
+    }).execute()
+
+    student = stu_res.data[0] if stu_res.data else {}
+
+    # 4. Enroll in class
+    if body.class_id and student.get("id"):
+        admin.table("class_enrollments").upsert({
+            "student_id": student["id"],
+            "class_id": body.class_id,
+            "tenant_id": token.tenant_id,
+        }).execute()
+
+    return success(student, status_code=201)
 
 
 # ── Attendance ────────────────────────────────────────────────

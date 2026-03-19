@@ -154,9 +154,15 @@ export default function SetupPasswordPage() {
       localStorage.removeItem('temp_invite_email')
       localStorage.removeItem('access_token')
       navigate('/auth/login', { replace: true })
-    } catch (e) {
-      if (e instanceof ApiClientError) toast.error(e.message)
-      else toast.error('Failed to set password. Try again.')
+    } catch (err: any) {
+      console.error('SetPassword/Login Error:', err)
+      if (err instanceof ApiClientError) {
+        toast.error(`${err.code}: ${err.message}`)
+      } else if (err.response?.data?.error?.message) {
+        toast.error(err.response.data.error.message)
+      } else {
+        toast.error('Failed to set password. Try again.')
+      }
     } finally {
       setLoading(false)
       setLoggingIn(false)

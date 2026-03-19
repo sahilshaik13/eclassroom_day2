@@ -8,7 +8,7 @@ import { ParticipantsTable } from '@/components/admin/ParticipantsTable'
 import { Button } from '@/components/ui/button'
 import { InviteUserModal } from '@/components/admin/InviteUserModal'
 
-export function AdminStudentsPage() {
+export default function AdminStudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [addOpen, setAddOpen] = useState(false)
@@ -65,4 +65,4 @@ export function AdminStudentsPage() {
   )
 }
 
-export default AdminStudentsPage
+

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Search, User, BookOpen, Clock, ChevronRight } from 'lucide-react'
+import { Search, User, BookOpen, Clock, ChevronRight, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { InviteUserModal } from '@/components/admin/InviteUserModal'
 
 interface Student { id: string; name: string; class_id: string }
 
@@ -15,13 +16,17 @@ export default function TeacherStudentsPage() {
   const [students, setStudents] = useState<Student[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [addOpen, setAddOpen] = useState(false)
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
     api.get('/teacher/students')
       .then(r => setStudents(r.data.data))
       .catch(() => toast.error('Could not load students'))
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(load, [])
 
   const filtered = students.filter(s => s.name.toLowerCase().includes(search.toLowerCase()))
 
@@ -30,14 +35,19 @@ export default function TeacherStudentsPage() {
       title="Roster"
       description="Manage and track progress of students in your assigned classes."
       actions={
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-          <Input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search students..."
-            className="pl-9 h-10 border-slate-200 bg-white/50 backdrop-blur-sm focus:ring-primary/20"
-          />
+        <div className="flex items-center gap-4">
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search students..."
+              className="pl-9 h-10 border-slate-200 bg-white/50 backdrop-blur-sm focus:ring-primary/20"
+            />
+          </div>
+          <Button className="gap-2" onClick={() => setAddOpen(true)}>
+            <Plus className="h-4 w-4" /> Add Student
+          </Button>
         </div>
       }
     >
@@ -115,6 +125,12 @@ export default function TeacherStudentsPage() {
           </div>
         )}
       </div>
+      <InviteUserModal 
+        type="student" 
+        open={addOpen} 
+        onOpenChange={setAddOpen} 
+        onSuccess={load} 
+      />
     </DashboardPageLayout>
   )
 }
