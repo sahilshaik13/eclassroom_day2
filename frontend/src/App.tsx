@@ -55,7 +55,7 @@ function AuthEventListener() {
       localStorage.removeItem('eclassroom-auth')
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
-      
+
       const role = user?.role
       if (role === 'student') {
         navigate('/auth/student-login', { replace: true })
@@ -123,7 +123,7 @@ export default function App() {
 
       <Routes>
         {/* ── Root Route ─────────────────────────── */}
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<Navigate to="/auth/login" replace />} />
 
         {/* ── Auth routes ───────────────────────────── */}
         <Route
