@@ -232,11 +232,14 @@ class AuthService:
             for f in (user.factors or [])
         )
 
+        user_data = user_row.data
+        user_data["mfa_enabled"] = mfa_enrolled
+
         return {
             "access_token": session.access_token,
             "refresh_token": session.refresh_token,
             "token_type": "bearer",
-            "user": user_row.data,
+            "user": user_data,
             "mfa_required": role == "admin",
             "mfa_enrolled": mfa_enrolled,
         }
@@ -277,7 +280,7 @@ class AuthService:
 
         return {"message": "Password updated successfully"}
 
-    # ── TOTP MFA enroll (Admin) ───────────────────────────────
+    # ── TOTP MFA enroll (Admin/Teacher) ───────────────────────
 
     @staticmethod
     async def mfa_enroll(user_jwt: str, refresh_token: str = "") -> dict:
@@ -333,7 +336,7 @@ class AuthService:
             "uri": totp.get("uri", ""),
         }
 
-    # ── TOTP MFA verify (Admin) ───────────────────────────────
+    # ── TOTP MFA verify (Admin/Teacher) ───────────────────────
 
     @staticmethod
     async def mfa_verify(user_jwt: str, refresh_token: str, factor_id: str, code: str) -> dict:
@@ -434,7 +437,20 @@ class AuthService:
         if not res.data:
             raise AuthError("NOT_FOUND", "User profile not found", 404)
             
-        return res.data
+        user_data = res.data
+        
+        # Check MFA status
+        try:
+            auth_user = admin.auth.admin.get_user_by_id(user_id)
+            mfa_enabled = any(
+                getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
+                for f in (auth_user.factors or [])
+            )
+            user_data["mfa_enabled"] = mfa_enabled
+        except Exception:
+            user_data["mfa_enabled"] = False
+            
+        return user_data
 
     # ── Refresh Session ───────────────────────────────────────
 
@@ -454,15 +470,22 @@ class AuthService:
 
         user_row = (
             admin.table("users")
-            .select("id, name, role, tenant_id")
+            .select("id, name, role, tenant_id, is_registered")
             .eq("id", user.id)
             .single()
             .execute()
         )
+        
+        user_data = user_row.data
+        mfa_enabled = any(
+            getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
+            for f in (user.factors or [])
+        )
+        user_data["mfa_enabled"] = mfa_enabled
 
         return {
             "access_token": session.access_token,
             "refresh_token": session.refresh_token,
             "token_type": "bearer",
-            "user": user_row.data,
+            "user": user_data,
         }

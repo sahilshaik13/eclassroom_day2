@@ -10,6 +10,7 @@ export interface AuthUser {
   email?: string
   phone?: string
   is_registered?: boolean
+  mfa_enabled?: boolean
 }
 
 export interface AuthTokens {
