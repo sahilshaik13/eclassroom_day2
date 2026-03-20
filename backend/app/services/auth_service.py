@@ -33,6 +33,7 @@ class AuthService:
     async def send_otp(phone: str, tenant_id: str) -> dict:
         admin = get_admin_client()
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
+        tenant_id = str(tenant_id)
 
         try:
             result = (
@@ -92,6 +93,7 @@ class AuthService:
     async def verify_otp(phone: str, token: str, tenant_id: str) -> dict:
         admin = get_admin_client()
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
+        tenant_id = str(tenant_id)
 
         # 1. Validate OTP code
         try:
