@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 
 export default function ReportsPage() {
-  const [students, setStudents] = useState<{id:string;name:string}[]>([])
+  const [students, setStudents] = useState<{ id: string; name: string }[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -39,14 +39,14 @@ export default function ReportsPage() {
         `Authorized Signatory: ${d.teacher?.name}`,
         `Generated on: ${new Date().toLocaleString()}`
       ].filter(Boolean).join('\n')
-      
+
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(new Blob([txt],{type:'text/plain'}))
-      a.download = `report_${name.replace(/\s+/g,'_')}_${d.month}.txt`
+      a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }))
+      a.download = `report_${name.replace(/\s+/g, '_')}_${d.month}.txt`
       a.click()
       toast.success('Download complete')
-    } catch { 
-      toast.error('Failed to generate report card') 
+    } catch {
+      toast.error('Failed to generate report card')
     }
   }
 
@@ -107,7 +107,7 @@ export default function ReportsPage() {
                         {s.name.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    
+
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{s.name}</p>
                       <div className="flex items-center gap-2 mt-0.5">

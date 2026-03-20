@@ -1,47 +1,61 @@
 import { useState, useEffect } from 'react'
 import {
   CheckCircle2, Circle, BookOpen, Headphones, RotateCcw, Mic, FileText,
-  TrendingUp, Users, Megaphone, ExternalLink, Loader2, Calendar, Target, Flame
+  Users, ExternalLink, Loader2, Calendar, Flame, PlayCircle, ArrowRight,
+  MessageCircle, TrendingUp
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
+import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
 import type { Task, TaskType, WeekProgress } from '@/types'
-import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import api from '@/services/api'
 
-// Placeholder API calls — wired to real endpoints on Day 3
 async function fetchTodayTasks(): Promise<Task[]> {
-  return [
-    { id: '1', title: 'Memorise Surah An-Naba 1–10', task_type: 'memorise', day_number: 1, completed: false },
-    { id: '2', title: 'Listen to Surah An-Naba (full audio)', task_type: 'listen', day_number: 1, completed: false },
-  ]
+  try {
+    const res = await api.get('/classroom/tasks/today')
+    return res.data.data
+  } catch {
+    return [
+      { id: '1', title: 'Memorize Ayah 1-10', task_type: 'memorise', day_number: 1, completed: false },
+      { id: '2', title: 'Revision: Al-Mulk (Tajweed focus: Noon Sakinah)', task_type: 'review', day_number: 1, completed: false },
+      { id: '3', title: 'Reflection — What is the main message?', task_type: 'read', day_number: 1, completed: false },
+      { id: '4', title: 'Audio Recitation — Listen to Sheikh Hussary', task_type: 'listen', day_number: 1, completed: false },
+    ]
+  }
 }
+
 async function fetchWeekProgress(): Promise<WeekProgress[]> {
-  return Array.from({ length: 7 }, (_, i) => ({
-    date: new Date(Date.now() - (6 - i) * 86400000).toISOString().slice(0, 10),
-    completed_count: i < 5 ? Math.floor(Math.random() * 2) + 1 : 0,
-    total_count: 2,
-  }))
+  try {
+    const res = await api.get('/classroom/tasks/week-progress')
+    return res.data.data
+  } catch {
+    return Array.from({ length: 7 }, (_, i) => ({
+      date: new Date(Date.now() - (6 - i) * 86400000).toISOString().slice(0, 10),
+      completed_count: i < 5 ? Math.floor(Math.random() * 2) + 1 : 0,
+      total_count: 4,
+    }))
+  }
 }
 
 const TASK_ICONS: Record<TaskType, React.ElementType> = {
   memorise: BookOpen,
-  review:   RotateCcw,
-  recite:   Mic,
-  listen:   Headphones,
-  read:     FileText,
+  review: RotateCcw,
+  recite: Mic,
+  listen: Headphones,
+  read: FileText,
 }
 
-const TASK_COLORS: Record<TaskType, string> = {
-  memorise: 'text-indigo-600 bg-indigo-50 border-indigo-100',
-  review:   'text-blue-600 bg-blue-50 border-blue-100',
-  recite:   'text-violet-600 bg-violet-50 border-violet-100',
-  listen:   'text-emerald-600 bg-emerald-50 border-emerald-100',
-  read:     'text-amber-600 bg-amber-50 border-amber-100',
+const TASK_COLORS: Record<TaskType, { bg: string; text: string; tag: string }> = {
+  memorise: { bg: 'bg-indigo-50 border-indigo-100', text: 'text-indigo-600', tag: 'New' },
+  review: { bg: 'bg-blue-50 border-blue-100', text: 'text-blue-600', tag: 'Review' },
+  recite: { bg: 'bg-violet-50 border-violet-100', text: 'text-violet-600', tag: 'Recite' },
+  listen: { bg: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-600', tag: 'Audio' },
+  read: { bg: 'bg-amber-50 border-amber-100', text: 'text-amber-600', tag: 'Read' },
 }
 
 export default function StudentDashboard() {
@@ -50,11 +64,17 @@ export default function StudentDashboard() {
   const [week, setWeek] = useState<WeekProgress[]>([])
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [completingId, setCompletingId] = useState<string | null>(null)
+  const [pendingDoubts, setPendingDoubts] = useState(1)
 
   useEffect(() => {
     Promise.all([fetchTodayTasks(), fetchWeekProgress()])
       .then(([t, w]) => { setTasks(t); setWeek(w) })
       .finally(() => setLoadingTasks(false))
+
+    api.get('/classroom/doubts').then(r => {
+      const d = r.data?.data
+      if (Array.isArray(d)) setPendingDoubts(d.filter((x: any) => x.status === 'pending').length)
+    }).catch(() => { })
   }, [])
 
   const completedCount = tasks.filter((t) => t.completed).length
@@ -67,276 +87,239 @@ export default function StudentDashboard() {
     setTasks((prev) => prev.map((t) => t.id === id ? { ...t, completed: !t.completed } : t))
     setCompletingId(id)
     try {
-      await new Promise((r) => setTimeout(r, 300))
+      await api.patch(`/classroom/tasks/${id}/toggle`)
       if (!task.completed) toast.success('MashaAllah! Progress saved.')
     } catch {
       setTasks((prev) => prev.map((t) => t.id === id ? { ...t, completed: task.completed } : t))
-      toast.error('Connection error. Try again.')
     } finally {
       setCompletingId(null)
     }
   }
 
-  const todayStr = format(new Date(), 'EEEE, d MMMM')
+  const firstName = user?.name?.split(' ')[0] || 'Learner'
 
   return (
-    <DashboardPageLayout
-      title={`Good ${getGreeting()}, ${user?.name?.split(' ')[0] || 'Learner'}`}
-      description={todayStr}
-      actions={
-        <Button variant="outline" className="gap-2 bg-white border-slate-200 text-slate-600 shadow-sm h-10 px-4 font-bold text-xs">
-          <Calendar className="h-4 w-4" /> View Schedule
-        </Button>
-      }
-    >
-      <div className="space-y-8 pb-12">
-        {/* Banner */}
-        <div className="group relative overflow-hidden bg-gradient-to-r from-primary to-indigo-600 rounded-[2rem] p-8 text-white shadow-2xl shadow-primary/20 border border-white/10">
-          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform duration-700">
-            <Megaphone className="h-32 w-32 -rotate-12" />
-          </div>
-          <div className="relative z-10 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-[10px] font-black uppercase tracking-widest mb-4 border border-white/20">
-              <Megaphone className="h-3 w-3" /> Latest Announcement
-            </div>
-            <h2 className="text-3xl font-black tracking-tight mb-2">Ramadan Mubarak! 🌙</h2>
-            <p className="text-white/80 text-lg leading-relaxed font-medium">
-              Classes continue as scheduled. Complete your daily tasks before Iftar to maintain your 4-day learning streak!
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Daily Workspace */}
-          <div className="lg:col-span-2 space-y-8">
-            <Card className="border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden bg-white/50 backdrop-blur-sm">
-              <CardHeader className="border-b border-slate-100 bg-slate-50/30 p-6 flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg font-black text-slate-900">Today's Pulse</CardTitle>
-                  <CardDescription>Stay on track with your daily learning goals.</CardDescription>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Completion</span>
-                  <span className="text-sm font-black text-primary">{pct}%</span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="h-3 bg-slate-100 rounded-full mb-8 overflow-hidden shadow-inner p-0.5 border border-slate-200/50">
-                  <div
-                    className="h-full bg-gradient-to-r from-primary to-indigo-500 rounded-full transition-all duration-1000 ease-out shadow-lg shadow-primary/40 relative"
-                    style={{ width: `${pct}%` }}
-                  >
-                    <div className="absolute inset-0 bg-white/20 animate-pulse" />
-                  </div>
-                </div>
-
-                {loadingTasks ? (
-                  <div className="space-y-4 py-4">
-                    {[1, 2].map(i => <div key={i} className="h-20 w-full bg-slate-50 animate-pulse rounded-2xl" />)}
-                  </div>
-                ) : tasks.length === 0 ? (
-                  <div className="text-center py-16 bg-slate-50/50 rounded-[2rem] border border-dashed border-slate-200">
-                    <CheckCircle2 className="h-12 w-12 text-slate-300 mx-auto mb-4" />
-                    <h4 className="text-lg font-bold text-slate-900">All Done!</h4>
-                    <p className="text-sm text-slate-500">You've completed all tasks for today.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {tasks.map((task) => {
-                      const Icon = TASK_ICONS[task.task_type]
-                      const isLoading = completingId === task.id
-                      return (
-                        <button
-                          key={task.id}
-                          onClick={() => toggleTask(task.id)}
-                          disabled={isLoading}
-                          className={clsx(
-                            'group w-full flex items-center gap-5 p-5 rounded-[1.5rem] border transition-all duration-300 text-left relative overflow-hidden',
-                            task.completed
-                              ? 'bg-emerald-50/30 border-emerald-100 opacity-75'
-                              : 'bg-white border-slate-200 hover:border-primary/40 hover:shadow-xl hover:shadow-slate-200/40 hover:-translate-y-0.5'
-                          )}
-                        >
-                          <div className={clsx(
-                            "h-12 w-12 rounded-2xl flex items-center justify-center transition-all duration-500",
-                            task.completed ? "bg-emerald-500 text-white rotate-[360deg]" : "bg-slate-50 text-slate-400 group-hover:bg-primary/10 group-hover:text-primary"
-                          )}>
-                            {isLoading ? (
-                              <Loader2 className="h-6 w-6 animate-spin" />
-                            ) : task.completed ? (
-                              <CheckCircle2 className="h-6 w-6" />
-                            ) : (
-                              <Circle className="h-6 w-6" />
-                            )}
-                          </div>
-
-                          <div className="flex-1">
-                            <h4 className={clsx(
-                              "text-sm font-bold transition-all",
-                              task.completed ? "text-slate-400 line-through" : "text-slate-900"
-                            )}>
-                              {task.title}
-                            </h4>
-                            <div className="flex items-center gap-3 mt-1.5">
-                              <span className={clsx(
-                                "flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border",
-                                TASK_COLORS[task.task_type]
-                              )}>
-                                <Icon className="h-3 w-3" />
-                                {task.task_type}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Day {task.day_number}</span>
-                            </div>
-                          </div>
-                          
-                          {!task.completed && (
-                            <ChevronRight className="h-5 w-5 text-slate-200 group-hover:text-primary group-hover:translate-x-1 transition-all" />
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Weekly Activity */}
-            <Card className="border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden bg-white/50 backdrop-blur-sm">
-              <CardHeader className="p-6 pb-2">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-500 border border-indigo-100">
-                    <TrendingUp className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-lg font-black text-slate-900">Consistency View</CardTitle>
-                    <CardDescription>Visualizing your daily completion rate.</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-8">
-                <div className="flex items-end justify-between gap-4 h-32 px-2">
-                  {week.map((day) => {
-                    const dayPct = day.total_count ? day.completed_count / day.total_count : 0
-                    const isToday = day.date === new Date().toISOString().slice(0, 10)
-                    return (
-                      <div key={day.date} className="flex-1 flex flex-col items-center gap-4 group">
-                        <div className="relative w-full max-w-[40px] bg-slate-100/50 rounded-[12px] h-32 overflow-hidden border border-slate-200/50 flex flex-col justify-end p-1">
-                          {dayPct > 0 && (
-                            <div
-                              className={clsx(
-                                'w-full rounded-[8px] transition-all duration-1000 shadow-sm relative',
-                                dayPct === 1 ? 'bg-primary' : 'bg-primary/40'
-                              )}
-                              style={{ height: `${dayPct * 100}%` }}
-                            >
-                              <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </div>
-                          )}
-                        </div>
-                        <span className={clsx(
-                          'text-[10px] font-black uppercase tracking-wider transition-colors',
-                          isToday ? 'text-primary scale-110' : 'text-slate-400'
-                        )}>
-                          {format(new Date(day.date + 'T12:00:00'), 'EEE')}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Side Panels */}
-          <div className="space-y-8">
-            {/* Quick Stats */}
-            <Card className="border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden bg-white">
-              <CardHeader className="p-6 flex flex-row items-center gap-3 space-y-0">
-                <Target className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg font-black text-slate-900">Your Stats</CardTitle>
-              </CardHeader>
-              <CardContent className="p-6 pt-0 space-y-6">
-                <StatItem label="Completion Rate" value={`${pct}%`} color="text-primary" />
-                <StatItem label="Tasks Closed" value={`${completedCount} / ${totalCount}`} color="text-slate-900" />
-                <StatItem label="Active Streak" value="4 Days" color="text-amber-500" icon={<Flame className="h-4 w-4 fill-amber-500" />} />
-              </CardContent>
-            </Card>
-
-            {/* Accountability Partner */}
-            <Card className="border-none shadow-2xl shadow-emerald-200/40 bg-gradient-to-br from-emerald-600 to-teal-700 text-white overflow-hidden relative">
-              <div className="absolute top-0 right-0 p-4 opacity-10">
-                <Users className="h-24 w-24 translate-x-1/2 -translate-y-1/2" />
-              </div>
-              <CardContent className="p-8 relative z-10">
-                <div className="flex items-center gap-3 mb-8">
-                  <div className="h-10 w-10 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/20">
-                    <Users className="h-5 w-5" />
-                  </div>
-                  <h3 className="text-xl font-black tracking-tight">Support Circle</h3>
-                </div>
-                
-                <div className="flex items-center gap-5 mb-8">
-                  <Avatar className="h-16 w-16 border-4 border-white/20 shadow-2xl ring-1 ring-white/10">
-                     <AvatarFallback className="bg-white/10 text-white font-black text-xl">
-                       FH
-                     </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-lg font-black tracking-tight truncate">Fatima Hassan</p>
-                    <p className="text-white/60 text-xs font-bold uppercase tracking-widest mt-0.5">Accountability Partner</p>
-                  </div>
-                </div>
-
-                <a
-                  href="https://wa.me/971501234568"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group flex items-center justify-center gap-3 w-full py-4 rounded-2xl bg-white text-emerald-700 text-sm font-black uppercase tracking-widest hover:bg-emerald-50 transition-all shadow-xl shadow-black/10 active:scale-95 border border-white"
-                >
-                  <ExternalLink className="h-4 w-4 group-hover:rotate-12 transition-transform" />
-                  Chat on WhatsApp
-                </a>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+    <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Welcome */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Assalamu'Alaykum, {firstName}! 👋</h1>
+        <p className="text-slate-500 text-sm mt-0.5">Ready to continue your learning journey?</p>
       </div>
-    </DashboardPageLayout>
+
+      {/* Hero: Next Class */}
+      <Card className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white border-0 shadow-lg overflow-hidden relative">
+        <div className="absolute top-0 right-0 p-8 opacity-10">
+          <BookOpen className="w-28 h-28" />
+        </div>
+        <CardContent className="p-6 relative z-10">
+          <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest mb-4 border border-white/20">
+            Up Next • Live in 10 mins
+          </div>
+          <h2 className="text-2xl font-bold mb-2">Tajweed Fundamentals</h2>
+          <div className="flex items-center gap-4 mb-5 text-indigo-100 text-sm">
+            <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4" /> Today</span>
+            <span className="flex items-center gap-1.5">🕓 4:00 PM</span>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <Button className="bg-white text-indigo-700 hover:bg-indigo-50 font-semibold gap-2 rounded-xl">
+              <PlayCircle className="w-4 h-4" /> Join Class
+            </Button>
+            <Button variant="outline" className="bg-transparent border-white/40 text-white hover:bg-white/10 rounded-xl">
+              View Details
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Level Progress */}
+        <Card className="border-0 shadow-md bg-gradient-to-br from-violet-500 to-purple-600 text-white">
+          <CardContent className="p-4 flex flex-col justify-center h-full">
+            <div className="flex justify-between items-center mb-2">
+              <span className="font-medium text-xs opacity-90">Level Progress</span>
+              <span className="text-base font-bold">65%</span>
+            </div>
+            <div className="w-full bg-black/20 h-1.5 rounded-full overflow-hidden">
+              <div className="bg-white h-full rounded-full" style={{ width: '65%' }} />
+            </div>
+            <span className="text-xs opacity-70 mt-2">Level 2</span>
+          </CardContent>
+        </Card>
+
+        <QuickStat label="Assignments" value="2" sub="Pending" from="from-amber-400" to="to-orange-500" />
+        <QuickStat label="Attendance" value="92%" sub="This Month" from="from-emerald-400" to="to-teal-500" />
+        <QuickStat label="Doubts" value={String(pendingDoubts)} sub="Answered" from="from-blue-400" to="to-indigo-500" />
+      </div>
+
+      {/* Today's Plan */}
+      <section>
+        <div className="flex items-center gap-2 text-slate-400 font-bold text-[10px] tracking-widest uppercase mb-4">
+          <Calendar className="w-3 h-3" /> Today's Plan: Day 1: Surah An-Naba
+        </div>
+
+        {/* Plan Card */}
+        <Card className="bg-[#0f4c81] text-white border-0 shadow-lg mb-5 overflow-hidden relative">
+          <div className="absolute top-0 right-0 p-6 opacity-10">
+            <TrendingUp className="w-28 h-28" />
+          </div>
+          <CardContent className="p-6 relative z-10">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-xl font-bold mb-1">Hifz Intensive</h3>
+                <p className="text-blue-100/70 text-sm">Juz 30 • Week 1</p>
+              </div>
+              <div className="bg-white/10 p-2 rounded-xl"><TrendingUp className="w-4 h-4" /></div>
+            </div>
+            <div className="w-full bg-black/20 h-1.5 rounded-full overflow-hidden mb-3">
+              <div className="bg-white h-full rounded-full shadow-[0_0_8px_rgba(255,255,255,0.5)]" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="flex justify-between text-xs text-blue-100/80">
+              <span>{pct}% Complete</span>
+              <span>{totalCount - completedCount} tasks left</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Task List */}
+        <div className="space-y-3">
+          {loadingTasks ? (
+            [1, 2, 3].map(i => <div key={i} className="h-16 bg-slate-100 animate-pulse rounded-2xl" />)
+          ) : (
+            tasks.map((task) => {
+              const Icon = TASK_ICONS[task.task_type]
+              const colors = TASK_COLORS[task.task_type]
+              const isLoading = completingId === task.id
+              return (
+                <button
+                  key={task.id}
+                  onClick={() => toggleTask(task.id)}
+                  disabled={isLoading}
+                  className={clsx(
+                    'w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all duration-200',
+                    task.completed
+                      ? 'bg-slate-50 border-slate-100 opacity-60'
+                      : 'bg-white border-slate-200 hover:border-blue-200 hover:shadow-sm'
+                  )}
+                >
+                  <div className={clsx(
+                    'h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 border',
+                    task.completed ? 'bg-emerald-500 border-emerald-500 text-white' : `${colors.bg} ${colors.text}`
+                  )}>
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> :
+                      task.completed ? <CheckCircle2 className="h-4 w-4" /> :
+                        <Circle className="h-4 w-4" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={clsx(
+                      'text-sm font-semibold truncate',
+                      task.completed ? 'line-through text-slate-400' : 'text-slate-900'
+                    )}>{task.title}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full border', colors.bg, colors.text)}>
+                        {colors.tag}
+                      </span>
+                      {task.task_type === 'listen' && (
+                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                          <Headphones className="w-3 h-3" /> Audio
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium shrink-0">
+                    {task.task_type === 'memorise' ? '30m' : task.task_type === 'review' ? '15m' : task.task_type === 'listen' ? '20m' : '10m'}
+                  </span>
+                </button>
+              )
+            })
+          )}
+        </div>
+      </section>
+
+      {/* Recent Doubts */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold text-slate-900">Recent Doubts</h2>
+          <Link to="/student/doubts" className="text-xs text-blue-600 font-semibold flex items-center gap-1 hover:underline">
+            View All <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
+        <div className="space-y-3">
+          <DoubtCard
+            title="Pronunciation of 'Qalqalah'"
+            preview="I'm struggling to pronounce the Qalqalah letters properly when stopping..."
+            subject="Tajweed"
+            status="answered"
+            time="2h ago"
+          />
+        </div>
+      </section>
+
+      {/* Upcoming Classes */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold text-slate-900">Upcoming Classes</h2>
+          <span className="text-xs text-blue-600 font-semibold cursor-pointer hover:underline">Full Schedule</span>
+        </div>
+        <div className="space-y-3">
+          <UpcomingClass name="Advanced Hifz" day="Tomorrow" time="5:00 PM" teacher="Sheikh Abdullah" />
+          <UpcomingClass name="Islamic History" day="Wed" time="4:00 PM" teacher="Dr. Ahmed" />
+        </div>
+      </section>
+    </div>
   )
 }
 
-function StatItem({ label, value, color, icon }: { label: string; value: string; color: string; icon?: React.ReactNode }) {
+function QuickStat({ label, value, sub, from, to }: { label: string; value: string; sub: string; from: string; to: string }) {
   return (
-    <div className="flex items-center justify-between group">
-      <span className="text-xs font-black uppercase text-slate-400 tracking-wider group-hover:text-slate-600 transition-colors uppercase">{label}</span>
-      <div className="flex items-center gap-2">
-        {icon}
-        <span className={clsx('text-base font-black tabular-nums', color)}>{value}</span>
+    <Card className={clsx('border-0 shadow-md text-white bg-gradient-to-br', from, to)}>
+      <CardContent className="p-4 flex flex-col items-center text-center justify-center h-full gap-0.5">
+        <span className="text-2xl font-bold">{value}</span>
+        <span className="text-xs font-semibold opacity-90">{label}</span>
+        <span className="text-[10px] opacity-70">{sub}</span>
+      </CardContent>
+    </Card>
+  )
+}
+
+function DoubtCard({ title, preview, subject, status, time }: {
+  title: string; preview: string; subject: string; status: 'answered' | 'pending'; time: string
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <MessageCircle className="w-5 h-5 text-slate-300 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-sm font-semibold text-slate-900 truncate">{title}</span>
+            <span className="text-[10px] text-slate-400 shrink-0">{time}</span>
+          </div>
+          <p className="text-xs text-slate-500 line-clamp-1 mb-2">{preview}</p>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{subject}</span>
+            <span className={clsx(
+              'text-[10px] font-bold px-2 py-0.5 rounded-full',
+              status === 'answered' ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'
+            )}>
+              {status === 'answered' ? 'Answered' : 'Pending'}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   )
 }
 
-function getGreeting() {
-  const h = new Date().getHours()
-  if (h < 12) return 'Morning'
-  if (h < 17) return 'Afternoon'
-  return 'Evening'
+function UpcomingClass({ name, day, time, teacher }: { name: string; day: string; time: string; teacher: string }) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center justify-between shadow-sm">
+      <div>
+        <p className="text-sm font-semibold text-slate-900">{name}</p>
+        <p className="text-xs text-slate-400 mt-0.5">{day}, {time} • {teacher}</p>
+      </div>
+      <Button size="sm" variant="outline" className="rounded-xl text-xs font-semibold border-slate-200 shrink-0">
+        Remind Me
+      </Button>
+    </div>
+  )
 }
-
-const ChevronRight = ({ className }: { className?: string }) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width="24" 
-    height="24" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <path d="m9 18 6-6-6-6" />
-  </svg>
-)

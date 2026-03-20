@@ -4,6 +4,9 @@ Teacher routes — all require role=teacher (or admin) JWT.
 GET  /api/v1/teacher/pulse/today
 GET  /api/v1/teacher/classes
 GET  /api/v1/teacher/students
+POST /api/v1/teacher/students/search      ← NEW: search students by name/phone
+POST /api/v1/teacher/students/enroll      ← NEW: enroll a student into teacher's class
+GET  /api/v1/teacher/applicants           ← NEW: pending teacher applicants (from users table)
 POST /api/v1/teacher/attendance
 GET  /api/v1/teacher/attendance/{class_id}
 GET  /api/v1/teacher/doubts
@@ -14,12 +17,11 @@ GET  /api/v1/teacher/reports/{student_id}
 from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, EmailStr
-from app.core.config import settings
+from pydantic import BaseModel
 
 from app.core.deps import require_teacher, TokenData
 from app.core.response import success, error
-from app.db.supabase import get_user_client
+from app.db.supabase import get_user_client, get_admin_client
 
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
@@ -32,7 +34,6 @@ async def daily_pulse(request: Request, token: TokenData = Depends(require_teach
     client = get_user_client(request.state.jwt_token)
     today = date.today().isoformat()
 
-    # Get classes for this teacher
     classes_res = (
         client.table("classes").select("id")
         .eq("teacher_id", token.user_id).execute()
@@ -41,7 +42,6 @@ async def daily_pulse(request: Request, token: TokenData = Depends(require_teach
     if not class_ids:
         return success([])
 
-    # Get enrolled students
     enrollments_res = (
         client.table("class_enrollments")
         .select("student_id, students(id, name, user_id)")
@@ -49,7 +49,6 @@ async def daily_pulse(request: Request, token: TokenData = Depends(require_teach
         .execute()
     )
 
-    # Get today's completions for those students
     student_ids = list({r["student_id"] for r in (enrollments_res.data or [])})
     if not student_ids:
         return success([])
@@ -62,7 +61,6 @@ async def daily_pulse(request: Request, token: TokenData = Depends(require_teach
         .execute()
     )
 
-    # Count pending doubts per student
     doubts_res = (
         client.table("doubts")
         .select("student_id")
@@ -71,7 +69,6 @@ async def daily_pulse(request: Request, token: TokenData = Depends(require_teach
         .execute()
     )
 
-    # Build aggregated pulse
     completion_by_student: dict[str, dict] = {}
     for row in (completions_res.data or []):
         sid = row["student_id"]
@@ -106,6 +103,71 @@ async def daily_pulse(request: Request, token: TokenData = Depends(require_teach
     return success(sorted(pulse, key=lambda x: x["completion_pct"]))
 
 
+# ── Stats summary for teacher dashboard ──────────────────────
+
+@router.get("/stats")
+async def teacher_stats(request: Request, token: TokenData = Depends(require_teacher)):
+    """Returns real counts for teacher dashboard cards."""
+    client = get_user_client(request.state.jwt_token)
+
+    classes_res = (
+        client.table("classes").select("id")
+        .eq("teacher_id", token.user_id).execute()
+    )
+    class_ids = [c["id"] for c in (classes_res.data or [])]
+
+    total_students = 0
+    if class_ids:
+        enr_res = (
+            client.table("class_enrollments")
+            .select("student_id")
+            .in_("class_id", class_ids)
+            .execute()
+        )
+        # Unique student count
+        total_students = len({r["student_id"] for r in (enr_res.data or [])})
+
+    # Today's classes
+    today = date.today().isoweekday()  # 1=Mon, 7=Sun
+    total_classes = len(class_ids)
+
+    # Pending doubts
+    pending_doubts = 0
+    if class_ids:
+        d_res = (
+            client.table("doubts")
+            .select("id", count="exact")
+            .in_("class_id", class_ids)
+            .eq("status", "pending")
+            .execute()
+        )
+        pending_doubts = d_res.count or 0
+
+    # Attendance % last 30 days
+    since = (date.today() - timedelta(days=30)).isoformat()
+    avg_attendance = 0
+    if class_ids:
+        att_res = (
+            client.table("attendance")
+            .select("status")
+            .in_("class_id", class_ids)
+            .gte("session_date", since)
+            .execute()
+        )
+        att_rows = att_res.data or []
+        avg_attendance = (
+            round(len([r for r in att_rows if r["status"] == "present"]) / len(att_rows) * 100)
+            if att_rows else 0
+        )
+
+    return success({
+        "total_students": total_students,
+        "total_classes": total_classes,
+        "pending_doubts": pending_doubts,
+        "avg_attendance": avg_attendance,
+    })
+
+
 # ── Classes ───────────────────────────────────────────────────
 
 @router.get("/classes")
@@ -122,6 +184,65 @@ async def get_my_classes(request: Request, token: TokenData = Depends(require_te
 
 # ── Students ──────────────────────────────────────────────────
 
+# ── Student search (all tenant students, not just enrolled) ──
+# Add this route to teacher.py BEFORE the existing /students route
+
+class SearchQuery(BaseModel):
+    query: str
+
+
+@router.post("/students/search")
+async def search_all_students(
+    body: SearchQuery,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    """
+    Search ALL students in the teacher's tenant (not just enrolled).
+    Used by the 'Add Student to Class' dialog.
+    Returns name, phone, id, and list of enrolled classes.
+    """
+    q = body.query
+    if not q or len(q.strip()) < 2:
+        return success([])
+
+    # Use admin client to search across all tenant students
+    admin = get_admin_client()
+    search_term = q.strip()
+
+    # Search by name OR phone (ilike for case-insensitive)
+    # We join with classes via class_enrollments
+    res = (
+        admin.table("students")
+        .select("id, name, phone, deactivated_at, class_enrollments(classes(id, name))")
+        .eq("tenant_id", token.tenant_id)
+        .is_("deactivated_at", None)
+        .or_(f"name.ilike.%{search_term}%,phone.ilike.%{search_term}%")
+        .limit(20)
+        .execute()
+    )
+
+    results = []
+    for row in (res.data or []):
+        enrolled = []
+        for enr in (row.get("class_enrollments") or []):
+            cls = enr.get("classes")
+            if cls:
+                enrolled.append({
+                    "class_id": cls["id"],
+                    "class_name": cls["name"]
+                })
+
+        results.append({
+            "id": row["id"],
+            "name": row["name"],
+            "phone": row.get("phone", ""),
+            "enrolled_classes": enrolled,
+        })
+
+    return success(results)
+
+
 @router.get("/students")
 async def get_students(
     request: Request,
@@ -131,7 +252,6 @@ async def get_students(
 ):
     client = get_user_client(request.state.jwt_token)
 
-    # Get teacher's class IDs
     classes_res = (
         client.table("classes").select("id")
         .eq("teacher_id", token.user_id).execute()
@@ -141,102 +261,239 @@ async def get_students(
 
     enr_res = (
         client.table("class_enrollments")
-        .select("students(id, name, phone, deactivated_at), class_id")
+        .select("students(id, name, phone, deactivated_at), class_id, classes(name)")
         .in_("class_id", filter_ids)
         .execute()
     )
 
-    seen: set = set()
-    students = []
+    # Group by student to support multiple classes
+    students_map: dict[str, dict] = {}
     for row in (enr_res.data or []):
         s = row.get("students") or {}
-        if not s or s["id"] in seen:
+        if not s:
             continue
+        
+        sid = s["id"]
         if search and search.lower() not in s.get("name", "").lower():
             continue
-        seen.add(s["id"])
-        students.append({**s, "class_id": row["class_id"]})
+            
+        cls = row.get("classes") or {}
+        if sid not in students_map:
+            students_map[sid] = {
+                **s,
+                "classes": []
+            }
+        
+        students_map[sid]["classes"].append({
+            "id": row["class_id"],
+            "name": cls.get("name", "")
+        })
+        # Keep legacy fields for compatibility if needed, using the first class
+        if "class_id" not in students_map[sid]:
+            students_map[sid]["class_id"] = row["class_id"]
+            students_map[sid]["class_name"] = cls.get("name", "")
 
-    return success(students)
+    return success(list(students_map.values()))
 
 
-class StudentCreate(BaseModel):
-    name: str
-    phone: str
-    class_id: Optional[str] = None
-
-@router.post("/students")
-async def create_student(
-    body: StudentCreate,
+@router.get("/study-plan")
+async def get_study_plan(
+    class_id: str,
     request: Request,
     token: TokenData = Depends(require_teacher),
 ):
-    from app.db.supabase import get_admin_client
-    import httpx
+    """
+    Returns the study plan (sequence of tasks) for a specific class.
+    Since tasks are applied to students in 'task_completions', we find
+    the set of unique tasks assigned to this class.
+    """
+    client = get_user_client(request.state.jwt_token)
+
+    # 1. Verify access (Teacher must own the class or be admin)
+    class_res = (
+        client.table("classes")
+        .select("id, name")
+        .eq("id", class_id)
+        .eq("teacher_id", token.user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not class_res.data and token.role != "admin":
+        return error("UNAUTHORIZED", "Class not found or access denied", 403)
+
+    # 2. Get students in this class
+    enr_res = (
+        client.table("class_enrollments")
+        .select("student_id")
+        .eq("class_id", class_id)
+        .execute()
+    )
+    student_ids = [r["student_id"] for r in (enr_res.data or [])]
+    if not student_ids:
+        return success([]) # No students yet, so no tasks assigned via 'apply'
+
+    # 3. Get unique tasks from task_completions for these students
+    # We join with study_plan_tasks to get the details
+    res = (
+        client.table("task_completions")
+        .select("study_plan_tasks(id, title, description, task_type, day_number, order_index)")
+        .in_("student_id", student_ids)
+        .execute()
+    )
+
+    # De-duplicate tasks (since multiple students have the same tasks)
+    tasks_map = {}
+    for row in (res.data or []):
+        t = row.get("study_plan_tasks")
+        if t and t["id"] not in tasks_map:
+            tasks_map[t["id"]] = t
+
+    # Sort by day and order
+    sorted_tasks = sorted(
+        tasks_map.values(),
+        key=lambda x: (x.get("day_number", 0), x.get("order_index", 0))
+    )
+
+    return success(sorted_tasks)
+
+
+# ── Student Search (across tenant — for adding to class) ──────
+
+class EnrollStudentPayload(BaseModel):
+    student_id: str
+    class_id: str
+
+
+@router.post("/students/enroll")
+async def enroll_student_into_class(
+    body: EnrollStudentPayload,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    """
+    Enroll a student into one of the teacher's classes.
+    Teacher can only enroll into their own classes (RLS enforced).
+    Once enrolled, the student appears in admin dashboard counts.
+    """
     admin = get_admin_client()
 
-    # 1. If class_id is provided, verify it belongs to this teacher
-    if body.class_id:
-        class_check = admin.table("classes").select("id").eq("id", body.class_id).eq("teacher_id", token.user_id).maybe_single().execute()
-        if not class_check.data:
-            return error("UNAUTHORIZED", "You can only assign students to your own classes", 403)
-
-    # 2. Create auth user (phone-based)
-    auth_headers = {
-        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-        "Content-Type": "application/json",
-    }
+    # 1. Verify the class exists in the tenant
+    q = admin.table("classes").select("id, name, tenant_id, teacher_id").eq("id", body.class_id)
+    if token.role != "admin":
+        q = q.eq("teacher_id", token.user_id)
     
-    payload = {
-        "phone": body.phone,
-        "phone_confirm": True,
-        "app_metadata": {"role": "student", "tenant_id": token.tenant_id},
-        "user_metadata": {"name": body.name},
-    }
+    class_check = q.maybe_single().execute()
+    
+    if not class_check.data:
+        return error("NOT_FOUND", "Class not found or you are not authorized to manage it", 403)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
-            json=payload,
-            headers=auth_headers
+    class_data = class_check.data
+
+    # 2. Verify student belongs to the same tenant
+    student_check = (
+        admin.table("students").select("id, name, tenant_id")
+        .eq("id", body.student_id)
+        .eq("tenant_id", token.tenant_id)
+        .is_("deactivated_at", None)
+        .maybe_single()
+        .execute()
+    )
+    if not student_check.data:
+        return error("NOT_FOUND", "Student not found in your organization", 404)
+
+    # 3. Enroll (upsert — safe to call if already enrolled)
+    enroll_res = (
+        admin.table("class_enrollments")
+        .upsert(
+            {
+                "student_id": body.student_id,
+                "class_id": body.class_id,
+                "tenant_id": token.tenant_id,
+            },
+            on_conflict="student_id,class_id",
         )
+        .execute()
+    )
 
-    if resp.status_code >= 400:
-        error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
-        return error("CREATE_ERROR", error_msg, 400)
+    return success({
+        "enrolled": True,
+        "student_name": student_check.data["name"],
+        "class_name": class_data["name"],
+    })
 
-    auth_res = resp.json()
-    user_id = auth_res.get("id")
 
-    # 3. Synchronize to public schema
-    admin.table("users").upsert({
-        "id": user_id,
-        "tenant_id": token.tenant_id,
-        "role": "student",
-        "phone": body.phone,
-        "name": body.name,
-        "is_active": True,
-    }).execute()
 
-    stu_res = admin.table("students").upsert({
-        "user_id": user_id,
-        "tenant_id": token.tenant_id,
-        "name": body.name,
-        "phone": body.phone,
-    }).execute()
 
-    student = stu_res.data[0] if stu_res.data else {}
+# ── Remove Student from Teacher's Class ──────────────────────
 
-    # 4. Enroll in class
-    if body.class_id and student.get("id"):
-        admin.table("class_enrollments").upsert({
-            "student_id": student["id"],
-            "class_id": body.class_id,
-            "tenant_id": token.tenant_id,
-        }).execute()
+@router.delete("/students/{student_id}/enroll/{class_id}")
+async def remove_student_from_class(
+    student_id: str,
+    class_id: str,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    """Remove a student from the teacher's class."""
+    admin = get_admin_client()
 
-    return success(student, status_code=201)
+    # Verify class belongs to teacher
+    class_check = (
+        admin.table("classes").select("id")
+        .eq("id", class_id)
+        .eq("teacher_id", token.user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not class_check.data:
+        return error("UNAUTHORIZED", "Class not found or does not belong to you", 403)
+
+    admin.table("class_enrollments").delete().eq("student_id", student_id).eq("class_id", class_id).execute()
+    return success({"removed": True})
+
+
+# ── Applicants (pending teacher registrations) ────────────────
+
+@router.get("/applicants")
+async def get_applicants(
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    """
+    Returns students who registered but are not yet enrolled in any class
+    within this teacher's tenant. These are 'new applicants' waiting to be placed.
+    """
+    admin = get_admin_client()
+
+    # Students in this tenant with no class enrollment
+    all_students_res = (
+        admin.table("students")
+        .select("id, name, phone, created_at")
+        .eq("tenant_id", token.tenant_id)
+        .is_("deactivated_at", None)
+        .order("created_at", desc=True)
+        .execute()
+    )
+
+    all_student_ids = [s["id"] for s in (all_students_res.data or [])]
+    if not all_student_ids:
+        return success([])
+
+    # Get all enrolled student IDs
+    enrolled_res = (
+        admin.table("class_enrollments")
+        .select("student_id")
+        .in_("student_id", all_student_ids)
+        .execute()
+    )
+    enrolled_ids = {r["student_id"] for r in (enrolled_res.data or [])}
+
+    # Filter to unenrolled students
+    unenrolled = [
+        s for s in (all_students_res.data or [])
+        if s["id"] not in enrolled_ids
+    ]
+
+    return success(unenrolled)
 
 
 # ── Attendance ────────────────────────────────────────────────
@@ -260,7 +517,6 @@ async def mark_attendance(
 ):
     client = get_user_client(request.state.jwt_token)
 
-    # Upsert each record
     rows = [
         {
             "class_id": body.class_id,
@@ -347,7 +603,6 @@ async def reply_to_doubt(
 ):
     client = get_user_client(request.state.jwt_token)
 
-    # Insert response
     resp_res = (
         client.table("doubt_responses")
         .insert({
@@ -359,7 +614,6 @@ async def reply_to_doubt(
         .execute()
     )
 
-    # Mark doubt resolved
     client.table("doubts").update({"status": "resolved"}).eq("id", doubt_id).execute()
 
     return success(resp_res.data[0] if resp_res.data else {}, status_code=201)
@@ -375,7 +629,7 @@ class GradeEntry(BaseModel):
 
 class GradesPayload(BaseModel):
     class_id: str
-    month: str          # YYYY-MM
+    month: str
     grades: list[GradeEntry]
 
 
@@ -422,7 +676,6 @@ async def get_report_data(
     if not month:
         month = date.today().strftime("%Y-%m")
 
-    # Student info
     student_res = (
         client.table("students").select("id, name")
         .eq("id", student_id).single().execute()
@@ -430,7 +683,6 @@ async def get_report_data(
     if not student_res.data:
         return error("NOT_FOUND", "Student not found", 404)
 
-    # Class info
     enr_res = (
         client.table("class_enrollments")
         .select("classes(id, name)")
@@ -441,7 +693,6 @@ async def get_report_data(
     if enr_res.data:
         class_info = enr_res.data[0].get("classes") or {}
 
-    # Attendance %
     att_res = (
         client.table("attendance")
         .select("status")
@@ -456,7 +707,6 @@ async def get_report_data(
         if att_rows else 0
     )
 
-    # Task completion %
     comp_res = (
         client.table("task_completions")
         .select("completed_at")
@@ -471,7 +721,6 @@ async def get_report_data(
         if comp_rows else 0
     )
 
-    # Grade
     grade_res = (
         client.table("grades")
         .select("score, remarks")
@@ -481,7 +730,6 @@ async def get_report_data(
         .execute()
     )
 
-    # Teacher info
     teacher_res = (
         client.table("users").select("name")
         .eq("id", token.user_id).single().execute()
@@ -500,23 +748,6 @@ async def get_report_data(
 
 # ── Profile update ────────────────────────────────────────────
 
-class ProfileUpdate(BaseModel):
-    name: str
-
-@router.patch("/profile")
-async def update_profile(
-    body: ProfileUpdate,
-    request: Request,
-    token: TokenData = Depends(require_teacher),
-):
-    from app.db.supabase import get_admin_client
-    admin = get_admin_client()
-    admin.table("users").update({"name": body.name}).eq("id", token.user_id).execute()
-    # We don't have a separate teachers table like students, so we just update users.
-    # Actually, let me check if there IS a teachers table.
-    return success({"name": body.name})
-
-
 class ProfileComplete(BaseModel):
     first_name: str
     last_name: str
@@ -530,6 +761,7 @@ class ProfileComplete(BaseModel):
     needs_transport: bool = False
     address: Optional[str] = None
 
+
 @router.post("/complete-profile")
 async def complete_teacher_profile(
     body: ProfileComplete,
@@ -542,8 +774,7 @@ async def complete_teacher_profile(
     update_data["is_registered"] = True
     full_name = f"{body.first_name} {body.last_name}".strip()
     update_data["name"] = full_name
-    
-    # Update users table (strict tenant isolation)
+
     admin.table("users").update(update_data).eq("id", token.user_id).eq("tenant_id", token.tenant_id).execute()
-    
+
     return success({"message": "Profile completed successfully"})

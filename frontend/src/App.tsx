@@ -29,13 +29,15 @@ import StudentDoubtsPage from '@/pages/student/StudentDoubtsPage'
 import StudentProfilePage from '@/pages/student/StudentProfilePage'
 
 // Teacher pages
-import TeacherDashboard from '@/pages/teacher/TeacherDashboard'
-import TeacherStudentsPage from '@/pages/teacher/TeacherStudentsPage'
-import AttendancePage from '@/pages/teacher/AttendancePage'
-import TeacherDoubtsPage from '@/pages/teacher/TeacherDoubtsPage'
-import GradesPage from '@/pages/teacher/GradesPage'
-import ReportsPage from '@/pages/teacher/ReportsPage'
-import TeacherProfilePage from '@/pages/teacher/TeacherProfilePage'
+import TeacherDashboard from './pages/teacher/TeacherDashboard'
+import TeacherStudentsPage from './pages/teacher/TeacherStudentsPage'
+import AttendancePage from './pages/teacher/AttendancePage'
+import TeacherDoubtsPage from './pages/teacher/TeacherDoubtsPage'
+import GradesPage from './pages/teacher/GradesPage'
+import ReportsPage from './pages/teacher/ReportsPage'
+import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
+import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
+import TeacherApplicantsPage from './pages/teacher/TeacherApplicantsPage'
 
 // Admin pages
 import AdminDashboard from '@/pages/admin/AdminDashboard'
@@ -51,7 +53,6 @@ function AuthEventListener() {
 
   useEffect(() => {
     const handleLogout = () => {
-      // Force cleanup
       localStorage.removeItem('eclassroom-auth')
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
@@ -71,14 +72,9 @@ function AuthEventListener() {
   return null
 }
 
-/**
- * Handles Supabase redirects that land on the home page instead of /auth/callback.
- * This happens if the redirect URL is not whitelisted in Supabase Dashboard.
- */
 function HashHandler() {
   const navigate = useNavigate()
   useEffect(() => {
-    // Handle both hash (#) and query (?) based Supabase redirects that land on "/"
     const hashData = new URLSearchParams(window.location.hash.substring(1))
     const searchData = new URLSearchParams(window.location.search.substring(1))
 
@@ -122,25 +118,17 @@ export default function App() {
       />
 
       <Routes>
-        {/* ── Root Route ─────────────────────────── */}
+        {/* ── Root ─────────────────────────── */}
         <Route path="/" element={<Navigate to="/auth/login" replace />} />
 
-        {/* ── Auth routes ───────────────────────────── */}
+        {/* ── Auth ───────────────────────────── */}
         <Route
           path="/auth/student-login"
-          element={
-            <RedirectIfAuthed>
-              <StudentLoginPage />
-            </RedirectIfAuthed>
-          }
+          element={<RedirectIfAuthed><StudentLoginPage /></RedirectIfAuthed>}
         />
         <Route
           path="/auth/login"
-          element={
-            <RedirectIfAuthed>
-              <StaffLoginPage />
-            </RedirectIfAuthed>
-          }
+          element={<RedirectIfAuthed><StaffLoginPage /></RedirectIfAuthed>}
         />
         <Route path="/auth/mfa-setup" element={<MFASetupPage />} />
         <Route path="/auth/mfa-verify" element={<MFAVerifyPage />} />
@@ -148,29 +136,17 @@ export default function App() {
         <Route path="/auth/setup-password" element={<SetupPasswordPage />} />
         <Route
           path="/auth/student-registration"
-          element={
-            <RequireRole role="student">
-              <StudentRegistrationPage />
-            </RequireRole>
-          }
+          element={<RequireRole role="student"><StudentRegistrationPage /></RequireRole>}
         />
         <Route
           path="/auth/teacher-registration"
-          element={
-            <RequireRole role="teacher">
-              <TeacherRegistrationPage />
-            </RequireRole>
-          }
+          element={<RequireRole role="teacher"><TeacherRegistrationPage /></RequireRole>}
         />
 
-        {/* ── Student portal ────────────────────────── */}
+        {/* ── Student portal ────────────────── */}
         <Route
           path="/student"
-          element={
-            <RequireRole role="student">
-              <PortalLayout />
-            </RequireRole>
-          }
+          element={<RequireRole role="student"><PortalLayout /></RequireRole>}
         >
           <Route index element={<StudentDashboard />} />
           <Route path="study-plan" element={<StudyPlanPage />} />
@@ -179,17 +155,15 @@ export default function App() {
           <Route path="profile" element={<StudentProfilePage />} />
         </Route>
 
-        {/* ── Teacher portal ────────────────────────── */}
+        {/* ── Teacher portal ────────────────── */}
         <Route
           path="/teacher"
-          element={
-            <RequireRole role="teacher">
-              <PortalLayout />
-            </RequireRole>
-          }
+          element={<RequireRole role="teacher"><PortalLayout /></RequireRole>}
         >
           <Route index element={<TeacherDashboard />} />
           <Route path="students" element={<TeacherStudentsPage />} />
+          <Route path="study-plan" element={<TeacherStudyPlanPage />} />   {/* ← was missing */}
+          <Route path="applicants" element={<TeacherApplicantsPage />} />  {/* ← was missing */}
           <Route path="attendance" element={<AttendancePage />} />
           <Route path="doubts" element={<TeacherDoubtsPage />} />
           <Route path="grades" element={<GradesPage />} />
@@ -197,14 +171,10 @@ export default function App() {
           <Route path="profile" element={<TeacherProfilePage />} />
         </Route>
 
-        {/* ── Admin portal ──────────────────────────── */}
+        {/* ── Admin portal ──────────────────── */}
         <Route
           path="/admin"
-          element={
-            <RequireRole role="admin">
-              <PortalLayout />
-            </RequireRole>
-          }
+          element={<RequireRole role="admin"><PortalLayout /></RequireRole>}
         >
           <Route index element={<AdminDashboard />} />
           <Route path="students" element={<AdminStudentsPage />} />
@@ -214,7 +184,7 @@ export default function App() {
           <Route path="settings" element={<AdminSettingsPage />} />
         </Route>
 
-        {/* ── 404 ───────────────────────────────────── */}
+        {/* ── 404 ───────────────────────────── */}
         <Route path="*" element={<Navigate to="/auth/login" replace />} />
       </Routes>
     </BrowserRouter>

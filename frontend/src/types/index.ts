@@ -23,6 +23,7 @@ export interface LoginResponse extends AuthTokens {
   user: AuthUser
   mfa_required?: boolean
   mfa_enrolled?: boolean
+  mfa_token?: string
 }
 
 export interface MFAEnrollResponse {

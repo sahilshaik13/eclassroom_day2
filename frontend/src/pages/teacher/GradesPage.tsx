@@ -12,12 +12,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 interface GradeRow { student_id: string; name: string; score: number | ''; remarks: string }
 
 export default function GradesPage() {
-  const [classes, setClasses]   = useState<{id:string;name:string}[]>([])
-  const [classId, setClassId]   = useState('')
-  const [month, setMonth]       = useState(new Date().toISOString().slice(0,7))
-  const [rows, setRows]         = useState<GradeRow[]>([])
-  const [loading, setLoading]   = useState(false)
-  const [saving, setSaving]     = useState(false)
+  const [classes, setClasses] = useState<{ id: string; name: string }[]>([])
+  const [classId, setClassId] = useState('')
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
+  const [rows, setRows] = useState<GradeRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     api.get('/teacher/classes').then(r => {
@@ -30,22 +30,22 @@ export default function GradesPage() {
     if (!classId) return
     setLoading(true)
     api.get(`/teacher/students?class_id=${classId}`)
-      .then(r => setRows(r.data.data.map((s: {id:string;name:string}) => ({ student_id: s.id, name: s.name, score: '', remarks: '' }))))
+      .then(r => setRows(r.data.data.map((s: { id: string; name: string }) => ({ student_id: s.id, name: s.name, score: '', remarks: '' }))))
       .finally(() => setLoading(false))
   }, [classId])
 
-  const update = (id: string, field: 'score'|'remarks', val: string) =>
-    setRows(p => p.map(r => r.student_id === id ? {...r, [field]: field==='score' ? (val===''?'':Number(val)) : val} : r))
+  const update = (id: string, field: 'score' | 'remarks', val: string) =>
+    setRows(p => p.map(r => r.student_id === id ? { ...r, [field]: field === 'score' ? (val === '' ? '' : Number(val)) : val } : r))
 
   const save = async () => {
     const valid = rows.filter(r => r.score !== '')
     if (!valid.length) return toast.error('Enter at least one score')
     setSaving(true)
     try {
-      await api.post('/teacher/grades', { 
-        class_id: classId, 
-        month, 
-        grades: valid.map(r => ({ student_id: r.student_id, score: Number(r.score), remarks: r.remarks||undefined })) 
+      await api.post('/teacher/grades', {
+        class_id: classId,
+        month,
+        grades: valid.map(r => ({ student_id: r.student_id, score: Number(r.score), remarks: r.remarks || undefined }))
       })
       toast.success('Grades successfully recorded')
     } catch { toast.error('Failed to save grades') } finally { setSaving(false) }
@@ -67,10 +67,10 @@ export default function GradesPage() {
               ))}
             </SelectContent>
           </Select>
-          <Input 
-            type="month" 
-            value={month} 
-            onChange={e => setMonth(e.target.value)} 
+          <Input
+            type="month"
+            value={month}
+            onChange={e => setMonth(e.target.value)}
             className="w-40 border-slate-200 bg-white shadow-sm h-10"
           />
         </div>
@@ -112,7 +112,7 @@ export default function GradesPage() {
                         </Avatar>
                         <div>
                           <p className="text-sm font-bold text-slate-900">{row.name}</p>
-                          <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mt-0.5">Student ID: {row.student_id.slice(0,8)}</p>
+                          <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mt-0.5">Student ID: {row.student_id.slice(0, 8)}</p>
                         </div>
                       </div>
 
@@ -152,9 +152,9 @@ export default function GradesPage() {
                 <AlertCircle className="h-3.5 w-3.5" />
                 <span>Scores are saved for the month of {new Date(month).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
               </div>
-              <Button 
-                onClick={save} 
-                disabled={saving} 
+              <Button
+                onClick={save}
+                disabled={saving}
                 className="gap-2 shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90 px-8 font-black uppercase text-xs tracking-widest h-11"
               >
                 {saving ? (

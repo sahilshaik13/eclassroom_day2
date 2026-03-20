@@ -1,28 +1,30 @@
 import { useEffect, useState } from 'react'
 import { Plus, Video, Users, MoreVertical, Calendar } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api from '@/services/api'
-import type { ClassItem } from '@/types'
+import api from '../../services/api'
+import type { ClassItem } from '../../types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Button } from '@/components/ui/button'
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardFooter, 
-  CardHeader, 
-  CardTitle 
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle
 } from "@/components/ui/card"
 import { Badge } from '@/components/ui/badge'
+import { ClassModal } from '@/components/admin/ClassModal'
 
 export default function AdminClassesPage() {
-  const [classes, setClasses]   = useState<ClassItem[]>([])
-  const [loading, setLoading]   = useState(true)
+  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const load = () => {
     setLoading(true)
     api.get('/admin/classes')
-      .then(c => { 
+      .then(c => {
         setClasses(c.data.data)
       })
       .catch(() => toast.error('Could not load data'))
@@ -32,7 +34,7 @@ export default function AdminClassesPage() {
   useEffect(load, [])
 
   const actions = (
-    <Button className="gap-2">
+    <Button className="gap-2" onClick={() => setModalOpen(true)}>
       <Plus className="h-4 w-4" /> New Class
     </Button>
   )
@@ -98,13 +100,18 @@ export default function AdminClassesPage() {
             <div className="col-span-full py-12 text-center bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
               <h3 className="text-slate-900 font-medium">No classes yet</h3>
               <p className="text-slate-500 text-sm mt-1">Start by creating your first class.</p>
-              <Button variant="outline" className="mt-4 gap-2">
+              <Button variant="outline" className="mt-4 gap-2" onClick={() => setModalOpen(true)}>
                 <Plus className="h-4 w-4" /> New Class
               </Button>
             </div>
           )}
         </div>
       )}
+      <ClassModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onSuccess={load}
+      />
     </DashboardPageLayout>
   )
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { User, Phone, Shield, Save, Camera, Mail, BadgeCheck, Fingerprint } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
@@ -12,9 +12,9 @@ import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 export default function StudentProfilePage() {
+  const navigate = useNavigate()
   const { user, setSession, accessToken, refreshToken } = useAuthStore()
   const [saving, setSaving] = useState(false)
-  const navigate = useNavigate()
 
   const { register, handleSubmit, formState: { errors, isDirty } } = useForm({
     defaultValues: { name: user?.name ?? '' },
@@ -33,10 +33,6 @@ export default function StudentProfilePage() {
     } finally {
       setSaving(false)
     }
-  }
-
-  const handleEnableMFA = () => {
-    navigate('/auth/mfa-setup')
   }
 
   return (
@@ -65,7 +61,7 @@ export default function StudentProfilePage() {
                   <Camera className="h-5 w-5 text-slate-400" />
                 </button>
               </div>
-              
+
               <div className="mt-6">
                 <h3 className="text-xl font-black text-slate-900 leading-tight">{user?.name}</h3>
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400 mt-1">{user?.role}</p>
@@ -103,11 +99,10 @@ export default function StudentProfilePage() {
                 </div>
                 {!user?.mfa_enabled && (
                   <Button 
-                    onClick={handleEnableMFA}
-                    variant="outline" 
-                    className="w-full rounded-xl border-primary/20 bg-primary/5 h-10 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary hover:text-white transition-all duration-300"
+                    onClick={() => navigate('/auth/mfa-setup')}
+                    className="w-full rounded-xl bg-primary hover:bg-primary/90 h-10 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-primary/20"
                   >
-                    Enable MFA Protection
+                    Enable MFA
                   </Button>
                 )}
                 <Button variant="outline" className="w-full rounded-xl border-slate-200 h-10 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50">
@@ -186,9 +181,9 @@ export default function StudentProfilePage() {
                   </div>
 
                   <div className="pt-4 border-t border-slate-50 flex justify-end">
-                    <Button 
-                      type="submit" 
-                      disabled={saving || !isDirty} 
+                    <Button
+                      type="submit"
+                      disabled={saving || !isDirty}
                       className="h-14 px-12 rounded-2xl bg-slate-900 hover:bg-black text-white font-black uppercase tracking-widest text-xs gap-3 shadow-2xl shadow-slate-900/10 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-30 disabled:translate-y-0 disabled:shadow-none"
                     >
                       {saving ? (

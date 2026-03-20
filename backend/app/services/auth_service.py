@@ -1,15 +1,21 @@
 """
-AuthService — thin wrapper around Supabase Auth.
+AuthService — thin wrapper around Supabase Auth with custom MFA for students.
 """
+import random
+import jwt
+import pyotp
+import qrcode
+import qrcode.image.svg
+import io
+import httpx
+import base64
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from twilio.rest import Client as TwilioClient
 from gotrue.errors import AuthApiError
 
 from app.db.supabase import get_admin_client
 from app.core.config import settings
-import random
-import jwt
-from datetime import datetime, timedelta, timezone
-from twilio.rest import Client as TwilioClient
 
 
 class AuthError(Exception):
@@ -122,7 +128,7 @@ class AuthService:
         # 3. Get user record
         user_res = (
             admin.table("users")
-            .select("id, name, role, tenant_id, is_registered")
+            .select("id, name, role, tenant_id, is_registered, mfa_enabled")
             .eq("phone", phone)
             .eq("tenant_id", tenant_id)
             .single()
@@ -132,44 +138,126 @@ class AuthService:
             raise AuthError("NOT_FOUND", "User record lost — please contact support", 404)
 
         user_data = user_res.data
+        mfa_enabled = user_data.get("mfa_enabled", False)
 
-        # 4. Sign a custom JWT for the session
-        # We use HS256 with the secret Supabase expects for local validation
-        try:
-            import base64
-            # Some environments use a base64 encoded secret, some don't
-            try:
-                secret = base64.b64decode(settings.SUPABASE_JWT_SECRET)
-            except Exception:
-                secret = settings.SUPABASE_JWT_SECRET.encode()
-
-            now = datetime.now(timezone.utc)
-            payload = {
-                "sub": user_data["id"],
-                "aud": "authenticated",
-                "role": "authenticated",
-                "email": f"{phone}@sms.thinktarteeb.local",
-                "app_metadata": {
-                    "provider": "sms",
-                    "role": user_data["role"],
-                    "tenant_id": user_data["tenant_id"],
-                    "is_registered": user_data.get("is_registered", False)
-                },
-                "user_metadata": {
-                    "name": user_data["name"]
-                },
-                "iat": int(now.timestamp()),
-                "exp": int((now + timedelta(days=7)).timestamp())
+        # 4. If MFA is enabled, return a temporary token for verification
+        if mfa_enabled:
+            temp_token = AuthService._issue_session(user_data, mfa_verified=False, expires_in=timedelta(minutes=15))
+            return {
+                "mfa_required": True,
+                "mfa_token": temp_token,
+                "user": user_data
             }
-            access_token = jwt.encode(payload, secret, algorithm="HS256")
-        except Exception as e:
-            raise AuthError("INTERNAL_ERROR", f"Failed to issue session: {str(e)}", 500)
+
+        # 5. Sign a custom JWT for the session
+        access_token = AuthService._issue_session(user_data, mfa_verified=True)
 
         return {
             "access_token": access_token,
             "refresh_token": "manual-otp-verified", # Not using real refresh tokens in manual flow for now
             "token_type": "bearer",
             "user": user_data,
+        }
+
+    @staticmethod
+    def _issue_session(user_data: dict, mfa_verified: bool = True, expires_in: timedelta = timedelta(days=7)) -> str:
+        """Internal helper to sign HS256 JWTs for student manual flow."""
+        try:
+            secret = base64.b64decode(settings.SUPABASE_JWT_SECRET)
+        except Exception:
+            secret = settings.SUPABASE_JWT_SECRET.encode()
+
+        now = datetime.now(timezone.utc)
+        payload = {
+            "sub": user_data["id"],
+            "aud": "authenticated",
+            "role": "authenticated",
+            # Ensure email is present otherwise Supabase auth might reject or ignore some things
+            "email": f"user_{user_data['id'][:8]}@sms.thinktarteeb.local",
+            "app_metadata": {
+                "provider": "sms",
+                "role": user_data["role"],
+                "tenant_id": user_data["tenant_id"],
+                "is_registered": user_data.get("is_registered", False),
+                # This is the critical claim that our deps/RLS will check
+                "mfa_verified": mfa_verified
+            },
+            "user_metadata": {
+                "name": user_data.get("name", "")
+            },
+            "iat": int(now.timestamp()),
+            "exp": int((now + expires_in).timestamp())
+        }
+        return jwt.encode(payload, secret, algorithm="HS256")
+
+    # ── Custom Student MFA enrollment ─────────────────────────
+
+    @staticmethod
+    async def mfa_enroll_student(user_id: str, phone: str) -> dict:
+        """Custom TOTP enrollment for students (bypasses Supabase factors)."""
+        admin = get_admin_client()
+
+        # 1. Generate secret
+        secret = pyotp.random_base32()
+
+        # 2. Save secret to users table
+        try:
+            admin.table("users").update({
+                "mfa_secret": secret,
+                "mfa_enabled": False # verified after first code check
+            }).eq("id", user_id).execute()
+        except Exception as e:
+            raise AuthError("INTERNAL_ERROR", f"Failed to save MFA secret: {str(e)}", 500)
+
+        # 3. Generate QR Code
+        totp = pyotp.TOTP(secret)
+        uri = totp.provisioning_uri(name=phone, issuer_name="ThinkTarteeb")
+        
+        img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage)
+        stream = io.BytesIO()
+        img.save(stream)
+        svg_xml = stream.getvalue().decode()
+
+        return {
+            "factor_id": f"std_{user_id[:8]}", # fake factor ID for UI consistency
+            "secret": secret,
+            "qr_code": svg_xml,
+            "uri": uri
+        }
+
+    @staticmethod
+    async def mfa_verify_student(user_id: str, code: str) -> dict:
+        """Custom TOTP verification for students."""
+        admin = get_admin_client()
+
+        # 1. Fetch user secret
+        res = admin.table("users").select("id, role, tenant_id, name, is_registered, mfa_secret").eq("id", user_id).single().execute()
+        if not res.data:
+            raise AuthError("NOT_FOUND", "User not found", 404)
+        
+        user_data = res.data
+        secret = user_data.get("mfa_secret")
+        if not secret:
+            raise AuthError("MFA_ERROR", "MFA not enrolled for this user", 400)
+
+        # 2. Verify code
+        totp = pyotp.TOTP(secret)
+        if not totp.verify(code):
+            raise AuthError("INVALID_CREDENTIALS", "Invalid verification code", 401)
+
+        # 3. Mark as enabled (if it was the first verification)
+        admin.table("users").update({"mfa_enabled": True}).eq("id", user_id).execute()
+        user_data["mfa_enabled"] = True
+
+        # 4. Issue FULL session token (mfa_verified=True)
+        access_token = AuthService._issue_session(user_data, mfa_verified=True)
+
+        return {
+            "access_token": access_token,
+            "refresh_token": "manual-otp-verified",
+            "token_type": "bearer",
+            "user": user_data,
+            "mfa_verified": True
         }
 
     # ── Email + Password (Teacher / Admin) ────────────────────
@@ -205,7 +293,6 @@ class AuthService:
         auth_meta = (user.app_metadata or {}) if user else {}
         if auth_meta.get("role") != role or auth_meta.get("tenant_id") != tenant_id:
             try:
-                import httpx
                 auth_headers = {
                     "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
                     "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
@@ -246,8 +333,6 @@ class AuthService:
 
     @staticmethod
     async def set_password(user_jwt: str, new_password: str) -> dict:
-        import httpx
-
         auth_headers = {
             "Authorization": f"Bearer {user_jwt}",
             "apikey": settings.SUPABASE_ANON_KEY,
@@ -268,7 +353,6 @@ class AuthService:
         # Update public.users table to reflect that password is set
         try:
             # We need to decode the JWT to get the user ID
-            import jwt
             decoded = jwt.decode(user_jwt, options={"verify_signature": False})
             user_id = decoded.get("sub")
             if user_id:
@@ -287,8 +371,6 @@ class AuthService:
         """
         Calls Supabase REST API directly — avoids gotrue-py Pydantic bugs.
         """
-        import httpx
-
         auth_headers = {
             "Authorization": f"Bearer {user_jwt}",
             "apikey": settings.SUPABASE_ANON_KEY,
@@ -343,8 +425,6 @@ class AuthService:
         """
         Calls Supabase REST API directly — avoids gotrue-py challenge() dict bug.
         """
-        import httpx
-
         auth_headers = {
             "Authorization": f"Bearer {user_jwt}",
             "apikey": settings.SUPABASE_ANON_KEY,
@@ -391,7 +471,6 @@ class AuthService:
         tenant_id: str,
         redirect_to: Optional[str] = None,
     ) -> dict:
-        import httpx
         from urllib.parse import quote
         auth_headers = {
             "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",

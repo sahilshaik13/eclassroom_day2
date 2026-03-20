@@ -54,10 +54,10 @@ export function ParticipantModal({ item, type, onSave, open, onOpenChange }: Par
         setLoading(true);
         try {
             const isDeactivated = !!item.deactivated_at;
-            const endpoint = type === 'teacher' 
+            const endpoint = type === 'teacher'
                 ? `/admin/teachers/${item.id}/${isDeactivated ? 'activate' : 'deactivate'}`
                 : `/admin/students/${item.id}/${isDeactivated ? 'activate' : 'deactivate'}`;
-            
+
             await api.post(endpoint);
             toast.success(isDeactivated ? "Account activated" : "Account deactivated");
             onSave();
@@ -105,7 +105,7 @@ export function ParticipantModal({ item, type, onSave, open, onOpenChange }: Par
                             <Label htmlFor="email">Email Address</Label>
                             <div className="relative">
                                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                                <Input 
+                                <Input
                                     id="email"
                                     value={formData.email || ""}
                                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -129,8 +129,8 @@ export function ParticipantModal({ item, type, onSave, open, onOpenChange }: Par
                                     {item.deactivated_at ? "User cannot access the platform" : "User has full access"}
                                 </p>
                             </div>
-                            <Button 
-                                variant={item.deactivated_at ? "default" : "destructive"} 
+                            <Button
+                                variant={item.deactivated_at ? "default" : "destructive"}
                                 size="sm"
                                 onClick={toggleStatus}
                                 disabled={loading}
