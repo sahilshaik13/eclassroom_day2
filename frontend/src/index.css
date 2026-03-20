@@ -1,8 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 @layer base {
   :root {
@@ -177,7 +177,16 @@
 
   /* ── Auth page glow effects ── */
   .auth-glow-top {
-    @apply absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/10 rounded-full blur-[100px] pointer-events-none;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 300px;
+    background: rgb(87 73 244 / 0.1);
+    border-radius: 9999px;
+    filter: blur(100px);
+    pointer-events: none;
   }
 
   .auth-glow-bottom {
@@ -185,7 +194,9 @@
   }
 
   .auth-bg-gradient {
-    @apply absolute inset-0 bg-[radial-gradient(ellipse_at_top, _var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950;
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at top, rgb(49 46 129 / 0.2), #020617 50%, #020617);
   }
 
   /* ── Auth top accent line ── */
