@@ -15,18 +15,18 @@ interface ClassItem { id: string; name: string }
 
 const STATUS_OPTS: { v: Status; label: string; icon: any; cls: string; activeCls: string }[] = [
   { v: 'present', label: 'Present', icon: CheckCircle2, cls: 'text-emerald-600 bg-emerald-50 border-emerald-100', activeCls: 'bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-200' },
-  { v: 'late',    label: 'Late',    icon: Clock,        cls: 'text-amber-600 bg-amber-50 border-amber-100',     activeCls: 'bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-200' },
-  { v: 'absent',  label: 'Absent',  icon: XCircle,      cls: 'text-rose-600 bg-rose-50 border-rose-100',       activeCls: 'bg-rose-500 text-white border-rose-500 shadow-lg shadow-rose-200' },
+  { v: 'late', label: 'Late', icon: Clock, cls: 'text-amber-600 bg-amber-50 border-amber-100', activeCls: 'bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-200' },
+  { v: 'absent', label: 'Absent', icon: XCircle, cls: 'text-rose-600 bg-rose-50 border-rose-100', activeCls: 'bg-rose-500 text-white border-rose-500 shadow-lg shadow-rose-200' },
 ]
 
 export default function AttendancePage() {
-  const [classes, setClasses]   = useState<ClassItem[]>([])
-  const [classId, setClassId]   = useState('')
+  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [classId, setClassId] = useState('')
   const [students, setStudents] = useState<Student[]>([])
-  const [date, setDate]         = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [statuses, setStatuses] = useState<Record<string, Status>>({})
-  const [loading, setLoading]   = useState(false)
-  const [saving, setSaving]     = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     api.get('/teacher/classes').then(r => {
@@ -84,12 +84,12 @@ export default function AttendancePage() {
               ))}
             </SelectContent>
           </Select>
-          <input 
-            type="date" 
-            value={date} 
-            max={new Date().toISOString().slice(0,10)}
-            onChange={e => setDate(e.target.value)} 
-            className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" 
+          <input
+            type="date"
+            value={date}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={e => setDate(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           />
         </div>
       }
@@ -182,12 +182,12 @@ export default function AttendancePage() {
               </div>
             )}
           </CardContent>
-          
+
           {students.length > 0 && !loading && (
             <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-end">
-              <Button 
-                onClick={save} 
-                disabled={saving} 
+              <Button
+                onClick={save}
+                disabled={saving}
                 className="gap-2 shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90 px-8 font-black uppercase text-xs tracking-widest h-11"
               >
                 {saving ? (

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { ShieldCheck, BookOpen } from 'lucide-react'
+import { ShieldCheck, Loader2 } from 'lucide-react'
 import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
 import { ApiClientError } from '@/services/api'
@@ -69,11 +69,7 @@ export default function MFAVerifyPage() {
             const rt = refresh_token || localStorage.getItem('refresh_token') || ''
             setSession(user!, access_token, rt)
             toast.success('Welcome back!')
-            // Dynamic redirect based on role
-            if (user?.role === 'admin') navigate('/admin')
-            else if (user?.role === 'teacher') navigate('/teacher/profile')
-            else if (user?.role === 'student') navigate('/student/profile')
-            else navigate('/')
+            navigate('/admin')
         } catch (e) {
             if (e instanceof ApiClientError) toast.error(e.message)
             else toast.error('Invalid code. Try again.')
@@ -84,81 +80,102 @@ export default function MFAVerifyPage() {
         }
     }
 
+    const filled = digits.join('').length
+
     return (
         <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden">
-            {/* Background glow and patterns */}
-            <div className="absolute inset-0 z-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
+            <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-violet-900/10 rounded-full blur-[100px] pointer-events-none" />
 
-            <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-700">
-                <div className="flex items-center justify-center gap-3 mb-10">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shadow-lg shadow-primary/20 ring-1 ring-primary/50">
-                        <BookOpen className="w-6 h-6 text-primary" />
+            <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-500">
+
+                {/* Logo */}
+                <div className="flex items-center justify-center gap-3 mb-8">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                        <div className="grid grid-cols-2 gap-0.5 p-1.5">
+                            <div className="w-2 h-2 bg-[#4E7DFF] rounded-sm" />
+                            <div className="w-2 h-2 bg-[#20C997] rounded-sm" />
+                            <div className="w-2 h-2 bg-[#FF922B] rounded-sm" />
+                            <div className="w-2 h-2 bg-[#A855F7] rounded-sm" />
+                        </div>
                     </div>
-                    <span className="font-display text-2xl text-white font-bold tracking-tight">
-                        ThinkTarteeb
-                    </span>
+                    <span className="text-xl text-white font-bold tracking-tight">ThinkTarteeb</span>
                 </div>
 
-                <div className="bg-slate-900/50 backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 relative overflow-hidden">
-                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+                {/* Card */}
+                <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 relative overflow-hidden">
+                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
 
-                    <div className="flex items-center gap-4 mb-8">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-inner">
-                            <ShieldCheck className="w-6 h-6 text-primary" />
+                    {/* Header */}
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="h-11 w-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                            <ShieldCheck className="w-5 h-5 text-primary" />
                         </div>
                         <div>
-                            <h1 className="font-display text-xl text-white font-bold leading-tight">Verify Identity</h1>
-                            <p className="text-xs text-slate-400 font-medium">Two-factor authentication</p>
+                            <h1 className="text-lg font-bold text-white">Two-Factor Verification</h1>
+                            <p className="text-xs text-slate-400">Admin authentication required</p>
                         </div>
                     </div>
 
                     {fetching ? (
-                        <div className="flex flex-col items-center py-8 gap-4">
-                            <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                        <div className="flex flex-col items-center py-10 gap-4">
+                            <div className="w-10 h-10 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
                             <p className="text-sm text-slate-400">Loading…</p>
                         </div>
                     ) : (
                         <div className="animate-in fade-in duration-300">
-                            <p className="text-sm font-medium text-slate-300 mb-7">
-                                Enter the 6-digit code from your authenticator app
+                            <p className="text-sm text-slate-400 mb-7 leading-relaxed">
+                                Open your authenticator app and enter the 6-digit code for <strong className="text-slate-300">ThinkTarteeb</strong>.
                             </p>
 
-                            <div className="flex gap-2.5 mb-8 justify-center" onPaste={handlePaste}>
+                            {/* OTP digits */}
+                            <div className="flex gap-2 mb-3 justify-center" onPaste={handlePaste}>
                                 {digits.map((d, i) => (
                                     <input
                                         key={i}
-                                        ref={(el) => { inputRefs.current[i] = el }}
+                                        ref={el => { inputRefs.current[i] = el }}
                                         type="text"
                                         inputMode="numeric"
                                         maxLength={1}
                                         value={d}
-                                        onChange={(e) => handleDigit(i, e.target.value)}
-                                        onKeyDown={(e) => handleDigitKey(i, e)}
-                                        className="w-12 h-14 text-center text-2xl font-mono font-bold rounded-xl
-                               bg-slate-950/50 border border-slate-800 text-white
-                               focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary
-                               transition-all z-10 relative shadow-inner"
+                                        onChange={e => handleDigit(i, e.target.value)}
+                                        onKeyDown={e => handleDigitKey(i, e)}
+                                        className={`w-11 text-center text-xl font-mono font-bold rounded-xl
+                      bg-slate-950/60 border text-white transition-all shadow-inner
+                      focus:outline-none focus:ring-1 focus:ring-primary/50
+                      ${d ? 'border-primary/60' : 'border-slate-800'}`}
+                                        style={{ height: '52px' }}
+                                    />
+                                ))}
+                            </div>
+
+                            {/* Progress dots */}
+                            <div className="flex justify-center gap-1.5 mb-7">
+                                {digits.map((d, i) => (
+                                    <div
+                                        key={i}
+                                        className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${d ? 'bg-primary' : 'bg-slate-800'
+                                            }`}
                                     />
                                 ))}
                             </div>
 
                             <button
                                 onClick={verifyCode}
-                                disabled={loading || digits.join('').length < 6}
-                                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 rounded-xl transition-all shadow-md mb-6 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={loading || filled < 6}
+                                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 mb-4 disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                                 {loading ? (
-                                    <span className="flex items-center gap-2">
-                                        <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                        Verifying…
-                                    </span>
-                                ) : 'Verify & Sign In'}
+                                    <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>
+                                ) : (
+                                    <><ShieldCheck className="w-4 h-4" /> Verify &amp; Sign In</>
+                                )}
                             </button>
 
                             <button
                                 onClick={() => navigate('/auth/login')}
-                                className="w-full text-sm font-medium text-slate-400 hover:text-white transition-colors"
+                                className="w-full text-sm font-medium text-slate-500 hover:text-slate-300 transition-colors"
                             >
                                 ← Back to login
                             </button>
@@ -166,8 +183,8 @@ export default function MFAVerifyPage() {
                     )}
                 </div>
 
-                <p className="mt-6 text-center text-sm font-medium text-slate-500">
-                    Account: {user?.email || user?.phone}
+                <p className="mt-5 text-center text-xs text-slate-600">
+                    {user?.email}
                 </p>
             </div>
         </div>

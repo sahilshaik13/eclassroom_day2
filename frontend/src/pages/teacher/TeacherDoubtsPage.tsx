@@ -97,14 +97,14 @@ export default function TeacherDoubtsPage() {
               const isPending = doubt.status === 'pending'
 
               return (
-                <Card 
-                  key={doubt.id} 
+                <Card
+                  key={doubt.id}
                   className={clsx(
                     "border-slate-200/60 shadow-sm transition-all overflow-hidden bg-white/50 backdrop-blur-sm",
                     isPending && !isExpanded && "border-amber-200/50 bg-amber-50/5"
                   )}
                 >
-                  <div 
+                  <div
                     className="p-6 cursor-pointer group"
                     onClick={() => setExpandId(isExpanded ? null : doubt.id)}
                   >

@@ -58,9 +58,9 @@ export default function AdminDashboard() {
       title="Dashboard Overview"
       description="Real-time operational metrics and institutional performance tracking."
       actions={
-        <Button 
-          variant="outline" 
-          size="sm" 
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => toast.success("Exporting data...")}
           className="gap-2 border-slate-200 bg-white shadow-sm hover:bg-slate-50"
         >
@@ -109,7 +109,7 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <div className="w-full h-1.5 bg-slate-100 rounded-full mt-2 relative overflow-hidden">
-                <div 
+                <div
                   className="absolute left-0 top-0 bottom-0 bg-blue-500 rounded-full transition-all duration-1000"
                   style={{ width: mounted ? `${safeStats.avg_attendance_pct}%` : '0%' }}
                 />
@@ -222,20 +222,20 @@ export default function AdminDashboard() {
                 <AreaChart data={SPARK_DATA}>
                   <defs>
                     <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="#3b82f6" 
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#3b82f6"
                     strokeWidth={3}
-                    fillOpacity={1} 
-                    fill="url(#colorVal)" 
+                    fillOpacity={1}
+                    fill="url(#colorVal)"
                     animationDuration={2000}
                   />
                 </AreaChart>
@@ -258,8 +258,8 @@ export default function AdminDashboard() {
               { label: 'Curriculum', href: '/admin/study-plans', icon: CalendarCheck, color: 'text-amber-600', bg: 'bg-amber-500/5' },
               { label: 'Settings', href: '/admin/settings', icon: SettingsIcon, color: 'text-slate-600', bg: 'bg-slate-500/5' },
             ].map((action, i) => (
-              <a 
-                key={i} 
+              <a
+                key={i}
                 href={action.href}
                 className="group flex flex-col items-center justify-center p-6 bg-white border border-slate-200/60 rounded-2xl hover:border-primary/30 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300"
               >

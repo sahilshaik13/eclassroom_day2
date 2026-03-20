@@ -72,17 +72,21 @@ const SelectTrigger = ({ className, children }: {
     )
 }
 
-const SelectValue = ({ placeholder }: { placeholder?: string }) => {
+const SelectValue = ({ placeholder, children }: { placeholder?: string; children?: React.ReactNode }) => {
     const { value } = React.useContext(SelectContext);
-    const displayValue = value && value !== "all" ? value : null;
-    return <span className={cn("truncate", !displayValue && "text-muted-foreground")}>{displayValue || placeholder}</span>;
+    const hasValue = value && value !== "all";
+    return (
+        <span className={cn("truncate", !hasValue && "text-muted-foreground")}>
+            {children || (hasValue ? value : placeholder)}
+        </span>
+    );
 }
 
-const SelectContent = ({ children }: { children: React.ReactNode }) => {
+const SelectContent = ({ children, className }: { children: React.ReactNode; className?: string }) => {
     const { open } = React.useContext(SelectContext);
     if (!open) return null;
     return (
-        <div className="absolute top-[calc(100%+4px)] left-0 z-50 w-full min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95">
+        <div className={cn("absolute top-[calc(100%+4px)] left-0 z-50 w-full min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95", className)}>
             <div className="p-1 max-h-[200px] overflow-y-auto">
                 {children}
             </div>
@@ -90,14 +94,15 @@ const SelectContent = ({ children }: { children: React.ReactNode }) => {
     )
 }
 
-const SelectItem = ({ value, children }: { value: string; children: React.ReactNode }) => {
+const SelectItem = ({ value, children, className }: { value: string; children: React.ReactNode; className?: string }) => {
     const { onValueChange, value: selectedValue } = React.useContext(SelectContext);
     const isSelected = selectedValue === value;
     return (
         <div
             className={cn(
                 "relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                isSelected && "bg-accent/50"
+                isSelected && "bg-accent/50",
+                className
             )}
             onClick={() => onValueChange(value)}
         >

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Plus, Play, Trash2, Calendar, ClipboardList, Layers, ChevronRight, LayoutGrid } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api from '@/services/api'
-import type { StudyPlanTemplate, StudyPlanTaskItem, ClassItem } from '@/types'
+import api from '../../services/api'
+import type { StudyPlanTemplate, StudyPlanTaskItem, ClassItem } from '../../types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -15,23 +15,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { TemplateModal } from '@/components/admin/TemplateModal'
 
 export default function StudyPlansPage() {
-  const [templates, setTemplates]   = useState<StudyPlanTemplate[]>([])
-  const [selected, setSelected]     = useState<StudyPlanTemplate | null>(null)
-  const [tasks, setTasks]           = useState<StudyPlanTaskItem[]>([])
-  const [classes, setClasses]       = useState<ClassItem[]>([])
-  const [loading, setLoading]       = useState(true)
+  const [templates, setTemplates] = useState<StudyPlanTemplate[]>([])
+  const [selected, setSelected] = useState<StudyPlanTemplate | null>(null)
+  const [tasks, setTasks] = useState<StudyPlanTaskItem[]>([])
+  const [classes, setClasses] = useState<ClassItem[]>([])
+  const [loading, setLoading] = useState(true)
   const [applyClassId, setApplyClassId] = useState('')
-  const [applying, setApplying]     = useState(false)
-  const [newTask, setNewTask]       = useState({ day_number: 1, title: '', task_type: 'memorise' })
+  const [applying, setApplying] = useState(false)
+  const [newTask, setNewTask] = useState({ day_number: 1, title: '', task_type: 'memorise' })
+  const [modalOpen, setModalOpen] = useState(false)
 
   const load = () => {
     setLoading(true)
     Promise.all([api.get('/admin/study-plans'), api.get('/admin/classes')])
-      .then(([t, c]) => { 
+      .then(([t, c]) => {
         setTemplates(t.data.data)
-        setClasses(c.data.data) 
+        setClasses(c.data.data)
       })
       .catch(() => toast.error('Could not load plans'))
       .finally(() => setLoading(false))
@@ -55,7 +57,7 @@ export default function StudyPlansPage() {
       await api.post(`/admin/study-plans/${selected.id}/tasks`, newTask)
       const r = await api.get(`/admin/study-plans/${selected.id}/tasks`)
       setTasks(r.data.data)
-      setNewTask(p => ({...p, title: ''}))
+      setNewTask(p => ({ ...p, title: '' }))
       toast.success('Task added')
     } catch { toast.error('Could not add task') }
   }
@@ -80,9 +82,9 @@ export default function StudyPlansPage() {
 
   // Group tasks by day
   const byDay: Record<number, StudyPlanTaskItem[]> = {}
-  tasks.forEach(t => { 
+  tasks.forEach(t => {
     if (!byDay[t.day_number]) byDay[t.day_number] = []
-    byDay[t.day_number].push(t) 
+    byDay[t.day_number].push(t)
   })
 
   return (
@@ -90,7 +92,7 @@ export default function StudyPlansPage() {
       title="Study Plans"
       description="Design curriculum templates and deploy them across active classrooms."
       actions={
-        <Button className="gap-2">
+        <Button className="gap-2" onClick={() => setModalOpen(true)}>
           <Plus className="h-4 w-4" /> New Template
         </Button>
       }
@@ -104,7 +106,7 @@ export default function StudyPlansPage() {
               Templates
             </h3>
           </div>
-          
+
           <div className="grid gap-2">
             {loading ? (
               [1, 2, 3].map(i => (
@@ -115,11 +117,10 @@ export default function StudyPlansPage() {
                 <button
                   key={t.id}
                   onClick={() => selectTemplate(t)}
-                  className={`group relative flex flex-col items-start p-4 rounded-xl border text-left transition-all duration-300 ${
-                    selected?.id === t.id 
-                      ? 'bg-primary/5 border-primary/30 shadow-sm' 
+                  className={`group relative flex flex-col items-start p-4 rounded-xl border text-left transition-all duration-300 ${selected?.id === t.id
+                      ? 'bg-primary/5 border-primary/30 shadow-sm'
                       : 'bg-white border-slate-200/60 hover:border-primary/20 hover:bg-slate-50/50'
-                  }`}
+                    }`}
                 >
                   <p className={`font-bold text-sm truncate w-full ${selected?.id === t.id ? 'text-primary' : 'text-slate-900 group-hover:text-primary transition-colors'}`}>
                     {t.name}
@@ -179,19 +180,25 @@ export default function StudyPlansPage() {
 
                 <div className="flex items-center gap-3 bg-slate-900 p-1.5 pl-4 rounded-xl shadow-inner border border-white/10">
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase leading-none mb-0.5">Deploy to</span>
-                    <select 
-                      value={applyClassId} 
-                      onChange={e => setApplyClassId(e.target.value)}
-                      className="bg-transparent text-white text-xs font-bold border-none focus:ring-0 p-0 pr-8 min-w-[120px] cursor-pointer appearance-none"
-                    >
-                      <option value="" className="bg-slate-900">Select Class</option>
-                      {classes.map(c => <option key={c.id} value={c.id} className="bg-slate-900">{c.name}</option>)}
-                    </select>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase leading-none mb-1">Deploy to</span>
+                    <Select value={applyClassId} onValueChange={setApplyClassId}>
+                      <SelectTrigger className="bg-transparent text-white text-xs font-bold border-none h-auto p-0 focus:ring-0 min-w-[120px] hover:bg-transparent">
+                        <SelectValue placeholder="Select Class">
+                          {classes.find(c => c.id === applyClassId)?.name}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                        {classes.map(c => (
+                          <SelectItem key={c.id} value={c.id} className="hover:bg-slate-800 focus:bg-slate-800 text-white">
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <Button 
-                    onClick={apply} 
-                    disabled={applying || !applyClassId} 
+                  <Button
+                    onClick={apply}
+                    disabled={applying || !applyClassId}
                     size="sm"
                     className="h-9 px-4 bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20"
                   >
@@ -211,35 +218,35 @@ export default function StudyPlansPage() {
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end p-4 bg-white/80 rounded-xl border border-slate-200/60 shadow-sm ring-1 ring-slate-100">
                 <div className="sm:col-span-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5 ml-1">Day</span>
-                  <Input 
-                    type="number" 
-                    min="1" 
+                  <Input
+                    type="number"
+                    min="1"
                     value={newTask.day_number}
-                    onChange={e => setNewTask(p => ({...p, day_number: Number(e.target.value)}))}
+                    onChange={e => setNewTask(p => ({ ...p, day_number: Number(e.target.value) }))}
                     className="h-10 text-center font-bold"
                   />
                 </div>
                 <div className="sm:col-span-6">
                   <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5 ml-1">Task Title</span>
-                  <Input 
+                  <Input
                     placeholder="Enter objective..."
                     value={newTask.title}
-                    onChange={e => setNewTask(p => ({...p, title: e.target.value}))}
+                    onChange={e => setNewTask(p => ({ ...p, title: e.target.value }))}
                     onKeyDown={e => e.key === 'Enter' && addTask()}
                     className="h-10"
                   />
                 </div>
                 <div className="sm:col-span-3">
                   <span className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5 ml-1">Modal</span>
-                  <Select 
-                    value={newTask.task_type} 
-                    onValueChange={v => setNewTask(p => ({...p, task_type: v}))}
+                  <Select
+                    value={newTask.task_type}
+                    onValueChange={v => setNewTask(p => ({ ...p, task_type: v }))}
                   >
                     <SelectTrigger className="h-10 font-medium capitalize">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {['memorise','review','recite','listen','read'].map(t => (
+                      {['memorise', 'review', 'recite', 'listen', 'read'].map(t => (
                         <SelectItem key={t} value={t}>{t}</SelectItem>
                       ))}
                     </SelectContent>
@@ -254,7 +261,7 @@ export default function StudyPlansPage() {
 
               {/* Day-by-Day View */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {Object.entries(byDay).sort(([a],[b])=>Number(a)-Number(b)).map(([day, dayTasks]) => (
+                {Object.entries(byDay).sort(([a], [b]) => Number(a) - Number(b)).map(([day, dayTasks]) => (
                   <Card key={day} className="border-slate-200/60 bg-white/40 shadow-sm group">
                     <CardHeader className="py-3 px-5 border-b border-slate-100 bg-slate-50/50 rounded-t-xl flex flex-row items-center justify-between">
                       <Badge variant="secondary" className="bg-slate-900 text-white font-black text-[10px] rounded hover:bg-slate-800 transition-colors">
@@ -267,14 +274,14 @@ export default function StudyPlansPage() {
                           <div key={t.id} className="flex items-center justify-between p-4 px-5 hover:bg-slate-50/80 transition-colors">
                             <span className="text-sm font-semibold text-slate-800">{t.title}</span>
                             <div className="flex items-center gap-3">
-                              <Badge 
-                                variant="outline" 
+                              <Badge
+                                variant="outline"
                                 className="text-[9px] uppercase font-bold bg-white text-slate-500 border-slate-200 px-1.5 py-0"
                               >
                                 {t.task_type}
                               </Badge>
-                              <button 
-                                onClick={() => deleteTask(t.id)} 
+                              <button
+                                onClick={() => deleteTask(t.id)}
                                 className="text-slate-300 hover:text-red-500 transition-all p-1"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -301,6 +308,11 @@ export default function StudyPlansPage() {
           )}
         </div>
       </div>
+      <TemplateModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onSuccess={load}
+      />
     </DashboardPageLayout>
   )
 }
