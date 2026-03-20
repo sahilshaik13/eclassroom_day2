@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, MessageCircle, X, Send, Clock, CheckCircle2, HelpCircle, Loader2 } from 'lucide-react'
+import { Plus, MessageCircle, Send, Clock, CheckCircle2, HelpCircle, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import api from '@/services/api'

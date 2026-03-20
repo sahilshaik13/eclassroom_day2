@@ -2,9 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
 @layer base {
   :root {
-    /* Base Radius */
+    /* ── Radius ── */
     --radius: 1.5rem;
     --radius-xs: 6px;
     --radius-sm: calc(var(--radius) - 4px);
@@ -13,7 +15,11 @@
     --radius-xl: 40px;
     --radius-pill: 9999px;
 
-    /* Colors - Light Mode (RGB space-separated for Tailwind opacity support) */
+    /* ── Brand Primary — Indigo #5749F4 ── */
+    --color-primary: 87 73 244;
+    --color-primary-foreground: 255 255 255;
+
+    /* ── Neutrals ── */
     --color-background: 255 255 255;
     --color-foreground: 42 41 51;
 
@@ -22,9 +28,6 @@
 
     --color-popover: 255 255 255;
     --color-popover-foreground: 42 41 51;
-
-    --color-primary: 87 73 244;
-    --color-primary-foreground: 255 255 255;
 
     --color-secondary: 217 217 219;
     --color-secondary-foreground: 42 41 51;
@@ -35,29 +38,43 @@
     --color-accent: 245 245 245;
     --color-accent-foreground: 42 41 51;
 
+    /* ── Semantic ── */
     --color-destructive: 204 51 20;
     --color-destructive-foreground: 255 255 255;
 
+    --color-success: 161 229 161;
+    --color-success-foreground: 0 51 0;
+
+    --color-warning: 255 217 178;
+    --color-warning-foreground: 77 39 0;
+
+    --color-error: 255 191 178;
+    --color-error-foreground: 89 15 0;
+
+    --color-info: 201 214 240;
+    --color-info-foreground: 0 17 51;
+
+    /* ── Border / Input / Ring ── */
     --color-border: 197 197 203;
     --color-input: 197 197 203;
     --color-ring: 87 73 244;
 
-    /* Semantic Colors */
-    --color-success: 161 229 161;
-    --color-success-foreground: 0 51 0;
-    --color-warning: 255 217 178;
-    --color-warning-foreground: 77 39 0;
-    --color-error: 255 191 178;
-    --color-error-foreground: 89 15 0;
-    --color-info: 201 214 240;
-    --color-info-foreground: 0 17 51;
-
-    /* Custom Brand Colors for legacy support */
+    /* ── Brand accent colors (stat cards, badges) ── */
     --color-gold: 212 175 55;
     --color-gold-foreground: 255 255 255;
+
+    /* ── Auth pages dark background ── */
+    --color-auth-bg: 15 23 42;
+    /* slate-950 */
+    --color-auth-card: 15 23 42;
+    --color-auth-border: 255 255 255;
+    /* /10 opacity applied inline */
   }
 
-  * { box-sizing: border-box; border-color: var(--color-border); }
+  * {
+    box-sizing: border-box;
+    border-color: rgb(var(--color-border));
+  }
 
   html {
     -webkit-font-smoothing: antialiased;
@@ -66,74 +83,128 @@
 
   body {
     font-family: 'Inter', system-ui, sans-serif;
-    color: var(--color-foreground);
-    background: var(--color-background);
+    color: rgb(var(--color-foreground));
+    background: rgb(var(--color-background));
     line-height: 1.55;
   }
 
-  /* Remove default button styles */
-  button { font-family: inherit; }
+  button {
+    font-family: inherit;
+  }
 
-  /* Custom scrollbar */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--color-muted-foreground); }
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--color-border));
+    border-radius: 99px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--color-muted-foreground));
+  }
 }
 
 @layer components {
-  /* ── Primary button ── */
+
+  /* ── Buttons ── */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2
-           px-5 py-2.5 rounded-lg font-body font-medium text-sm
-           bg-primary text-primary-foreground
-           hover:bg-primary/90 active:scale-[0.98]
-           transition-all duration-150
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98] shadow-lg shadow-primary/20 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none;
   }
 
-  /* ── Ghost button ── */
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2
-           px-5 py-2.5 rounded-lg font-body font-medium text-sm
-           text-muted-foreground border border-border
-           hover:border-primary hover:text-primary active:scale-[0.98]
-           transition-all duration-150;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm text-muted-foreground border border-border hover:border-primary hover:text-primary active:scale-[0.98] transition-all duration-150;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 active:scale-[0.98] transition-all duration-150;
   }
 
   /* ── Card ── */
   .card {
-    @apply bg-card text-card-foreground rounded-2xl shadow-card border border-border;
+    @apply bg-card text-card-foreground rounded-2xl shadow-sm border border-border;
   }
 
-  /* ── Input ── */
+  /* ── Auth card (dark pages) ── */
+  .auth-card {
+    @apply bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl relative overflow-hidden;
+  }
+
+  /* ── Input (light pages) ── */
   .input {
-    @apply w-full px-4 py-2.5 rounded-lg border border-input
-           bg-background text-foreground text-sm font-body
-           placeholder:text-muted-foreground
-           focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring
-           transition-colors duration-150
-           disabled:bg-muted disabled:cursor-not-allowed;
+    @apply w-full px-4 py-2.5 rounded-xl border border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring transition-colors duration-150 disabled:bg-muted disabled:cursor-not-allowed;
+  }
+
+  /* ── Input (dark auth pages) ── */
+  .input-dark {
+    @apply w-full px-4 py-3 rounded-xl text-sm bg-slate-950/60 border border-slate-800 text-white placeholder:text-slate-600 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/40 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   /* ── Label ── */
   .label {
-    @apply block text-xs font-medium text-muted-foreground mb-1.5 tracking-wide uppercase;
+    @apply block text-xs font-semibold text-muted-foreground mb-1.5 tracking-wide uppercase;
+  }
+
+  .label-dark {
+    @apply block text-xs font-semibold text-slate-400 mb-1.5 tracking-wide uppercase;
   }
 
   /* ── Badge ── */
   .badge {
-    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
   }
 
   /* ── Sidebar nav link ── */
   .nav-link {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-           text-muted-foreground
-           hover:bg-accent hover:text-accent-foreground
-           transition-all duration-150;
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-all duration-150;
   }
+
   .nav-link.active {
     @apply bg-primary/10 text-primary;
+  }
+
+  /* ── Auth page background ── */
+  .auth-bg {
+    @apply min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden;
+  }
+
+  /* ── Auth page glow effects ── */
+  .auth-glow-top {
+    @apply absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/10 rounded-full blur-[100px] pointer-events-none;
+  }
+
+  .auth-glow-bottom {
+    @apply absolute bottom-0 right-0 w-[400px] h-[300px] bg-violet-900/10 rounded-full blur-[100px] pointer-events-none;
+  }
+
+  .auth-bg-gradient {
+    @apply absolute inset-0 bg-[radial-gradient(ellipse_at_top, _var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950;
+  }
+
+  /* ── Auth top accent line ── */
+  .auth-accent-line {
+    @apply absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent;
+  }
+
+  /* ── OTP digit input ── */
+  .otp-digit {
+    @apply text-center text-xl font-mono font-bold rounded-xl bg-slate-950/60 border text-white transition-all shadow-inner focus:outline-none focus:ring-1 focus:ring-primary/50;
+    width: 44px;
+    height: 52px;
+  }
+
+  .otp-digit.filled {
+    @apply border-primary/60;
+  }
+
+  .otp-digit:not(.filled) {
+    @apply border-slate-800;
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Download, Search, MoreVertical, User, Users, TrendingUp } from 'lucide-react'
+import { Plus, Download, Search, MoreVertical, User, TrendingUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import type { Student } from '@/types'
