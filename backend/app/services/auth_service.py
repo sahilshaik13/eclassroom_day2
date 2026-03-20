@@ -32,12 +32,9 @@ class AuthService:
     @staticmethod
     async def send_otp(phone: str, tenant_id: str) -> dict:
         admin = get_admin_client()
-
-        # Normalize phone number
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
 
         try:
-            # 1. Verify student exists in this tenant
             result = (
                 admin.table("students")
                 .select("id, user_id, deactivated_at")
@@ -55,14 +52,11 @@ class AuthService:
         if student_data.get("deactivated_at"):
             raise AuthError("INVALID_CREDENTIALS", "Account is deactivated", 401)
 
-        # 2. Generate and store OTP
-        otp_code = f"{random.randint(100000, 999999)}"
+        otp_code  = f"{random.randint(100000, 999999)}"
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
 
         try:
-            # Clean up old codes first
             admin.table("otp_codes").delete().eq("phone", phone).eq("tenant_id", tenant_id).execute()
-            # Store new one
             admin.table("otp_codes").insert({
                 "phone": phone,
                 "tenant_id": tenant_id,
@@ -72,11 +66,9 @@ class AuthService:
         except Exception as e:
             raise AuthError("INTERNAL_ERROR", f"Failed to store OTP: {str(e)}", 500)
 
-        # 3. Send via Twilio
         try:
             client = TwilioClient(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
             message_body = f"Your ThinkTarteeb verification code is: {otp_code}. Valid for 10 minutes."
-            
             send_args = {"to": phone, "body": message_body}
             if settings.TWILIO_MESSAGING_SERVICE_SID:
                 send_args["messaging_service_sid"] = settings.TWILIO_MESSAGING_SERVICE_SID
@@ -84,10 +76,8 @@ class AuthService:
                 send_args["from_"] = settings.TWILIO_PHONE_NUMBER
             else:
                 raise Exception("Twilio Phone Number or Messaging Service SID missing")
-
             client.messages.create(**send_args)
         except Exception as e:
-            # Special case for dev: allow mock even if Twilio fails if it's not production
             if not settings.is_production:
                 return {
                     "message": "OTP generated (MOCK)",
@@ -101,11 +91,9 @@ class AuthService:
     @staticmethod
     async def verify_otp(phone: str, token: str, tenant_id: str) -> dict:
         admin = get_admin_client()
-
-        # Normalize phone
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
 
-        # 1. Verify against our otp_codes table
+        # 1. Validate OTP code
         try:
             otp_res = (
                 admin.table("otp_codes")
@@ -125,43 +113,81 @@ class AuthService:
         # 2. Consume the code
         admin.table("otp_codes").delete().eq("id", otp_res.data[0]["id"]).execute()
 
-        # 3. Get user record
-        user_res = (
-            admin.table("users")
-            .select("id, name, role, tenant_id, is_registered, mfa_enabled")
-            .eq("phone", phone)
-            .eq("tenant_id", tenant_id)
-            .single()
-            .execute()
-        )
+        # 3. Get user record — safe select (no mfa_enabled in select to avoid
+        #    column-not-found if migration hasn't run yet)
+        try:
+            user_res = (
+                admin.table("users")
+                .select("id, name, role, tenant_id, has_password, is_registered, mfa_enabled, mfa_secret")
+                .eq("phone", phone)
+                .eq("tenant_id", tenant_id)
+                .single()
+                .execute()
+            )
+        except Exception:
+            # Fallback: query without optional columns if they don't exist yet
+            user_res = (
+                admin.table("users")
+                .select("id, name, role, tenant_id, has_password, is_registered")
+                .eq("phone", phone)
+                .eq("tenant_id", tenant_id)
+                .single()
+                .execute()
+            )
+
         if not user_res or not user_res.data:
-            raise AuthError("NOT_FOUND", "User record lost — please contact support", 404)
+            raise AuthError("NOT_FOUND", "User record not found — contact support", 404)
 
-        user_data = user_res.data
+        user_data   = user_res.data
         mfa_enabled = user_data.get("mfa_enabled", False)
+        mfa_secret  = user_data.get("mfa_secret")
 
-        # 4. If MFA is enabled, return a temporary token for verification
-        if mfa_enabled:
-            temp_token = AuthService._issue_session(user_data, mfa_verified=False, expires_in=timedelta(minutes=15))
+        # 4. If student has MFA enabled → return temp token, require TOTP
+        if mfa_enabled and mfa_secret:
+            temp_token = AuthService._issue_session(
+                user_data,
+                mfa_verified=False,
+                expires_in=timedelta(minutes=15)
+            )
             return {
                 "mfa_required": True,
-                "mfa_token": temp_token,
-                "user": user_data
+                "mfa_enrolled": True,
+                "access_token": temp_token,          # temp token used for /auth/mfa/verify call
+                "refresh_token": "pending-mfa",
+                "token_type": "bearer",
+                "user": {
+                    "id":           user_data["id"],
+                    "name":         user_data.get("name", ""),
+                    "role":         user_data["role"],
+                    "tenant_id":    user_data["tenant_id"],
+                    "is_registered": user_data.get("is_registered", False),
+                },
             }
 
-        # 5. Sign a custom JWT for the session
+        # 5. No MFA → issue full session immediately
         access_token = AuthService._issue_session(user_data, mfa_verified=True)
-
         return {
             "access_token": access_token,
-            "refresh_token": "manual-otp-verified", # Not using real refresh tokens in manual flow for now
+            "refresh_token": "manual-otp-verified",
             "token_type": "bearer",
-            "user": user_data,
+            "mfa_required": False,
+            "mfa_enrolled": False,
+            "user": {
+                "id":            user_data["id"],
+                "name":          user_data.get("name", ""),
+                "role":          user_data["role"],
+                "tenant_id":     user_data["tenant_id"],
+                "is_registered": user_data.get("is_registered", False),
+            },
         }
 
     @staticmethod
-    def _issue_session(user_data: dict, mfa_verified: bool = True, expires_in: timedelta = timedelta(days=7)) -> str:
-        """Internal helper to sign HS256 JWTs for student manual flow."""
+    def _issue_session(
+        user_data: dict,
+        mfa_verified: bool = True,
+        expires_in: timedelta = timedelta(days=7)
+    ) -> str:
+        """Sign HS256 JWTs for the student manual-OTP flow."""
         try:
             secret = base64.b64decode(settings.SUPABASE_JWT_SECRET)
         except Exception:
@@ -172,21 +198,19 @@ class AuthService:
             "sub": user_data["id"],
             "aud": "authenticated",
             "role": "authenticated",
-            # Ensure email is present otherwise Supabase auth might reject or ignore some things
             "email": f"user_{user_data['id'][:8]}@sms.thinktarteeb.local",
             "app_metadata": {
-                "provider": "sms",
-                "role": user_data["role"],
-                "tenant_id": user_data["tenant_id"],
+                "provider":      "sms",
+                "role":          user_data["role"],
+                "tenant_id":     user_data["tenant_id"],
                 "is_registered": user_data.get("is_registered", False),
-                # This is the critical claim that our deps/RLS will check
-                "mfa_verified": mfa_verified
+                "mfa_verified":  mfa_verified,
             },
             "user_metadata": {
                 "name": user_data.get("name", "")
             },
             "iat": int(now.timestamp()),
-            "exp": int((now + expires_in).timestamp())
+            "exp": int((now + expires_in).timestamp()),
         }
         return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -194,70 +218,75 @@ class AuthService:
 
     @staticmethod
     async def mfa_enroll_student(user_id: str, phone: str) -> dict:
-        """Custom TOTP enrollment for students (bypasses Supabase factors)."""
+        """Custom TOTP enrollment for students (uses pyotp, not Supabase factors)."""
         admin = get_admin_client()
-
-        # 1. Generate secret
         secret = pyotp.random_base32()
 
-        # 2. Save secret to users table
         try:
             admin.table("users").update({
-                "mfa_secret": secret,
-                "mfa_enabled": False # verified after first code check
+                "mfa_secret":  secret,
+                "mfa_enabled": False,   # only set True after first successful verify
             }).eq("id", user_id).execute()
         except Exception as e:
             raise AuthError("INTERNAL_ERROR", f"Failed to save MFA secret: {str(e)}", 500)
 
-        # 3. Generate QR Code
         totp = pyotp.TOTP(secret)
-        uri = totp.provisioning_uri(name=phone, issuer_name="ThinkTarteeb")
-        
-        img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage)
+        uri  = totp.provisioning_uri(name=phone, issuer_name="ThinkTarteeb")
+
+        img    = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage)
         stream = io.BytesIO()
         img.save(stream)
         svg_xml = stream.getvalue().decode()
 
         return {
-            "factor_id": f"std_{user_id[:8]}", # fake factor ID for UI consistency
-            "secret": secret,
-            "qr_code": svg_xml,
-            "uri": uri
+            "factor_id": f"std_{user_id[:8]}",
+            "secret":    secret,
+            "qr_code":   svg_xml,
+            "uri":       uri,
         }
 
     @staticmethod
     async def mfa_verify_student(user_id: str, code: str) -> dict:
-        """Custom TOTP verification for students."""
+        """Verify student TOTP code and issue full session."""
         admin = get_admin_client()
 
-        # 1. Fetch user secret
-        res = admin.table("users").select("id, role, tenant_id, name, is_registered, mfa_secret").eq("id", user_id).single().execute()
+        res = (
+            admin.table("users")
+            .select("id, role, tenant_id, name, is_registered, mfa_secret, mfa_enabled")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
         if not res.data:
             raise AuthError("NOT_FOUND", "User not found", 404)
-        
+
         user_data = res.data
-        secret = user_data.get("mfa_secret")
+        secret    = user_data.get("mfa_secret")
         if not secret:
             raise AuthError("MFA_ERROR", "MFA not enrolled for this user", 400)
 
-        # 2. Verify code
         totp = pyotp.TOTP(secret)
-        if not totp.verify(code):
-            raise AuthError("INVALID_CREDENTIALS", "Invalid verification code", 401)
+        if not totp.verify(code, valid_window=1):
+            raise AuthError("INVALID_CREDENTIALS", "Invalid TOTP code", 401)
 
-        # 3. Mark as enabled (if it was the first verification)
-        admin.table("users").update({"mfa_enabled": True}).eq("id", user_id).execute()
-        user_data["mfa_enabled"] = True
+        # Mark MFA as confirmed on first successful verify
+        if not user_data.get("mfa_enabled"):
+            admin.table("users").update({"mfa_enabled": True}).eq("id", user_id).execute()
+            user_data["mfa_enabled"] = True
 
-        # 4. Issue FULL session token (mfa_verified=True)
         access_token = AuthService._issue_session(user_data, mfa_verified=True)
-
         return {
-            "access_token": access_token,
+            "access_token":  access_token,
             "refresh_token": "manual-otp-verified",
-            "token_type": "bearer",
-            "user": user_data,
-            "mfa_verified": True
+            "token_type":    "bearer",
+            "mfa_verified":  True,
+            "user": {
+                "id":            user_data["id"],
+                "name":          user_data.get("name", ""),
+                "role":          user_data["role"],
+                "tenant_id":     user_data["tenant_id"],
+                "is_registered": user_data.get("is_registered", False),
+            },
         }
 
     # ── Email + Password (Teacher / Admin) ────────────────────
@@ -268,11 +297,11 @@ class AuthService:
 
         try:
             result = admin.auth.sign_in_with_password({"email": email, "password": password})
-        except AuthApiError as e:
+        except AuthApiError:
             raise AuthError("INVALID_CREDENTIALS", "Invalid email or password", 401)
 
         session = result.session
-        user = result.user
+        user    = result.user
 
         if not session or not user:
             raise AuthError("INTERNAL_ERROR", "No session returned", 500)
@@ -284,19 +313,20 @@ class AuthService:
             .single()
             .execute()
         )
+        if not user_row.data:
+            raise AuthError("NOT_FOUND", "User profile not found", 404)
 
-        role = user_row.data.get("role", "")
+        role      = user_row.data.get("role", "")
         tenant_id = user_row.data.get("tenant_id", "")
 
-        # Backfill app_metadata if missing (e.g. teachers invited before
-        # the app_metadata patch was added to the invite flow).
+        # Backfill app_metadata if missing
         auth_meta = (user.app_metadata or {}) if user else {}
         if auth_meta.get("role") != role or auth_meta.get("tenant_id") != tenant_id:
             try:
                 auth_headers = {
                     "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-                    "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-                    "Content-Type": "application/json",
+                    "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+                    "Content-Type":  "application/json",
                 }
                 async with httpx.AsyncClient() as client:
                     await client.put(
@@ -304,39 +334,43 @@ class AuthService:
                         json={"app_metadata": {"role": role, "tenant_id": tenant_id}},
                         headers=auth_headers,
                     )
-                # Re-sign so this session already carries the right claims
                 try:
                     result2 = admin.auth.sign_in_with_password({"email": email, "password": password})
                     if result2.session:
                         session = result2.session
                 except Exception:
-                    pass  # fallback: user can refresh on next request
+                    pass
             except Exception as e:
                 print(f"Warning: could not backfill app_metadata: {e}")
 
+        # Check whether this user has a verified TOTP factor in Supabase
         mfa_enrolled = any(
             getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
             for f in (user.factors or [])
         )
 
         user_data = user_row.data
-        user_data["mfa_enabled"] = mfa_enrolled
+
+        # ── MFA decision ──────────────────────────────────────
+        # Admin:   always require MFA (mandatory per security architecture)
+        # Teacher: only require MFA if they have enrolled a TOTP factor
+        mfa_required = (role == "admin") or (role == "teacher" and mfa_enrolled)
 
         return {
-            "access_token": session.access_token,
+            "access_token":  session.access_token,
             "refresh_token": session.refresh_token,
-            "token_type": "bearer",
-            "user": user_data,
-            "mfa_required": role == "admin",
-            "mfa_enrolled": mfa_enrolled,
+            "token_type":    "bearer",
+            "user":          user_data,
+            "mfa_required":  mfa_required,
+            "mfa_enrolled":  mfa_enrolled,
         }
 
     @staticmethod
     async def set_password(user_jwt: str, new_password: str) -> dict:
         auth_headers = {
             "Authorization": f"Bearer {user_jwt}",
-            "apikey": settings.SUPABASE_ANON_KEY,
-            "Content-Type": "application/json",
+            "apikey":        settings.SUPABASE_ANON_KEY,
+            "Content-Type":  "application/json",
         }
 
         async with httpx.AsyncClient() as client:
@@ -347,38 +381,36 @@ class AuthService:
             )
 
         if resp.status_code >= 400:
-            error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+            error_msg = (
+                resp.json().get("msg", resp.text)
+                if "application/json" in resp.headers.get("Content-Type", "")
+                else resp.text
+            )
             raise AuthError("SET_PASSWORD_ERROR", error_msg, resp.status_code)
 
-        # Update public.users table to reflect that password is set
         try:
-            # We need to decode the JWT to get the user ID
             decoded = jwt.decode(user_jwt, options={"verify_signature": False})
             user_id = decoded.get("sub")
             if user_id:
                 admin = get_admin_client()
                 admin.table("users").update({"has_password": True}).eq("id", user_id).execute()
         except Exception as e:
-            # Log error but don't fail the whole request as the password itself WAS set in Supabase Auth
             print(f"Error updating has_password flag: {str(e)}")
 
         return {"message": "Password updated successfully"}
 
-    # ── TOTP MFA enroll (Admin/Teacher) ───────────────────────
+    # ── TOTP MFA enroll (Admin / Teacher via Supabase) ────────
 
     @staticmethod
     async def mfa_enroll(user_jwt: str, refresh_token: str = "") -> dict:
-        """
-        Calls Supabase REST API directly — avoids gotrue-py Pydantic bugs.
-        """
         auth_headers = {
             "Authorization": f"Bearer {user_jwt}",
-            "apikey": settings.SUPABASE_ANON_KEY,
-            "Content-Type": "application/json",
+            "apikey":        settings.SUPABASE_ANON_KEY,
+            "Content-Type":  "application/json",
         }
 
         async with httpx.AsyncClient() as client:
-            # Clean up any previous incomplete enrollment attempts
+            # Clean up any unverified factors first
             try:
                 list_resp = await client.get(
                     f"{settings.SUPABASE_URL}/auth/v1/factors",
@@ -394,13 +426,12 @@ class AuthService:
             except httpx.HTTPError:
                 pass
 
-            # Enroll new TOTP factor
             resp = await client.post(
                 f"{settings.SUPABASE_URL}/auth/v1/factors",
                 json={
-                    "factor_type": "totp",
+                    "factor_type":   "totp",
                     "friendly_name": "Authenticator App",
-                    "issuer": "eClassroom",
+                    "issuer":        "ThinkTarteeb",
                 },
                 headers=auth_headers,
             )
@@ -413,26 +444,22 @@ class AuthService:
         totp = data.get("totp", {})
         return {
             "factor_id": data["id"],
-            "qr_code": totp.get("qr_code", ""),
-            "secret": totp.get("secret", ""),
-            "uri": totp.get("uri", ""),
+            "qr_code":   totp.get("qr_code", ""),
+            "secret":    totp.get("secret", ""),
+            "uri":       totp.get("uri", ""),
         }
 
-    # ── TOTP MFA verify (Admin/Teacher) ───────────────────────
+    # ── TOTP MFA verify (Admin / Teacher via Supabase) ────────
 
     @staticmethod
     async def mfa_verify(user_jwt: str, refresh_token: str, factor_id: str, code: str) -> dict:
-        """
-        Calls Supabase REST API directly — avoids gotrue-py challenge() dict bug.
-        """
         auth_headers = {
             "Authorization": f"Bearer {user_jwt}",
-            "apikey": settings.SUPABASE_ANON_KEY,
-            "Content-Type": "application/json",
+            "apikey":        settings.SUPABASE_ANON_KEY,
+            "Content-Type":  "application/json",
         }
 
         async with httpx.AsyncClient() as http:
-            # Step 1: Create challenge
             challenge_resp = await http.post(
                 f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/challenge",
                 headers=auth_headers,
@@ -442,23 +469,21 @@ class AuthService:
 
             challenge_id = challenge_resp.json().get("id")
 
-            # Step 2: Verify the 6-digit code
             verify_resp = await http.post(
                 f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/verify",
                 json={"challenge_id": challenge_id, "code": code},
                 headers=auth_headers,
             )
-
             if verify_resp.status_code >= 400:
                 raise AuthError("INVALID_CREDENTIALS", "Invalid TOTP code. Try again.", 401)
 
             data = verify_resp.json()
 
         return {
-            "access_token": data["access_token"],
+            "access_token":  data["access_token"],
             "refresh_token": data.get("refresh_token", ""),
-            "token_type": "bearer",
-            "mfa_verified": True,
+            "token_type":    "bearer",
+            "mfa_verified":  True,
         }
 
     # ── Invite teacher by email ───────────────────────────────
@@ -474,35 +499,28 @@ class AuthService:
         from urllib.parse import quote
         auth_headers = {
             "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-            "Content-Type": "application/json",
+            "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type":  "application/json",
         }
-        
         payload = {
             "email": email,
-            "data": {
-                "name": name,
-                "role": role,
-                "tenant_id": tenant_id,
-            }
+            "data":  {"name": name, "role": role, "tenant_id": tenant_id},
         }
-        # For /invite, GoTrue expects redirect_to as a query parameter.
-        # If it is not present (or not allowlisted), Supabase falls back to SITE_URL.
         invite_url = f"{settings.SUPABASE_URL}/auth/v1/invite"
         if redirect_to:
-            invite_url = invite_url + "?redirect_to=" + quote(redirect_to, safe=":/")
+            invite_url += "?redirect_to=" + quote(redirect_to, safe=":/")
 
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                invite_url,
-                json=payload,
-                headers=auth_headers
-            )
-            
+            resp = await client.post(invite_url, json=payload, headers=auth_headers)
+
         if resp.status_code >= 400:
-            error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+            error_msg = (
+                resp.json().get("msg", resp.text)
+                if "application/json" in resp.headers.get("Content-Type", "")
+                else resp.text
+            )
             raise AuthError("INVITE_ERROR", error_msg, resp.status_code)
-            
+
         data = resp.json()
         return {"user_id": data["id"], "email": email, "message": "Invite email sent"}
 
@@ -511,24 +529,30 @@ class AuthService:
     @staticmethod
     async def get_user_status(user_id: str) -> dict:
         admin = get_admin_client()
-        res = admin.table("users").select("id, name, role, tenant_id, has_password, is_registered").eq("id", user_id).maybe_single().execute()
-        
+
+        res = (
+            admin.table("users")
+            .select("id, name, role, tenant_id, has_password, is_registered")
+            .eq("id", user_id)
+            .maybe_single()
+            .execute()
+        )
         if not res.data:
             raise AuthError("NOT_FOUND", "User profile not found", 404)
-            
+
         user_data = res.data
-        
-        # Check MFA status
+
+        # Check MFA status from Supabase auth factors (safe — no extra DB column needed)
         try:
-            auth_user = admin.auth.admin.get_user_by_id(user_id)
+            auth_user   = admin.auth.admin.get_user_by_id(user_id)
             mfa_enabled = any(
                 getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
-                for f in (auth_user.factors or [])
+                for f in (auth_user.user.factors or [])
             )
             user_data["mfa_enabled"] = mfa_enabled
         except Exception:
             user_data["mfa_enabled"] = False
-            
+
         return user_data
 
     # ── Refresh Session ───────────────────────────────────────
@@ -536,14 +560,18 @@ class AuthService:
     @staticmethod
     async def refresh_session(refresh_token: str) -> dict:
         admin = get_admin_client()
+
+        # Student manual-OTP sessions use a placeholder refresh token — not refreshable
+        if refresh_token in ("manual-otp-verified", "pending-mfa"):
+            raise AuthError("INVALID_CREDENTIALS", "Manual OTP sessions cannot be refreshed. Please log in again.", 401)
+
         try:
             result = admin.auth.refresh_session(refresh_token)
-        except AuthApiError as e:
+        except AuthApiError:
             raise AuthError("INVALID_CREDENTIALS", "Refresh token is invalid or expired", 401)
 
         session = result.session
-        user = result.user
-
+        user    = result.user
         if not session or not user:
             raise AuthError("INVALID_CREDENTIALS", "Could not refresh session", 401)
 
@@ -554,8 +582,8 @@ class AuthService:
             .single()
             .execute()
         )
-        
-        user_data = user_row.data
+
+        user_data   = user_row.data
         mfa_enabled = any(
             getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
             for f in (user.factors or [])
@@ -563,8 +591,8 @@ class AuthService:
         user_data["mfa_enabled"] = mfa_enabled
 
         return {
-            "access_token": session.access_token,
+            "access_token":  session.access_token,
             "refresh_token": session.refresh_token,
-            "token_type": "bearer",
-            "user": user_data,
+            "token_type":    "bearer",
+            "user":          user_data,
         }
