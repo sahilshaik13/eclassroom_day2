@@ -9,6 +9,7 @@ GET  /api/v1/auth/mfa/factors
 POST /api/v1/auth/mfa/verify
 POST /api/v1/auth/logout
 """
+from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr
 
@@ -26,13 +27,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class OTPSendRequest(BaseModel):
     phone: str
-    tenant_id: str
+    tenant_id: UUID
 
 
 class OTPVerifyRequest(BaseModel):
     phone: str
     token: str
-    tenant_id: str
+    tenant_id: UUID
 
 
 class SetPasswordRequest(BaseModel):
