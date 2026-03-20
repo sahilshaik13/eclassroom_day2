@@ -6,6 +6,20 @@ import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
 import { ApiClientError } from '@/services/api'
 
+const Logo = () => (
+    <div className="flex items-center justify-center gap-3 mb-8">
+        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+            <div className="grid grid-cols-2 gap-0.5 p-1.5">
+                <div className="w-2 h-2 bg-[#4E7DFF] rounded-sm" />
+                <div className="w-2 h-2 bg-[#20C997] rounded-sm" />
+                <div className="w-2 h-2 bg-[#FF922B] rounded-sm" />
+                <div className="w-2 h-2 bg-[#A855F7] rounded-sm" />
+            </div>
+        </div>
+        <span className="text-xl text-white font-bold tracking-tight">ThinkTarteeb</span>
+    </div>
+)
+
 export default function MFAVerifyPage() {
     const navigate = useNavigate()
     const { setSession, user } = useAuthStore()
@@ -80,32 +94,17 @@ export default function MFAVerifyPage() {
         }
     }
 
-    const filled = digits.join('').length
-
     return (
-        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
-            <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-violet-900/10 rounded-full blur-[100px] pointer-events-none" />
+        <div className="auth-bg">
+            <div className="auth-bg-gradient" />
+            <div className="auth-glow-top" />
+            <div className="auth-glow-bottom" />
 
             <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-500">
+                <Logo />
 
-                {/* Logo */}
-                <div className="flex items-center justify-center gap-3 mb-8">
-                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-                        <div className="grid grid-cols-2 gap-0.5 p-1.5">
-                            <div className="w-2 h-2 bg-[#4E7DFF] rounded-sm" />
-                            <div className="w-2 h-2 bg-[#20C997] rounded-sm" />
-                            <div className="w-2 h-2 bg-[#FF922B] rounded-sm" />
-                            <div className="w-2 h-2 bg-[#A855F7] rounded-sm" />
-                        </div>
-                    </div>
-                    <span className="text-xl text-white font-bold tracking-tight">ThinkTarteeb</span>
-                </div>
-
-                {/* Card */}
-                <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 relative overflow-hidden">
-                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
+                <div className="auth-card p-8">
+                    <div className="auth-accent-line" />
 
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-6">
@@ -126,10 +125,9 @@ export default function MFAVerifyPage() {
                     ) : (
                         <div className="animate-in fade-in duration-300">
                             <p className="text-sm text-slate-400 mb-7 leading-relaxed">
-                                Open your authenticator app and enter the 6-digit code for <strong className="text-slate-300">ThinkTarteeb</strong>.
+                                Open your authenticator and enter the 6-digit code for <strong className="text-slate-300">ThinkTarteeb</strong>.
                             </p>
 
-                            {/* OTP digits */}
                             <div className="flex gap-2 mb-3 justify-center" onPaste={handlePaste}>
                                 {digits.map((d, i) => (
                                     <input
@@ -141,11 +139,7 @@ export default function MFAVerifyPage() {
                                         value={d}
                                         onChange={e => handleDigit(i, e.target.value)}
                                         onKeyDown={e => handleDigitKey(i, e)}
-                                        className={`w-11 text-center text-xl font-mono font-bold rounded-xl
-                      bg-slate-950/60 border text-white transition-all shadow-inner
-                      focus:outline-none focus:ring-1 focus:ring-primary/50
-                      ${d ? 'border-primary/60' : 'border-slate-800'}`}
-                                        style={{ height: '52px' }}
+                                        className={`otp-digit ${d ? 'filled' : ''}`}
                                     />
                                 ))}
                             </div>
@@ -153,24 +147,19 @@ export default function MFAVerifyPage() {
                             {/* Progress dots */}
                             <div className="flex justify-center gap-1.5 mb-7">
                                 {digits.map((d, i) => (
-                                    <div
-                                        key={i}
-                                        className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${d ? 'bg-primary' : 'bg-slate-800'
-                                            }`}
-                                    />
+                                    <div key={i} className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${d ? 'bg-primary' : 'bg-slate-800'
+                                        }`} />
                                 ))}
                             </div>
 
                             <button
                                 onClick={verifyCode}
-                                disabled={loading || filled < 6}
-                                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 mb-4 disabled:opacity-40 disabled:cursor-not-allowed"
+                                disabled={loading || digits.join('').length < 6}
+                                className="btn-primary w-full mb-4"
                             >
-                                {loading ? (
-                                    <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>
-                                ) : (
-                                    <><ShieldCheck className="w-4 h-4" /> Verify &amp; Sign In</>
-                                )}
+                                {loading
+                                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Verifying…</>
+                                    : <><ShieldCheck className="w-4 h-4" /> Verify &amp; Sign In</>}
                             </button>
 
                             <button
@@ -183,9 +172,7 @@ export default function MFAVerifyPage() {
                     )}
                 </div>
 
-                <p className="mt-5 text-center text-xs text-slate-600">
-                    {user?.email}
-                </p>
+                <p className="mt-5 text-center text-xs text-slate-600">{user?.email}</p>
             </div>
         </div>
     )

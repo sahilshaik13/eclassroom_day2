@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, UserPlus, MessageCircle, CheckCircle2, Clock, Calendar, PlayCircle, BookOpen, Layout, Sparkles, Loader2, Check } from 'lucide-react'
+import { Users, UserPlus, MessageCircle, CheckCircle2, Clock, Calendar, PlayCircle, BookOpen, Sparkles, Loader2, Check } from 'lucide-react'
 import api from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import { Button } from '@/components/ui/button'

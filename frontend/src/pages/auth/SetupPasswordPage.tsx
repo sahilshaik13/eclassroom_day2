@@ -31,11 +31,25 @@ const decodeJWT = (token: string) => {
   } catch { return null }
 }
 
-const rules = [
+const RULES = [
   { label: '8+ characters', test: (v: string) => v.length >= 8 },
   { label: 'One uppercase letter', test: (v: string) => /[A-Z]/.test(v) },
   { label: 'One number', test: (v: string) => /[0-9]/.test(v) },
 ]
+
+const Logo = () => (
+  <div className="flex items-center justify-center gap-3 mb-8">
+    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+      <div className="grid grid-cols-2 gap-0.5 p-1.5">
+        <div className="w-2 h-2 bg-[#4E7DFF] rounded-sm" />
+        <div className="w-2 h-2 bg-[#20C997] rounded-sm" />
+        <div className="w-2 h-2 bg-[#FF922B] rounded-sm" />
+        <div className="w-2 h-2 bg-[#A855F7] rounded-sm" />
+      </div>
+    </div>
+    <span className="text-xl text-white font-bold tracking-tight">ThinkTarteeb</span>
+  </div>
+)
 
 export default function SetupPasswordPage() {
   const navigate = useNavigate()
@@ -139,51 +153,36 @@ export default function SetupPasswordPage() {
   const isLoading = loading || loggingIn
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-violet-900/10 rounded-full blur-[100px] pointer-events-none" />
+    <div className="auth-bg">
+      <div className="auth-bg-gradient" />
+      <div className="auth-glow-top" />
+      <div className="auth-glow-bottom" />
 
       <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-500">
+        <Logo />
 
-        {/* Logo */}
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-            <div className="grid grid-cols-2 gap-0.5 p-1.5">
-              <div className="w-2 h-2 bg-[#4E7DFF] rounded-sm" />
-              <div className="w-2 h-2 bg-[#20C997] rounded-sm" />
-              <div className="w-2 h-2 bg-[#FF922B] rounded-sm" />
-              <div className="w-2 h-2 bg-[#A855F7] rounded-sm" />
-            </div>
-          </div>
-          <span className="text-xl text-white font-bold tracking-tight">ThinkTarteeb</span>
-        </div>
+        <div className="auth-card p-8">
+          <div className="auth-accent-line" />
 
-        {/* Card */}
-        <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-8 relative overflow-hidden">
-          {/* Top accent line */}
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
-
-          {/* Icon + Title */}
-          <div className="flex items-center gap-4 mb-6">
+          {/* Header */}
+          <div className="flex items-center gap-4 mb-7">
             <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
               <KeyRound className="w-6 h-6 text-primary" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-white leading-tight">Set Your Password</h1>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {email ? email : 'Create a secure password for your account'}
+              <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[200px]">
+                {email ?? 'Create a secure password'}
               </p>
             </div>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 
-            {/* Password field */}
+            {/* Password */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                New Password
+              <label className="label-dark">
+                New Password <span className="text-red-400">*</span>
               </label>
               <div className="relative">
                 <input
@@ -192,7 +191,7 @@ export default function SetupPasswordPage() {
                   onChange={e => setPwValue(e.target.value)}
                   placeholder="Min. 8 characters"
                   disabled={isLoading}
-                  className="w-full bg-slate-950/60 border border-slate-800 text-white placeholder:text-slate-600 rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all"
+                  className="input-dark pr-11"
                 />
                 <button
                   type="button"
@@ -207,26 +206,24 @@ export default function SetupPasswordPage() {
               )}
             </div>
 
-            {/* Password strength indicators */}
+            {/* Strength indicators */}
             {pwValue.length > 0 && (
               <div className="grid grid-cols-3 gap-2">
-                {rules.map(rule => (
-                  <div
-                    key={rule.label}
-                    className={`flex items-center gap-1.5 text-[10px] font-semibold transition-colors ${rule.test(pwValue) ? 'text-emerald-400' : 'text-slate-600'
-                      }`}
-                  >
-                    <CheckCircle2 className={`w-3 h-3 shrink-0 ${rule.test(pwValue) ? 'text-emerald-400' : 'text-slate-700'}`} />
+                {RULES.map(rule => (
+                  <div key={rule.label} className={`flex items-center gap-1.5 text-[10px] font-semibold transition-colors ${rule.test(pwValue) ? 'text-emerald-400' : 'text-slate-600'
+                    }`}>
+                    <CheckCircle2 className={`w-3 h-3 shrink-0 transition-colors ${rule.test(pwValue) ? 'text-emerald-400' : 'text-slate-700'
+                      }`} />
                     {rule.label}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Confirm password */}
+            {/* Confirm */}
             <div>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
-                Confirm Password
+              <label className="label-dark">
+                Confirm Password <span className="text-red-400">*</span>
               </label>
               <div className="relative">
                 <input
@@ -234,7 +231,7 @@ export default function SetupPasswordPage() {
                   type={showCf ? 'text' : 'password'}
                   placeholder="Repeat your password"
                   disabled={isLoading}
-                  className="w-full bg-slate-950/60 border border-slate-800 text-white placeholder:text-slate-600 rounded-xl px-4 py-3 pr-11 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all"
+                  className="input-dark pr-11"
                 />
                 <button
                   type="button"
@@ -253,7 +250,7 @@ export default function SetupPasswordPage() {
             <button
               type="submit"
               disabled={isLoading || !token}
-              className="w-full mt-2 bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-primary w-full mt-2"
             >
               {isLoading ? (
                 <>
@@ -273,7 +270,7 @@ export default function SetupPasswordPage() {
           <div className="mt-5 flex items-start gap-2.5 p-3 bg-white/[0.03] rounded-xl border border-white/5">
             <ShieldCheck className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              Your password is encrypted and never stored in plain text. You'll be redirected to login after activation.
+              Your password is encrypted end-to-end. You'll be redirected to login after activation.
             </p>
           </div>
         </div>

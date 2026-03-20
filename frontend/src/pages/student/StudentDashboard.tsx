@@ -1,17 +1,15 @@
 import { useState, useEffect } from 'react'
 import {
-  CheckCircle2, Circle, BookOpen, Headphones, RotateCcw, Mic, FileText,
-  Users, ExternalLink, Loader2, Calendar, Flame, PlayCircle, ArrowRight,
+  CheckCircle2, Circle, BookOpen, Headphones,
+  Loader2, Calendar, PlayCircle, ArrowRight,
   MessageCircle, TrendingUp
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
-import { format } from 'date-fns'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
-import type { Task, TaskType, WeekProgress } from '@/types'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import type { Task, TaskType } from '@/types'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import api from '@/services/api'
 
@@ -29,27 +27,6 @@ async function fetchTodayTasks(): Promise<Task[]> {
   }
 }
 
-async function fetchWeekProgress(): Promise<WeekProgress[]> {
-  try {
-    const res = await api.get('/classroom/tasks/week-progress')
-    return res.data.data
-  } catch {
-    return Array.from({ length: 7 }, (_, i) => ({
-      date: new Date(Date.now() - (6 - i) * 86400000).toISOString().slice(0, 10),
-      completed_count: i < 5 ? Math.floor(Math.random() * 2) + 1 : 0,
-      total_count: 4,
-    }))
-  }
-}
-
-const TASK_ICONS: Record<TaskType, React.ElementType> = {
-  memorise: BookOpen,
-  review: RotateCcw,
-  recite: Mic,
-  listen: Headphones,
-  read: FileText,
-}
-
 const TASK_COLORS: Record<TaskType, { bg: string; text: string; tag: string }> = {
   memorise: { bg: 'bg-indigo-50 border-indigo-100', text: 'text-indigo-600', tag: 'New' },
   review: { bg: 'bg-blue-50 border-blue-100', text: 'text-blue-600', tag: 'Review' },
@@ -61,14 +38,13 @@ const TASK_COLORS: Record<TaskType, { bg: string; text: string; tag: string }> =
 export default function StudentDashboard() {
   const { user } = useAuthStore()
   const [tasks, setTasks] = useState<Task[]>([])
-  const [week, setWeek] = useState<WeekProgress[]>([])
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [pendingDoubts, setPendingDoubts] = useState(1)
 
   useEffect(() => {
-    Promise.all([fetchTodayTasks(), fetchWeekProgress()])
-      .then(([t, w]) => { setTasks(t); setWeek(w) })
+    fetchTodayTasks()
+      .then(t => setTasks(t))
       .finally(() => setLoadingTasks(false))
 
     api.get('/classroom/doubts').then(r => {
@@ -187,7 +163,6 @@ export default function StudentDashboard() {
             [1, 2, 3].map(i => <div key={i} className="h-16 bg-slate-100 animate-pulse rounded-2xl" />)
           ) : (
             tasks.map((task) => {
-              const Icon = TASK_ICONS[task.task_type]
               const colors = TASK_COLORS[task.task_type]
               const isLoading = completingId === task.id
               return (
