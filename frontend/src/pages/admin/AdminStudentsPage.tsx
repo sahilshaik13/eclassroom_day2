@@ -24,6 +24,8 @@ const STATUS_STYLES: Record<string, string> = {
   Struggling: 'text-amber-700  bg-amber-50  border-amber-200',
   Absent: 'text-red-700    bg-red-50    border-red-200',
   Excelling: 'text-blue-700   bg-blue-50   border-blue-200',
+  Inactive: 'text-slate-500  bg-slate-50  border-slate-200',
+  Disabled: 'text-slate-500  bg-slate-50  border-slate-200',
 }
 
 export default function AdminStudentsPage() {

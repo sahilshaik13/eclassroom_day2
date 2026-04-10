@@ -5,9 +5,15 @@ GET    /api/v1/admin/stats
 GET    /api/v1/admin/students
 POST   /api/v1/admin/students
 PATCH  /api/v1/admin/students/{id}
+POST   /api/v1/admin/students/{id}/deactivate
+POST   /api/v1/admin/students/{id}/activate
 DELETE /api/v1/admin/students/{id}
 GET    /api/v1/admin/teachers
 POST   /api/v1/admin/teachers          (invite by email)
+PATCH  /api/v1/admin/teachers/{id}
+POST   /api/v1/admin/teachers/{id}/deactivate
+POST   /api/v1/admin/teachers/{id}/activate
+DELETE /api/v1/admin/teachers/{id}
 GET    /api/v1/admin/classes
 POST   /api/v1/admin/classes
 PATCH  /api/v1/admin/classes/{id}
@@ -73,6 +79,45 @@ async def get_stats(request: Request, token: TokenData = Depends(require_admin))
     })
 
 
+# ── Class Enrollments Management ──────────────────────────────
+
+@router.get("/classes/{class_id}/students")
+async def list_class_students(
+    class_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    res = (
+        admin.table("class_enrollments")
+        .select("student_id, students(id, name, phone, deactivated_at)")
+        .eq("class_id", class_id)
+        .eq("tenant_id", token.tenant_id)
+        .execute()
+    )
+    # Return flattened data
+    students_data = []
+    for row in (res.data or []):
+        stu = row.get("students") or {}
+        students_data.append({
+            "id": stu.get("id"),
+            "name": stu.get("name"),
+            "phone": stu.get("phone"),
+            "status": "Inactive" if stu.get("deactivated_at") else "Active"
+        })
+    return success(students_data)
+
+@router.delete("/classes/{class_id}/enroll/{student_id}")
+async def unenroll_student_admin(
+    class_id: str,
+    student_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    admin.table("class_enrollments").delete().eq("class_id", class_id).eq("student_id", student_id).eq("tenant_id", token.tenant_id).execute()
+    return success({"unenrolled": True})
+
 # ── Students ──────────────────────────────────────────────────
 
 @router.get("/students")
@@ -87,7 +132,7 @@ async def list_students(
     admin = get_admin_client()
     q = (
         admin.table("students")
-        .select("*, class_enrollments(class_id, classes(name))", count="exact")
+        .select("*, class_enrollments(class_id, classes(name, users!classes_teacher_id_fkey(name)))", count="exact")
         .eq("tenant_id", token.tenant_id)
         .order("created_at", desc=True)
         .range((page - 1) * limit, page * limit - 1)
@@ -95,7 +140,26 @@ async def list_students(
     if search:
         q = q.ilike("name", f"%{search}%")
     res = q.execute()
-    return paginated(res.data or [], page, limit, res.count or 0)
+    
+    students_data = []
+    for row in (res.data or []):
+        enrollments = row.pop("class_enrollments", [])
+        class_name = None
+        teacher_name = None
+        if enrollments:
+            # Join multiple classes with a comma
+            class_names = [e.get("classes", {}).get("name") for e in enrollments if e.get("classes")]
+            class_name = ", ".join(filter(None, class_names))
+            
+            # Just take the first teacher for the primary display to keep it simple
+            teacher_info = enrollments[0].get("classes", {}).get("users") or {}
+            teacher_name = teacher_info.get("name")
+            
+        row["class_name"] = class_name
+        row["teacher_name"] = teacher_name
+        students_data.append(row)
+        
+    return paginated(students_data, page, limit, res.count or 0)
 
 
 class StudentCreate(BaseModel):
@@ -227,12 +291,13 @@ async def update_student(
     return success({"updated": True})
 
 
-@router.delete("/students/{student_id}")
+@router.post("/students/{student_id}/deactivate")
 async def deactivate_student(
     student_id: str,
     request: Request,
     token: TokenData = Depends(require_admin),
 ):
+    """Soft-disable a student (mark as on leave). They cannot log in but data is preserved."""
     from datetime import datetime, timezone
     admin = get_admin_client()
     now = datetime.now(timezone.utc).isoformat()
@@ -241,11 +306,68 @@ async def deactivate_student(
     stu_res = admin.table("students").update({"deactivated_at": now}).eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
     
     if stu_res.data:
-        # If student found, also deactivate their linked user account (ensure same tenant)
         user_id = stu_res.data[0]["user_id"]
         admin.table("users").update({"deactivated_at": now, "is_active": False}).eq("id", user_id).eq("tenant_id", token.tenant_id).execute()
     
     return success({"deactivated": True})
+
+
+@router.post("/students/{student_id}/activate")
+async def activate_student(
+    student_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    """Re-activate a previously disabled student."""
+    admin = get_admin_client()
+    
+    stu_res = admin.table("students").update({"deactivated_at": None}).eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
+    
+    if stu_res.data:
+        user_id = stu_res.data[0]["user_id"]
+        admin.table("users").update({"deactivated_at": None, "is_active": True}).eq("id", user_id).eq("tenant_id", token.tenant_id).execute()
+    
+    return success({"activated": True})
+
+
+@router.delete("/students/{student_id}")
+async def delete_student(
+    student_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    """Permanently delete a student — removes all data and auth user."""
+    import httpx
+    admin = get_admin_client()
+    
+    # 1. Get the student to find user_id
+    stu = admin.table("students").select("user_id").eq("id", student_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not stu.data:
+        return error("NOT_FOUND", "Student not found", 404)
+    user_id = stu.data["user_id"]
+    
+    # 2. Delete related rows (enrollments, completions, etc.)
+    admin.table("class_enrollments").delete().eq("student_id", student_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("task_completions").delete().eq("student_id", student_id).eq("tenant_id", token.tenant_id).execute()
+    
+    # 3. Delete student row
+    admin.table("students").delete().eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
+    
+    # 4. Delete user row
+    admin.table("users").delete().eq("id", user_id).eq("tenant_id", token.tenant_id).execute()
+    
+    # 5. Delete auth user via Supabase Admin API
+    auth_headers = {
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+    }
+    async with httpx.AsyncClient() as client:
+        await client.delete(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+            headers=auth_headers,
+        )
+    
+    return success({"deleted": True})
 
 
 # ── Teachers ──────────────────────────────────────────────────
@@ -276,12 +398,22 @@ async def invite_teacher(
     token: TokenData = Depends(require_admin),
 ):
     try:
-        # For teacher invites, always redirect through the password setup flow.
-        # Supabase will verify the invite token, then redirect to this URL
-        # with either ?token=... or #access_token=... so the frontend can
-        # check has_password and gate access accordingly.
-        # admin.py line ~283
-        redirect_to = f"{settings.FRONTEND_URL}/auth/callback"
+        # Determine dynamic redirect URL based on admin's origin (Local vs Prod)
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        
+        base_url = settings.FRONTEND_URL # Fallback
+        
+        # If admin is on localhost, we want the invite to point to localhost
+        if origin and ("localhost" in origin or "127.0.0.1" in origin):
+            base_url = origin
+        elif referer and ("localhost" in referer or "127.0.0.1" in referer):
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            base_url = f"{p.scheme}://{p.netloc}"
+            
+        redirect_to = f"{base_url}/auth/callback"
+
         result = await AuthService.invite_user_by_email(
             email=body.email,
             name=body.name,
@@ -374,6 +506,77 @@ async def update_teacher(
     return success({"updated": True})
 
 
+@router.post("/teachers/{teacher_id}/deactivate")
+async def deactivate_teacher(
+    teacher_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    """Disable a teacher (mark as on leave). Students will see their teacher is on leave."""
+    from datetime import datetime, timezone
+    admin = get_admin_client()
+    now = datetime.now(timezone.utc).isoformat()
+    
+    res = admin.table("users").update({"deactivated_at": now, "is_active": False}).eq("id", teacher_id).eq("role", "teacher").eq("tenant_id", token.tenant_id).execute()
+    
+    if not res.data:
+        return error("NOT_FOUND", "Teacher not found", 404)
+    
+    return success({"deactivated": True})
+
+
+@router.post("/teachers/{teacher_id}/activate")
+async def activate_teacher(
+    teacher_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    """Re-activate a previously disabled teacher."""
+    admin = get_admin_client()
+    
+    res = admin.table("users").update({"deactivated_at": None, "is_active": True}).eq("id", teacher_id).eq("role", "teacher").eq("tenant_id", token.tenant_id).execute()
+    
+    if not res.data:
+        return error("NOT_FOUND", "Teacher not found", 404)
+    
+    return success({"activated": True})
+
+
+@router.delete("/teachers/{teacher_id}")
+async def delete_teacher(
+    teacher_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    """Permanently delete a teacher — removes user record and auth user."""
+    import httpx
+    admin = get_admin_client()
+    
+    # 1. Verify teacher exists and belongs to tenant
+    user = admin.table("users").select("id").eq("id", teacher_id).eq("role", "teacher").eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not user.data:
+        return error("NOT_FOUND", "Teacher not found", 404)
+    
+    # 2. Unassign teacher from classes (set teacher_id to null)
+    admin.table("classes").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
+    
+    # 3. Delete user row
+    admin.table("users").delete().eq("id", teacher_id).eq("tenant_id", token.tenant_id).execute()
+    
+    # 4. Delete auth user via Supabase Admin API
+    auth_headers = {
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+    }
+    async with httpx.AsyncClient() as client:
+        await client.delete(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users/{teacher_id}",
+            headers=auth_headers,
+        )
+    
+    return success({"deleted": True})
+
+
 # ── Classes ───────────────────────────────────────────────────
 
 @router.get("/classes")
@@ -390,7 +593,8 @@ async def list_classes(request: Request, token: TokenData = Depends(require_admi
     for row in (res.data or []):
         teacher = row.pop("users", None) or {}
         enr = row.pop("class_enrollments", []) or []
-        classes.append({**row, "teacher_name": teacher.get("name", ""), "enrollment_count": len(enr)})
+        count = enr[0].get("count", 0) if enr and isinstance(enr, list) else 0
+        classes.append({**row, "teacher_name": teacher.get("name", ""), "enrollment_count": count})
     return success(classes)
 
 
@@ -431,6 +635,29 @@ async def update_class(
     allowed = {k: v for k, v in body.items() if k in ("name", "teacher_id", "zoom_link", "capacity", "schedule_json")}
     res = admin.table("classes").update(allowed).eq("id", class_id).eq("tenant_id", token.tenant_id).execute()
     return success(res.data[0] if res.data else {})
+
+
+@router.delete("/classes/{class_id}")
+async def delete_class(
+    class_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    
+    # 1. Clean up related data natively since Supabase might not have cascade properly configured on all relations
+    admin.table("class_enrollments").delete().eq("class_id", class_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("doubts").delete().eq("class_id", class_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("attendance").delete().eq("class_id", class_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("grades").delete().eq("class_id", class_id).eq("tenant_id", token.tenant_id).execute()
+    
+    # 2. Delete the actual class
+    res = admin.table("classes").delete().eq("id", class_id).eq("tenant_id", token.tenant_id).execute()
+    
+    if not res.data:
+        return error("NOT_FOUND", "Class not found", 404)
+        
+    return success({"deleted": True})
 
 
 class EnrollPayload(BaseModel):

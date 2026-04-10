@@ -38,8 +38,11 @@ export default function MFAVerifyPage() {
                 navigate('/auth/login')
                 return
             }
+
+
+            // Admin/Teacher use Supabase factors
             try {
-                const res = await authApi.mfaGetFactors()
+                const res = await authApi.mfaGetFactors(token)
                 setFactorId(res.data.data.factor_id)
                 setTimeout(() => inputRefs.current[0]?.focus(), 100)
             } catch {
@@ -50,7 +53,7 @@ export default function MFAVerifyPage() {
             }
         }, 300)
         return () => clearTimeout(timer)
-    }, [navigate])
+    }, [navigate, user?.role])
 
     const handleDigit = (i: number, val: string) => {
         if (!/^\d*$/.test(val)) return
@@ -77,13 +80,25 @@ export default function MFAVerifyPage() {
         const code = digits.join('')
         if (code.length < 6) return toast.error('Enter all 6 digits')
         setLoading(true)
+
+        // Retrieve token for explicit passing
+        const raw = localStorage.getItem('eclassroom-auth')
+        const token = raw ? JSON.parse(raw)?.state?.accessToken : null
+
         try {
-            const res = await authApi.mfaVerify(factorId, code)
+            const res = await authApi.mfaVerify(factorId, code, token)
             const { access_token, refresh_token } = res.data.data as any
             const rt = refresh_token || localStorage.getItem('refresh_token') || ''
             setSession(user!, access_token, rt)
             toast.success('Welcome back!')
-            navigate('/admin')
+            
+            if (user?.role === 'admin') {
+                navigate('/admin', { replace: true })
+            } else if (user?.role === 'teacher') {
+                navigate(user?.is_registered ? '/teacher' : '/auth/teacher-registration', { replace: true })
+            } else {
+                navigate('/auth/login', { replace: true })
+            }
         } catch (e) {
             if (e instanceof ApiClientError) toast.error(e.message)
             else toast.error('Invalid code. Try again.')
@@ -113,7 +128,7 @@ export default function MFAVerifyPage() {
                         </div>
                         <div>
                             <h1 className="text-lg font-bold text-white">Two-Factor Verification</h1>
-                            <p className="text-xs text-slate-400">Admin authentication required</p>
+                            <p className="text-xs text-slate-400">Please enter your code to continue</p>
                         </div>
                     </div>
 

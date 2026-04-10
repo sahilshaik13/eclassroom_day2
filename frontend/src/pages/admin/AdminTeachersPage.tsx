@@ -142,7 +142,7 @@ export default function AdminTeachersPage() {
                   </tr>
                 ) : (
                   filtered.map(t => {
-                    const status = t.deactivated_at ? 'inactive' : 'active'
+                    const status = t.deactivated_at ? 'leave' : 'active'
                     const statusStyle = STATUS_MAP[status]
                     return (
                       <tr

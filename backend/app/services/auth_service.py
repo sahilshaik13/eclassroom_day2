@@ -1,21 +1,27 @@
 """
-AuthService — thin wrapper around Supabase Auth with custom MFA for students.
+AuthService — thin wrapper around Supabase Auth.
 """
 import random
 import jwt
-import pyotp
-import qrcode
-import qrcode.image.svg
-import io
 import httpx
 import base64
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from twilio.rest import Client as TwilioClient
+from supabase import create_client
 from gotrue.errors import AuthApiError
 
 from app.db.supabase import get_admin_client
 from app.core.config import settings
+
+
+def _disposable_auth_client():
+    """Create a fresh Supabase client for sign_in_with_password.
+
+    NEVER use the cached admin client for this — sign_in_with_password
+    mutates the client's auth session, poisoning the service-role headers
+    for all subsequent PostgREST queries."""
+    return create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
 
 
 class AuthError(Exception):
@@ -79,11 +85,12 @@ class AuthService:
                 raise Exception("Twilio Phone Number or Messaging Service SID missing")
             client.messages.create(**send_args)
         except Exception as e:
+            print(f"DEBUG send_otp Twilio/Delivery error for {phone}: {e}")
             if not settings.is_production:
                 return {
                     "message": "OTP generated (MOCK)",
                     "dev_otp": otp_code,
-                    "note": f"Twilio error: {str(e)}. Use {otp_code} for testing."
+                    "note": f"Delivery error: {str(e)}. Use {otp_code} for testing."
                 }
             raise AuthError("INTERNAL_ERROR", f"SMS delivery failed: {str(e)}", 500)
 
@@ -115,19 +122,8 @@ class AuthService:
         # 2. Consume the code
         admin.table("otp_codes").delete().eq("id", otp_res.data[0]["id"]).execute()
 
-        # 3. Get user record — safe select (no mfa_enabled in select to avoid
-        #    column-not-found if migration hasn't run yet)
+        # 3. Get user record
         try:
-            user_res = (
-                admin.table("users")
-                .select("id, name, role, tenant_id, has_password, is_registered, mfa_enabled, mfa_secret")
-                .eq("phone", phone)
-                .eq("tenant_id", tenant_id)
-                .single()
-                .execute()
-            )
-        except Exception:
-            # Fallback: query without optional columns if they don't exist yet
             user_res = (
                 admin.table("users")
                 .select("id, name, role, tenant_id, has_password, is_registered")
@@ -136,37 +132,14 @@ class AuthService:
                 .single()
                 .execute()
             )
+            user_data = user_res.data
+        except Exception as e:
+            raise AuthError("NOT_FOUND", "Student record not found in user directory", 404)
 
-        if not user_res or not user_res.data:
+        if not user_data:
             raise AuthError("NOT_FOUND", "User record not found — contact support", 404)
 
-        user_data   = user_res.data
-        mfa_enabled = user_data.get("mfa_enabled", False)
-        mfa_secret  = user_data.get("mfa_secret")
-
-        # 4. If student has MFA enabled → return temp token, require TOTP
-        if mfa_enabled and mfa_secret:
-            temp_token = AuthService._issue_session(
-                user_data,
-                mfa_verified=False,
-                expires_in=timedelta(minutes=15)
-            )
-            return {
-                "mfa_required": True,
-                "mfa_enrolled": True,
-                "access_token": temp_token,          # temp token used for /auth/mfa/verify call
-                "refresh_token": "pending-mfa",
-                "token_type": "bearer",
-                "user": {
-                    "id":           user_data["id"],
-                    "name":         user_data.get("name", ""),
-                    "role":         user_data["role"],
-                    "tenant_id":    user_data["tenant_id"],
-                    "is_registered": user_data.get("is_registered", False),
-                },
-            }
-
-        # 5. No MFA → issue full session immediately
+        # 4. Issue full session immediately (no MFA for students)
         access_token = AuthService._issue_session(user_data, mfa_verified=True)
         return {
             "access_token": access_token,
@@ -216,89 +189,16 @@ class AuthService:
         }
         return jwt.encode(payload, secret, algorithm="HS256")
 
-    # ── Custom Student MFA enrollment ─────────────────────────
-
-    @staticmethod
-    async def mfa_enroll_student(user_id: str, phone: str) -> dict:
-        """Custom TOTP enrollment for students (uses pyotp, not Supabase factors)."""
-        admin = get_admin_client()
-        secret = pyotp.random_base32()
-
-        try:
-            admin.table("users").update({
-                "mfa_secret":  secret,
-                "mfa_enabled": False,   # only set True after first successful verify
-            }).eq("id", user_id).execute()
-        except Exception as e:
-            raise AuthError("INTERNAL_ERROR", f"Failed to save MFA secret: {str(e)}", 500)
-
-        totp = pyotp.TOTP(secret)
-        uri  = totp.provisioning_uri(name=phone, issuer_name="ThinkTarteeb")
-
-        img    = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage)
-        stream = io.BytesIO()
-        img.save(stream)
-        svg_xml = stream.getvalue().decode()
-
-        return {
-            "factor_id": f"std_{user_id[:8]}",
-            "secret":    secret,
-            "qr_code":   svg_xml,
-            "uri":       uri,
-        }
-
-    @staticmethod
-    async def mfa_verify_student(user_id: str, code: str) -> dict:
-        """Verify student TOTP code and issue full session."""
-        admin = get_admin_client()
-
-        res = (
-            admin.table("users")
-            .select("id, role, tenant_id, name, is_registered, mfa_secret, mfa_enabled")
-            .eq("id", user_id)
-            .single()
-            .execute()
-        )
-        if not res.data:
-            raise AuthError("NOT_FOUND", "User not found", 404)
-
-        user_data = res.data
-        secret    = user_data.get("mfa_secret")
-        if not secret:
-            raise AuthError("MFA_ERROR", "MFA not enrolled for this user", 400)
-
-        totp = pyotp.TOTP(secret)
-        if not totp.verify(code, valid_window=1):
-            raise AuthError("INVALID_CREDENTIALS", "Invalid TOTP code", 401)
-
-        # Mark MFA as confirmed on first successful verify
-        if not user_data.get("mfa_enabled"):
-            admin.table("users").update({"mfa_enabled": True}).eq("id", user_id).execute()
-            user_data["mfa_enabled"] = True
-
-        access_token = AuthService._issue_session(user_data, mfa_verified=True)
-        return {
-            "access_token":  access_token,
-            "refresh_token": "manual-otp-verified",
-            "token_type":    "bearer",
-            "mfa_verified":  True,
-            "user": {
-                "id":            user_data["id"],
-                "name":          user_data.get("name", ""),
-                "role":          user_data["role"],
-                "tenant_id":     user_data["tenant_id"],
-                "is_registered": user_data.get("is_registered", False),
-            },
-        }
-
     # ── Email + Password (Teacher / Admin) ────────────────────
 
     @staticmethod
     async def login_with_password(email: str, password: str) -> dict:
         admin = get_admin_client()
+        # Use a disposable client for sign_in — never the cached admin singleton
+        auth_client = _disposable_auth_client()
 
         try:
-            result = admin.auth.sign_in_with_password({"email": email, "password": password})
+            result = auth_client.auth.sign_in_with_password({"email": email, "password": password})
         except AuthApiError:
             raise AuthError("INVALID_CREDENTIALS", "Invalid email or password", 401)
 
@@ -337,7 +237,8 @@ class AuthService:
                         headers=auth_headers,
                     )
                 try:
-                    result2 = admin.auth.sign_in_with_password({"email": email, "password": password})
+                    re_auth = _disposable_auth_client()
+                    result2 = re_auth.auth.sign_in_with_password({"email": email, "password": password})
                     if result2.session:
                         session = result2.session
                 except Exception:
@@ -345,11 +246,29 @@ class AuthService:
             except Exception as e:
                 print(f"Warning: could not backfill app_metadata: {e}")
 
-        # Check whether this user has a verified TOTP factor in Supabase
-        mfa_enrolled = any(
-            getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
-            for f in (user.factors or [])
-        )
+        # ── Robust MFA status detection (Admin API) ────────────────
+        mfa_enrolled = False
+        try:
+            auth_headers = {
+                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+            }
+            async with httpx.AsyncClient() as http:
+                resp = await http.get(
+                    f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user.id}",
+                    headers=auth_headers
+                )
+                if resp.status_code == 200:
+                    auth_user_data = resp.json()
+                    factors = auth_user_data.get("factors", [])
+                    for f in factors:
+                        if f.get("factor_type") == "totp" and f.get("status") == "verified":
+                            mfa_enrolled = True
+                            break
+                else:
+                    print(f"DEBUG: Admin API check failed ({resp.status_code}): {resp.text}")
+        except Exception as e:
+            print(f"DEBUG login MFA check exception: {e}")
 
         user_data = user_row.data
 
@@ -412,22 +331,30 @@ class AuthService:
         }
 
         async with httpx.AsyncClient() as client:
-            # Clean up any unverified factors first
+            # 1. Clean up any existing unverified factors to avoid name conflicts (422)
             try:
+                admin_headers = {
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                    "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+                }
+                user_id = jwt.decode(user_jwt, options={"verify_signature": False})["sub"]
+
                 list_resp = await client.get(
-                    f"{settings.SUPABASE_URL}/auth/v1/factors",
-                    headers=auth_headers,
+                    f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                    headers=admin_headers,
                 )
                 if list_resp.status_code == 200:
-                    for f in list_resp.json():
+                    factors = list_resp.json().get("factors", [])
+                    for f in factors:
                         if f.get("factor_type") == "totp" and f.get("status") != "verified":
                             await client.delete(
-                                f"{settings.SUPABASE_URL}/auth/v1/factors/{f['id']}",
-                                headers=auth_headers,
+                                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}/factors/{f['id']}",
+                                headers=admin_headers,
                             )
-            except httpx.HTTPError:
-                pass
+            except Exception as e:
+                print(f"DEBUG enrollment cleanup warning: {e}")
 
+            # 2. Proceed with enrollment (User-level action)
             resp = await client.post(
                 f"{settings.SUPABASE_URL}/auth/v1/factors",
                 json={
@@ -481,12 +408,58 @@ class AuthService:
 
             data = verify_resp.json()
 
+        # ── Sync mfa_enabled = True in users table ────────────
+        try:
+            user_id = jwt.decode(user_jwt, options={"verify_signature": False})["sub"]
+            admin = get_admin_client()
+            admin.table("users").update({"mfa_enabled": True}).eq("id", user_id).execute()
+        except Exception as e:
+            print(f"Warning: could not sync mfa_enabled after verify: {e}")
+
         return {
             "access_token":  data["access_token"],
             "refresh_token": data.get("refresh_token", ""),
             "token_type":    "bearer",
             "mfa_verified":  True,
         }
+
+    @staticmethod
+    async def mfa_unenroll(user_jwt: str) -> dict:
+        try:
+            user_id = jwt.decode(user_jwt, options={"verify_signature": False})["sub"]
+        except Exception as e:
+            raise AuthError("UNAUTHORIZED", "Invalid token", 401)
+            
+        admin_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+        }
+        
+        async with httpx.AsyncClient() as client:
+            list_resp = await client.get(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                headers=admin_headers,
+            )
+            if list_resp.status_code != 200:
+                raise AuthError("MFA_ERROR", f"Failed to fetch user factors: {list_resp.text}", list_resp.status_code)
+
+            user_data_api = list_resp.json()
+            factors = user_data_api.get("factors", [])
+            for f in factors:
+                if f.get("factor_type") == "totp":
+                    await client.delete(
+                        f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}/factors/{f['id']}",
+                        headers=admin_headers,
+                    )
+
+        # ── Sync mfa_enabled = False in users table ───────────
+        try:
+            admin = get_admin_client()
+            admin.table("users").update({"mfa_enabled": False}).eq("id", user_id).execute()
+        except Exception as e:
+            print(f"Warning: could not sync mfa_enabled after unenroll: {e}")
+
+        return {"message": "MFA disabled successfully"}
 
     # ── Invite teacher by email ───────────────────────────────
 
@@ -544,15 +517,33 @@ class AuthService:
 
         user_data = res.data
 
-        # Check MFA status from Supabase auth factors (safe — no extra DB column needed)
-        try:
-            auth_user   = admin.auth.admin.get_user_by_id(user_id)
-            mfa_enabled = any(
-                getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
-                for f in (auth_user.user.factors or [])
-            )
-            user_data["mfa_enabled"] = mfa_enabled
-        except Exception:
+        # Check MFA status from Supabase auth factors (only for non-students)
+        if user_data.get("role") != "student":
+            try:
+                auth_headers = {
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                    "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+                }
+                async with httpx.AsyncClient() as http:
+                    resp = await http.get(
+                        f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                        headers=auth_headers
+                    )
+                    if resp.status_code == 200:
+                        factors = resp.json().get("factors", [])
+                        mfa_enabled = False
+                        for f in factors:
+                            if f.get("factor_type") == "totp" and f.get("status") == "verified":
+                                mfa_enabled = True
+                                break
+                        user_data["mfa_enabled"] = mfa_enabled
+                    else:
+                        print(f"DEBUG: Status check failed ({resp.status_code}): {resp.text}")
+                        user_data["mfa_enabled"] = False
+            except Exception as e:
+                print(f"MFA Factor check failed for {user_id}: {e}")
+                user_data["mfa_enabled"] = False
+        else:
             user_data["mfa_enabled"] = False
 
         return user_data
@@ -568,7 +559,8 @@ class AuthService:
             raise AuthError("INVALID_CREDENTIALS", "Manual OTP sessions cannot be refreshed. Please log in again.", 401)
 
         try:
-            result = admin.auth.refresh_session(refresh_token)
+            auth_client = _disposable_auth_client()
+            result = auth_client.auth.refresh_session(refresh_token)
         except AuthApiError:
             raise AuthError("INVALID_CREDENTIALS", "Refresh token is invalid or expired", 401)
 

@@ -42,7 +42,7 @@ export default function MFASetupPage() {
         navigate('/auth/login')
         return
       }
-      authApi.mfaEnroll()
+      authApi.mfaEnroll(token)
         .then(res => { setEnrollData(res.data.data); setStep('scan') })
         .catch(e => {
           if (e instanceof ApiClientError) toast.error(e.message)
@@ -81,20 +81,29 @@ export default function MFASetupPage() {
     }
   }
 
-  const verifyCode = async () => {
+    const verifyCode = async () => {
     if (!enrollData) return
     const code = digits.join('')
     if (code.length < 6) return toast.error('Enter all 6 digits')
     setLoading(true)
+
+    // Retrieve token for explicit passing
+    const raw = localStorage.getItem('eclassroom-auth')
+    const token = raw ? JSON.parse(raw)?.state?.accessToken : null
+
     try {
-      const res = await authApi.mfaVerify(enrollData.factor_id, code)
+      const res = await authApi.mfaVerify(enrollData.factor_id, code, token)
       const { access_token } = res.data.data
       const refreshToken = localStorage.getItem('refresh_token') ?? ''
       setSession(user!, access_token, refreshToken)
       setStep('done')
       setTimeout(() => {
         toast.success("MFA enabled — you're protected!")
-        navigate('/admin')
+        if (user?.role === 'admin') {
+          navigate('/admin')
+        } else {
+          navigate('/teacher')
+        }
       }, 1400)
     } catch (e) {
       if (e instanceof ApiClientError) toast.error(e.message)
@@ -160,7 +169,7 @@ export default function MFASetupPage() {
                 </div>
                 <div>
                   <h1 className="text-lg font-bold text-white">Set Up Authenticator</h1>
-                  <p className="text-xs text-slate-400">Required for admin access</p>
+                  <p className="text-xs text-slate-400">{user?.role === 'admin' ? 'Required for administrator access' : 'Add an extra layer of security'}</p>
                 </div>
               </div>
 

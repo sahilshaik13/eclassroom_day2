@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { User, Phone, Shield, Save, Camera, Mail, BadgeCheck, Fingerprint } from 'lucide-react'
+import { User, Phone, Shield, Save, Camera, Mail, BadgeCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import api from '@/services/api'
@@ -12,7 +11,6 @@ import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 export default function StudentProfilePage() {
-  const navigate = useNavigate()
   const { user, setSession, accessToken, refreshToken } = useAuthStore()
   const [saving, setSaving] = useState(false)
 
@@ -38,7 +36,7 @@ export default function StudentProfilePage() {
   return (
     <DashboardPageLayout
       title="My Identity"
-      description="Manage your personal information and account security settings."
+      description="Manage your personal information."
       actions={
         <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
           <BadgeCheck className="h-3.5 w-3.5" />
@@ -83,28 +81,9 @@ export default function StudentProfilePage() {
 
             <Card className="border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden bg-white rounded-[2rem]">
               <CardHeader className="p-6 pb-2">
-                <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">Account Security</CardTitle>
+                <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">Account Settings</CardTitle>
               </CardHeader>
               <CardContent className="p-6 pt-2 space-y-4">
-                <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:bg-white transition-colors duration-300">
-                  <div className="h-10 w-10 bg-white shadow-sm border border-slate-100 rounded-xl flex items-center justify-center text-slate-400">
-                    <Fingerprint className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-bold text-slate-900">Multi-factor Auth</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      {user?.mfa_enabled ? 'Enabled' : 'Not Enabled'}
-                    </p>
-                  </div>
-                </div>
-                {!user?.mfa_enabled && (
-                  <Button 
-                    onClick={() => navigate('/auth/mfa-setup')}
-                    className="w-full rounded-xl bg-primary hover:bg-primary/90 h-10 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-primary/20"
-                  >
-                    Enable MFA
-                  </Button>
-                )}
                 <Button variant="outline" className="w-full rounded-xl border-slate-200 h-10 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50">
                   Privacy Settings
                 </Button>

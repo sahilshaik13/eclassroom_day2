@@ -1,13 +1,38 @@
+# Environment files
 .env
-.env.local
-venv/
-*.pyc
+.env.*
+!.env.example
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.venv/
+
+# Node
 node_modules/
+dist/
 build/
 coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# AI / Agents / IDEs
+.agents/
+.claude/
+.gitnexus/
+.cursor/
+.windsurf/
 .vscode/
-.env
-.env.local
-venv/   
-.gitnexus
+.idea/
+
+# Documents
+*.md
+!README.md
+!readme.md
+!Readme.md
+
+skills-lock.json

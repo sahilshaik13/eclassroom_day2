@@ -20,11 +20,11 @@ export const authApi = {
       { email, password }
     ),
 
-  mfaEnroll: () => {
+  mfaEnroll: (token?: string) => {
     const rt = localStorage.getItem('refresh_token') ?? ''
-    return api.post<{ success: true; data: MFAEnrollResponse }>('/auth/mfa/enroll', {}, {
-      headers: { 'X-Refresh-Token': rt },
-    })
+    const headers: any = { 'X-Refresh-Token': rt }
+    if (token) headers.Authorization = `Bearer ${token}`
+    return api.post<{ success: true; data: MFAEnrollResponse }>('/auth/mfa/enroll', {}, { headers })
   },
 
   setPassword: (password: string, token: string) =>
@@ -47,20 +47,28 @@ export const authApi = {
     ),
 
 
-  mfaGetFactors: () =>
-    api.get<{ success: true; data: MFAEnrollResponse }>('/auth/mfa/factors'),
+  mfaGetFactors: (token?: string) => {
+    const headers: any = {}
+    if (token) headers.Authorization = `Bearer ${token}`
+    return api.get<{ success: true; data: MFAEnrollResponse }>('/auth/mfa/factors', { headers })
+  },
 
-  mfaVerify: (factorId: string, code: string) => {
+  mfaVerify: (factorId: string, code: string, token?: string) => {
     const rt = localStorage.getItem('refresh_token') ?? ''
+    const headers: any = { 'X-Refresh-Token': rt }
+    if (token) headers.Authorization = `Bearer ${token}`
     return api.post<{ success: true; data: LoginResponse }>(
       '/auth/mfa/verify',
       { factor_id: factorId, code },
-      { headers: { 'X-Refresh-Token': rt } },
+      { headers },
     )
   },
 
+  mfaUnenroll: () =>
+    api.delete<{ success: true; data: { message: string } }>('/auth/mfa/unenroll'),
+
   getUserStatus: () =>
-    api.get<{ success: true; data: { id: string; name: string; role: string; has_password: boolean; is_registered: boolean } }>(
+    api.get<{ success: true; data: AuthUser & { has_password: boolean; is_registered: boolean } }>(
       '/auth/status'
     ),
 

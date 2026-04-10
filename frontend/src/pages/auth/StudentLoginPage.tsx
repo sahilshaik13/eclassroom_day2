@@ -85,17 +85,9 @@ export default function StudentLoginPage() {
     setLoading(true)
     try {
       const res = await authApi.verifyOtp(phone, code, DEMO_TENANT_ID)
-      const { user, access_token, refresh_token, mfa_required, mfa_token } = res.data.data
+      const { user, access_token, refresh_token } = res.data.data
 
-      if (mfa_required && mfa_token) {
-        // Use storeTokenOnly to set the token for subsequent MFA verification
-        // but keep isAuthenticated false so guards don't redirect yet.
-        useAuthStore.getState().storeTokenOnly(user, mfa_token, 'mfa-pending')
-        toast('Please verify MFA', { icon: '🔐' })
-        navigate('/auth/mfa-verify')
-        return
-      }
-
+      // No MFA for students — proceed directly to session
       setSession(user, access_token, refresh_token)
       toast.success('Welcome back!')
       navigate(user.is_registered ? '/student' : '/auth/student-registration')

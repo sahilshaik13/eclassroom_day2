@@ -16,7 +16,6 @@ from pydantic import BaseModel, EmailStr
 from app.core.deps import get_current_user, TokenData
 from app.core.response import success, error
 from app.core.config import settings
-from app.db.supabase import get_admin_client
 from app.services.auth_service import AuthService, AuthError
 
 
@@ -43,10 +42,6 @@ class SetPasswordRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
-
-class MFAEnrollRequest(BaseModel):
-    pass
 
 
 class MFAVerifyRequest(BaseModel):
@@ -94,7 +89,6 @@ async def set_password(
     token: TokenData = Depends(get_current_user),
 ):
     try:
-        # Require JWT to update password
         result = await AuthService.set_password(request.state.jwt_token, body.new_password)
         return success(result)
     except AuthError as e:
@@ -106,22 +100,19 @@ async def mfa_enroll(
     request: Request,
     token: TokenData = Depends(get_current_user),
 ):
-    # MFA enrollment is allowed for all authenticated users to enhance security.
-    # Students use a custom TOTP flow because Supabase MFA does not support custom tokens.
+    print(f"DEBUG enroll mfa_verified: {token.mfa_verified}, aal: {token.raw.get('aal')}")
+
+    if token.role == "student":
+        return error("FORBIDDEN", "MFA is not available for students", 403)
+
     try:
-        if token.role == "student":
-            # phone is needed for QR code label
-            user_res = (
-                get_admin_client().table("users").select("phone").eq("id", token.user_id).single().execute()
-            )
-            phone = user_res.data.get("phone", "Student") if user_res.data else "Student"
-            result = await AuthService.mfa_enroll_student(token.user_id, phone)
-        else:
-            refresh_token = request.headers.get("x-refresh-token", "")
-            result = await AuthService.mfa_enroll(request.state.jwt_token, refresh_token)
+        refresh_token = request.headers.get("x-refresh-token", "")
+        result = await AuthService.mfa_enroll(request.state.jwt_token, refresh_token)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)
+    except Exception as e:
+        return error("INTERNAL_ERROR", str(e), 500)
 
 
 @router.get("/mfa/factors")
@@ -130,42 +121,34 @@ async def mfa_get_factors(
     token: TokenData = Depends(get_current_user),
 ):
     import httpx
+
+    if token.role == "student":
+        return error("FORBIDDEN", "MFA is not available for students", 403)
+
     auth_headers = {
         "Authorization": f"Bearer {request.state.jwt_token}",
         "apikey": settings.SUPABASE_ANON_KEY,
     }
-    
-    if token.role == "student":
-        # Check users table for student
-        user_res = (
-            get_admin_client().table("users").select("mfa_enabled, mfa_secret").eq("id", token.user_id).single().execute()
-        )
-        if not user_res.data or not user_res.data.get("mfa_secret"):
-            return error("NOT_FOUND", "MFA not enrolled", 404)
-        
-        return success({
-            "factor_id": f"std_{token.user_id[:8]}",
-            "type": "totp",
-            "status": "verified" if user_res.data.get("mfa_enabled") else "unverified"
-        })
 
-    # For others, use Supabase Auth factors
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{settings.SUPABASE_URL}/auth/v1/user",
             headers=auth_headers,
         )
-        
+
     if resp.status_code >= 400:
         return error("NOT_FOUND", "User not found or session expired", resp.status_code)
-        
+
     user_data = resp.json()
     factors = user_data.get("factors", [])
-    totp = next((f for f in factors if f.get("factor_type") == "totp" and f.get("status") == "verified"), None)
-    
+    totp = next(
+        (f for f in factors if f.get("factor_type") == "totp" and f.get("status") == "verified"),
+        None
+    )
+
     if not totp:
         return error("NOT_FOUND", "No TOTP factor found — please set up MFA first", 404)
-        
+
     return success({
         "factor_id": totp["id"],
         "type": "totp",
@@ -179,18 +162,35 @@ async def mfa_verify(
     request: Request,
     token: TokenData = Depends(get_current_user),
 ):
-    refresh_token = request.headers.get("x-refresh-token", "")
+    if token.role == "student":
+        return error("FORBIDDEN", "MFA is not available for students", 403)
+
     try:
-        if token.role == "student":
-            result = await AuthService.mfa_verify_student(token.user_id, body.code)
-        else:
-            refresh_token = request.headers.get("x-refresh-token", "")
-            result = await AuthService.mfa_verify(
-                request.state.jwt_token,
-                refresh_token,
-                body.factor_id,
-                body.code,
-            )
+        refresh_token = request.headers.get("x-refresh-token", "")
+        result = await AuthService.mfa_verify(
+            request.state.jwt_token,
+            refresh_token,
+            body.factor_id,
+            body.code,
+        )
+        return success(result)
+    except AuthError as e:
+        return error(e.code, e.message, e.status)
+
+
+@router.delete("/mfa/unenroll")
+async def mfa_unenroll(
+    request: Request,
+    token: TokenData = Depends(get_current_user),
+):
+    if token.role == "student":
+        return error("FORBIDDEN", "MFA is not available for students", 403)
+
+    if token.role == "admin":
+        return error("FORBIDDEN", "MFA is mandatory for administrators", 403)
+
+    try:
+        result = await AuthService.mfa_unenroll(request.state.jwt_token)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)
@@ -220,9 +220,11 @@ async def refresh_session(body: RefreshRequest):
     except AuthError as e:
         return error(e.code, e.message, e.status)
 
+
 @router.get("/debug-config")
 async def debug_config():
     return {"frontend_url": settings.FRONTEND_URL}
+
 
 @router.get("/debug-invite-url")
 async def debug_invite_url():

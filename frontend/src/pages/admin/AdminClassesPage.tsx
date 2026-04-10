@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Video, Users, MoreVertical, Calendar } from 'lucide-react'
+import { Plus, Video, Users, MoreVertical, Settings, Trash2, Edit } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../services/api'
 import type { ClassItem } from '../../types'
@@ -15,11 +15,20 @@ import {
 } from "@/components/ui/card"
 import { Badge } from '@/components/ui/badge'
 import { ClassModal } from '@/components/admin/ClassModal'
+import { ClassDetailsModal } from '@/components/admin/ClassDetailsModal'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export default function AdminClassesPage() {
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false)
+  const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -31,13 +40,25 @@ export default function AdminClassesPage() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
 
   const actions = (
     <Button className="gap-2" onClick={() => setModalOpen(true)}>
       <Plus className="h-4 w-4" /> New Class
     </Button>
   )
+
+  const handleDeleteClass = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to completely delete "${name}"? This will remove all student enrollments, attendance records, and data tied to it. This action cannot be undone.`)) return;
+    
+    try {
+      await api.delete(`/admin/classes/${id}`);
+      toast.success("Class deleted successfully");
+      load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error?.message || "Failed to delete class");
+    }
+  }
 
   return (
     <DashboardPageLayout
@@ -60,9 +81,22 @@ export default function AdminClassesPage() {
                   <Badge variant={c.is_active ? "default" : "secondary"} className={c.is_active ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : ""}>
                     {c.is_active ? "Active" : "Inactive"}
                   </Badge>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 group-hover:text-slate-600">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 group-hover:text-slate-600">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem 
+                        onClick={() => handleDeleteClass(c.id, c.name)}
+                        className="text-red-600 focus:bg-red-50 focus:text-red-600 cursor-pointer font-medium"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete Permanently
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
                 <CardTitle className="text-lg font-bold text-slate-900 group-hover:text-primary transition-colors">
                   {c.name}
@@ -89,9 +123,16 @@ export default function AdminClassesPage() {
                 </div>
               </CardContent>
               <CardFooter className="pt-0 border-t border-slate-50 mt-auto">
-                <Button variant="ghost" className="w-full justify-center text-xs text-slate-500 hover:text-primary hover:bg-primary/5 gap-2 h-9">
-                  <Calendar className="h-3.5 w-3.5" />
-                  View Schedule
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-center text-xs text-slate-500 hover:text-primary hover:bg-primary/5 gap-2 h-9"
+                  onClick={() => {
+                    setSelectedClass(c);
+                    setDetailsModalOpen(true);
+                  }}
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  Manage Enrollments
                 </Button>
               </CardFooter>
             </Card>
@@ -111,6 +152,12 @@ export default function AdminClassesPage() {
         open={modalOpen}
         onOpenChange={setModalOpen}
         onSuccess={load}
+      />
+      <ClassDetailsModal
+        open={detailsModalOpen}
+        onOpenChange={setDetailsModalOpen}
+        classData={selectedClass}
+        onUpdate={load}
       />
     </DashboardPageLayout>
   )

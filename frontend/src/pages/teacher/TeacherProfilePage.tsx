@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { User, Phone, Shield, Save, Camera, Mail, BadgeCheck, Fingerprint } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import api from '@/services/api'
+import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -15,6 +16,20 @@ export default function TeacherProfilePage() {
   const { user, setSession, accessToken, refreshToken } = useAuthStore()
   const [saving, setSaving] = useState(false)
   const navigate = useNavigate()
+  
+  useEffect(() => {
+    const refreshStatus = async () => {
+      try {
+        const response = await authApi.getUserStatus()
+        if (response.data.success && accessToken && refreshToken) {
+          setSession(response.data.data, accessToken, refreshToken)
+        }
+      } catch (error) {
+        console.error('Failed to refresh user status:', error)
+      }
+    }
+    refreshStatus()
+  }, [])
 
   const { register, handleSubmit, formState: { errors, isDirty } } = useForm({
     defaultValues: { name: user?.name ?? '' },
@@ -37,6 +52,19 @@ export default function TeacherProfilePage() {
 
   const handleEnableMFA = () => {
     navigate('/auth/mfa-setup')
+  }
+
+  const handleDisableMFA = async () => {
+    if (!window.confirm('Are you sure you want to disable two-factor authentication? Your account will be less secure.')) return
+    try {
+      await authApi.mfaUnenroll()
+      if (user && accessToken && refreshToken) {
+        setSession({ ...user, mfa_enabled: false }, accessToken, refreshToken)
+      }
+      toast.success('Two-factor authentication has been disabled.')
+    } catch {
+      toast.error('Failed to disable MFA. Please try again.')
+    }
   }
 
   return (
@@ -101,7 +129,15 @@ export default function TeacherProfilePage() {
                     </p>
                   </div>
                 </div>
-                {!user?.mfa_enabled && (
+                {user?.mfa_enabled ? (
+                  <Button 
+                    onClick={handleDisableMFA}
+                    variant="outline" 
+                    className="w-full rounded-xl border-rose-200 bg-rose-50/50 h-10 text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500 hover:text-white transition-all duration-300"
+                  >
+                    Disable MFA Protection
+                  </Button>
+                ) : (
                   <Button 
                     onClick={handleEnableMFA}
                     variant="outline" 
