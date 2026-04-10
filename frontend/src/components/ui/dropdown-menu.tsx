@@ -68,9 +68,19 @@ const DropdownMenuCheckboxItem = ({ children, checked, onCheckedChange, onSelect
     </div>
 )
 
+const DropdownMenuItem = ({ className, children, onClick }: any) => (
+    <div
+        className={cn("relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm outline-none transition-colors hover:bg-slate-100", className)}
+        onClick={onClick}
+    >
+        {children}
+    </div>
+)
+
 export {
     DropdownMenu,
     DropdownMenuTrigger,
     DropdownMenuContent,
     DropdownMenuCheckboxItem,
+    DropdownMenuItem,
 }

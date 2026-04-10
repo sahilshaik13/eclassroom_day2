@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Video, Users, MoreVertical, Settings, Trash2, Edit } from 'lucide-react'
+import { Plus, Video, Users, MoreVertical, Settings, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../services/api'
 import type { ClassItem } from '../../types'
