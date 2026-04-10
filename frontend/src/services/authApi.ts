@@ -1,5 +1,5 @@
 import api from './api'
-import type { LoginResponse, MFAEnrollResponse } from '@/types'
+import type { AuthUser, LoginResponse, MFAEnrollResponse } from '@/types'
 
 export const authApi = {
   sendOtp: (phone: string, tenantId: string) =>
