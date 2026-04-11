@@ -139,9 +139,10 @@ api.interceptors.response.use(
     }
 
     // Map FastAPI specific HTTPException detail object into expected error.message
-    if (err.response?.data?.detail?.message) {
-      if (!err.response.data.error) err.response.data.error = {}
-      err.response.data.error.message = err.response.data.detail.message
+    const responseData = err.response?.data as any;
+    if (responseData?.detail?.message) {
+      if (!responseData.error) responseData.error = {}
+      responseData.error.message = responseData.detail.message
     }
 
     if (err.response?.status === 429) {
