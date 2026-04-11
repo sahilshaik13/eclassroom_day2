@@ -57,7 +57,22 @@ class AuthService:
 
         student_data = result.data[0]
         if student_data.get("deactivated_at"):
-            raise AuthError("INVALID_CREDENTIALS", "Account is deactivated", 401)
+            raise AuthError("ACCOUNT_DISABLED", "Account is deactivated", 401)
+
+        # Check if the tenant itself is active
+        tenant_res = (
+            admin.table("tenants")
+            .select("is_active")
+            .eq("id", tenant_id)
+            .maybe_single()
+            .execute()
+        )
+        if tenant_res and tenant_res.data and not tenant_res.data.get("is_active", True):
+            raise AuthError(
+                "TENANT_SUSPENDED",
+                "Your organization account has been suspended. Please contact your platform administrator.",
+                403,
+            )
 
         otp_code  = f"{random.randint(100000, 999999)}"
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
@@ -212,14 +227,68 @@ class AuthService:
             admin.table("users")
             .select("id, name, role, tenant_id, is_registered")
             .eq("id", user.id)
-            .single()
+            .maybe_single()
             .execute()
         )
+        
+        # If not found in users table, check platform_admins (super admin)
+        if not user_row or not user_row.data:
+            platform_admin_row = (
+                admin.table("platform_admins")
+                .select("id, name, email")
+                .eq("id", user.id)
+                .maybe_single()
+                .execute()
+            )
+            if platform_admin_row and platform_admin_row.data:
+                # Super admin found - mandatory MFA
+                u_data = platform_admin_row.data
+                user_data = {
+                    "id": u_data["id"],
+                    "name": u_data["name"],
+                    "email": u_data["email"],
+                    "role": "super_admin",
+                    "tenant_id": None,
+                    "is_registered": True,
+                }
+                
+                # ── Sync metadata to super admin JWT ──────────
+                # Ensure Supabase Auth knows this user is a super admin
+                await AuthService.update_auth_app_metadata(user.id, {"role": "super_admin", "tenant_id": None})
+                
+                return {
+                    "access_token":  session.access_token,
+                    "refresh_token": session.refresh_token,
+                    "token_type":    "bearer",
+                    "user":          user_data,
+                    "mfa_required":  False,  # Temporarily disabled per user request
+                    "mfa_enrolled":  False,
+                }
+            else:
+                raise AuthError("NOT_FOUND", "User profile not found", 404)
+        
         if not user_row.data:
             raise AuthError("NOT_FOUND", "User profile not found", 404)
 
         role      = user_row.data.get("role", "")
         tenant_id = user_row.data.get("tenant_id", "")
+
+        # ── Check if tenant is suspended ──────────────────────
+        if tenant_id:
+            tenant_res = (
+                admin.table("tenants")
+                .select("is_active")
+                .eq("id", tenant_id)
+                .maybe_single()
+                .execute()
+            )
+            if tenant_res and tenant_res.data and not tenant_res.data.get("is_active", True):
+                if role != "admin":
+                    raise AuthError(
+                        "TENANT_SUSPENDED",
+                        "Your organization account has been suspended. Please contact your platform administrator.",
+                        403,
+                    )
 
         # Backfill app_metadata if missing
         auth_meta = (user.app_metadata or {}) if user else {}
@@ -461,6 +530,34 @@ class AuthService:
 
         return {"message": "MFA disabled successfully"}
 
+    # ── JWT Metadata Sync ─────────────────────────────────────
+
+    @staticmethod
+    async def update_auth_app_metadata(user_id: str, metadata: dict) -> bool:
+        """
+        Update a user's app_metadata in Supabase Auth via Admin API.
+        Used to sync role and tenant_id into JWT claims.
+        """
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type":  "application/json",
+        }
+        # GoTrue Admin API: PUT /admin/users/{id}
+        url = f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}"
+        payload = {"app_metadata": metadata}
+
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.put(url, json=payload, headers=auth_headers)
+                if resp.status_code >= 400:
+                    print(f"ERROR: Sync app_metadata failed ({resp.status_code}): {resp.text}")
+                    return False
+                return True
+            except Exception as e:
+                print(f"ERROR: Sync app_metadata exception: {e}")
+                return False
+
     # ── Invite teacher by email ───────────────────────────────
 
     @staticmethod
@@ -497,7 +594,13 @@ class AuthService:
             raise AuthError("INVITE_ERROR", error_msg, resp.status_code)
 
         data = resp.json()
-        return {"user_id": data["id"], "email": email, "message": "Invite email sent"}
+        user_id = data["id"]
+
+        # ── Sync metadata to newly invited user ──────────────
+        # Ensure their JWT will have role and tenant_id in app_metadata
+        await AuthService.update_auth_app_metadata(user_id, {"role": role, "tenant_id": tenant_id})
+
+        return {"user_id": user_id, "email": email, "message": "Invite email sent"}
 
     # ── User Status ───────────────────────────────────────────
 

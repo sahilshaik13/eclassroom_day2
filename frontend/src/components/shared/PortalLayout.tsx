@@ -4,7 +4,7 @@ import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import {
   BookOpen, LayoutDashboard, GraduationCap, MessageCircle,
-  Users, Library, Settings, LogOut, Menu, X, Bell,
+  Users, Library, Settings, LogOut, Menu, X, Bell, Building2,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { authApi } from '@/services/authApi'
@@ -38,12 +38,17 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Study Plans', href: '/admin/study-plans', icon: BookOpen },
     { label: 'Settings', href: '/admin/settings', icon: Settings },
   ],
+  super_admin: [
+    { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
+    { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
+  ],
 }
 
 const ROLE_LABEL: Record<UserRole, string> = {
   student: 'Student Portal',
   teacher: "Teacher's Portal",
   admin: 'Admin Portal',
+  super_admin: 'Platform Admin',
 }
 
 // Only show these in the mobile bottom bar (max 5 items)
@@ -65,6 +70,10 @@ const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Students', href: '/admin/students', icon: GraduationCap },
     { label: 'Teachers', href: '/admin/teachers', icon: Users },
     { label: 'Settings', href: '/admin/settings', icon: Settings },
+  ],
+  super_admin: [
+    { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
+    { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
   ],
 }
 

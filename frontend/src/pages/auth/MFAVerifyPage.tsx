@@ -91,9 +91,11 @@ export default function MFAVerifyPage() {
             const rt = refresh_token || localStorage.getItem('refresh_token') || ''
             setSession(user!, access_token, rt)
             toast.success('Welcome back!')
-            
+
             if (user?.role === 'admin') {
                 navigate('/admin', { replace: true })
+            } else if (user?.role === 'super_admin') {
+                navigate('/super-admin', { replace: true })
             } else if (user?.role === 'teacher') {
                 navigate(user?.is_registered ? '/teacher' : '/auth/teacher-registration', { replace: true })
             } else {

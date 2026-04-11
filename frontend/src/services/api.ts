@@ -131,12 +131,19 @@ api.interceptors.response.use(
     }
 
     if (err.response?.status === 403) {
-      const body = err.response.data as { error?: { code?: string } }
+      const body = err.response.data as { error?: { code?: string }, detail?: { code?: string, message?: string } }
       if (body?.error?.code === 'MFA_REQUIRED' && !onAuthPage) {
         window.location.href = '/auth/mfa-setup'
         return Promise.reject(err)
       }
     }
+
+    // Map FastAPI specific HTTPException detail object into expected error.message
+    if (err.response?.data?.detail?.message) {
+      if (!err.response.data.error) err.response.data.error = {}
+      err.response.data.error.message = err.response.data.detail.message
+    }
+
     if (err.response?.status === 429) {
       toast.error('Too many requests — please wait a moment.')
     }

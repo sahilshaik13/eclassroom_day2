@@ -33,6 +33,7 @@ export function RequireRole({ children, role, redirectTo }: Props) {
       student: '/student',
       teacher: '/teacher',
       admin: '/admin',
+      super_admin: '/super-admin',
     }
     return <Navigate to={portalMap[user.role]} replace />
   }
@@ -61,6 +62,7 @@ export function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
       student: '/student',
       teacher: '/teacher',
       admin: '/admin',
+      super_admin: '/super-admin',
     }
     return <Navigate to={portalMap[user.role]} replace />
   }

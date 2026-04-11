@@ -48,6 +48,13 @@ import AdminClassesPage from '@/pages/admin/AdminClassesPage'
 import StudyPlansPage from '@/pages/admin/StudyPlansPage'
 import AdminSettingsPage from '@/pages/admin/AdminSettingsPage'
 
+// Super Admin pages
+import SuperAdminDashboard from '@/pages/superadmin/SuperAdminDashboard'
+import TenantsPage from '@/pages/superadmin/TenantPage'
+import TenantDetailPage from '@/pages/superadmin/TenantDetailPage'
+import SuperAdminTenantTeachersPage from '@/pages/superadmin/SuperAdminTenantTeachersPage'
+import SuperAdminTenantStudentsPage from '@/pages/superadmin/SuperAdminTenantStudentsPage'
+
 function AuthEventListener() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -184,6 +191,18 @@ export default function App() {
           <Route path="classes" element={<AdminClassesPage />} />
           <Route path="study-plans" element={<StudyPlansPage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
+        </Route>
+
+        {/* ── Super Admin portal ──────────────── */}
+        <Route
+          path="/super-admin"
+          element={<RequireRole role="super_admin"><PortalLayout /></RequireRole>}
+        >
+          <Route index element={<SuperAdminDashboard />} />
+          <Route path="tenants" element={<TenantsPage />} />
+          <Route path="tenants/:tenantId" element={<TenantDetailPage />} />
+          <Route path="tenants/:tenantId/teachers" element={<SuperAdminTenantTeachersPage />} />
+          <Route path="tenants/:tenantId/students" element={<SuperAdminTenantStudentsPage />} />
         </Route>
 
         {/* ── 404 ───────────────────────────── */}

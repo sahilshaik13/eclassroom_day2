@@ -1,12 +1,12 @@
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'student' | 'teacher' | 'admin'
+export type UserRole = 'student' | 'teacher' | 'admin' | 'super_admin'
 
 export interface AuthUser {
   id: string
   name: string
   role: UserRole
-  tenant_id: string
+  tenant_id: string | null
   email?: string
   phone?: string
   is_registered?: boolean

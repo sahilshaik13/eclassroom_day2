@@ -149,6 +149,8 @@ def _verify_token(token: str) -> dict:
             )
 
 
+from app.db.supabase import get_admin_client
+
 # ── Dependency: any authenticated user ───────────────────────
 async def get_current_user(
     request: Request,
@@ -157,6 +159,17 @@ async def get_current_user(
     token   = _extract_token(request, credentials)
     payload = _verify_token(token)
     data    = TokenData(payload)
+    
+    # Check if the tenant is suspended (block mutations only to allow read-only access)
+    if data.tenant_id and data.role != "super_admin" and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        admin = get_admin_client()
+        tenant_res = admin.table("tenants").select("is_active").eq("id", data.tenant_id).maybe_single().execute()
+        if tenant_res and tenant_res.data and not tenant_res.data.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "TENANT_SUSPENDED", "message": "Your organization account has been suspended by the platform administrator."},
+            )
+
     request.state.jwt_token  = token
     request.state.token_data = data
     return data
@@ -201,4 +214,16 @@ async def require_admin(
                 "message": "Admin must complete TOTP MFA before accessing this resource",
             },
         )
+    return token
+
+
+async def require_super_admin(
+    token: TokenData = Depends(get_current_user),
+) -> TokenData:
+    if token.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "UNAUTHORIZED", "message": "Super admin access required"},
+        )
+    # MFA check temporarily removed per user request
     return token

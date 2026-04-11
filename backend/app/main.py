@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
-from app.api.v1.routes import auth, student, teacher, admin, public
+from app.api.v1.routes import auth, student, teacher, admin, public, superadmin
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -75,11 +75,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # ── Routers ───────────────────────────────────────────────────
-app.include_router(auth.router,    prefix="/api/v1")
-app.include_router(student.router, prefix="/api/v1")
-app.include_router(teacher.router, prefix="/api/v1")
-app.include_router(public.router,  prefix="/api/v1")
-app.include_router(admin.router,   prefix="/api/v1")
+app.include_router(auth.router,       prefix="/api/v1")
+app.include_router(student.router,    prefix="/api/v1")
+app.include_router(teacher.router,    prefix="/api/v1")
+app.include_router(public.router,     prefix="/api/v1")
+app.include_router(admin.router,      prefix="/api/v1")
+app.include_router(superadmin.router, prefix="/api/v1")
 
 # ── Health check ──────────────────────────────────────────────
 @app.get("/health")

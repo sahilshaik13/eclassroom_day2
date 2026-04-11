@@ -40,7 +40,9 @@ export default function StaffLoginPage() {
       setSession(user, access_token, refresh_token)
       toast.success(`Welcome, ${user.name}!`)
 
-      if (user.role === 'teacher') {
+      if (user.role === 'super_admin') {
+        navigate('/super-admin', { replace: true })
+      } else if (user.role === 'teacher') {
         navigate(user.is_registered ? '/teacher' : '/auth/teacher-registration', { replace: true })
       } else {
         navigate('/admin', { replace: true })
