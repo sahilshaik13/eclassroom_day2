@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from app.core.config import settings
-from app.api.v1.routes import auth, student, teacher, admin
+from app.api.v1.routes import auth, student, teacher, admin, public
 
 
 limiter = Limiter(key_func=get_remote_address)
@@ -35,9 +35,16 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # ── CORS ──────────────────────────────────────────────────────
+# Using a list of origins explicitly. Starlette's CORSMiddleware
+# handles this best when allow_credentials=True.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,6 +78,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router,    prefix="/api/v1")
 app.include_router(student.router, prefix="/api/v1")
 app.include_router(teacher.router, prefix="/api/v1")
+app.include_router(public.router,  prefix="/api/v1")
 app.include_router(admin.router,   prefix="/api/v1")
 
 # ── Health check ──────────────────────────────────────────────

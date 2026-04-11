@@ -38,6 +38,7 @@ import ReportsPage from './pages/teacher/ReportsPage'
 import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
 import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
 import TeacherApplicantsPage from './pages/teacher/TeacherApplicantsPage'
+import TeacherApplyPage from './pages/public/TeacherApplyPage'
 
 // Admin pages
 import AdminDashboard from '@/pages/admin/AdminDashboard'
@@ -142,6 +143,7 @@ export default function App() {
           path="/auth/teacher-registration"
           element={<RequireRole role="teacher"><TeacherRegistrationPage /></RequireRole>}
         />
+        <Route path="/apply/:slug" element={<TeacherApplyPage />} />
 
         {/* ── Student portal ────────────────── */}
         <Route

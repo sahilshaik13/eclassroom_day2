@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Plus, Download, Search, Filter, MoreVertical, Copy, Check, User, Users, Mail } from 'lucide-react'
+import { Plus, Download, Search, Filter, MoreVertical, Copy, Check, User, Users, Loader2, UserX } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import type { Teacher } from '@/types'
+import { supabase } from '@/lib/supabase'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,13 @@ import { Badge } from '@/components/ui/badge'
 import { ParticipantModal } from '@/components/admin/ParticipantModal'
 import { InviteUserModal } from '@/components/admin/InviteUserModal'
 import { clsx } from 'clsx'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
   active: { label: 'Active', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
@@ -35,6 +43,9 @@ export default function AdminTeachersPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
   const [pendingApps, setPendingApps] = useState<PendingApp[]>([])
+  const [tenant, setTenant] = useState<{ id: string; name: string; slug: string } | null>(null)
+  const [processingId, setProcessingId] = useState<string | null>(null)
+  const [appToReject, setAppToReject] = useState<PendingApp | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -43,26 +54,88 @@ export default function AdminTeachersPage() {
       .catch(() => toast.error('Could not load teachers'))
       .finally(() => setLoading(false))
 
+    // Load tenant info for the recruitment link
+    api.get('/admin/tenant-info')
+      .then(r => setTenant(r.data.data))
+      .catch(() => {})
+
     // Load pending teacher applications
     api.get('/admin/teachers/applications?status=pending')
-      .then(r => setPendingApps(r.data.data?.slice(0, 5) || []))
-      .catch(() => {
-        // Fallback UI data when endpoint not ready
-        setPendingApps([
-          { id: '1', name: 'Mohammed F.', subject: 'Hifz', experience: 'Experienced', applied_ago: '2h ago' },
-          { id: '2', name: 'Yusuf K.', subject: 'Tajweed', applied_ago: '1d ago' },
-          { id: '3', name: 'Hassan A.', subject: 'Arabic', applied_ago: '3d ago' },
-        ])
-      })
+      .then(r => setPendingApps(r.data.data || []))
+      .catch(() => {})
   }
 
-  useEffect(load, [])
+  useEffect(() => {
+    load();
+
+    // Subscribe to realtime updates if we have a tenant ID
+    if (!tenant?.id) return;
+
+    const channel = supabase
+      .channel(`public:teacher_applications:${tenant.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'teacher_applications',
+          filter: `tenant_id=eq.${tenant.id}`
+        },
+        (payload) => {
+          console.log('Realtime update received:', payload);
+          // Reload pending applications list
+          api.get('/admin/teachers/applications?status=pending')
+            .then(r => setPendingApps(r.data.data || []));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [tenant?.id]);
 
   const copyLink = () => {
-    navigator.clipboard.writeText('https://thinktarteeb.com/apply/teacher')
+    if (!tenant) return toast.error('Organization info not loaded')
+    const link = `${window.location.origin}/apply/${tenant.slug}`
+    navigator.clipboard.writeText(link)
     setCopied(true)
-    toast.success('Link copied!')
+    toast.success('Recruitment link copied!')
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleApprove = async (appId: string) => {
+    setProcessingId(appId)
+    try {
+      await api.post(`/admin/teachers/applications/${appId}/approve`)
+      toast.success('Application approved! Invitation sent.')
+      load()
+    } catch (e: any) {
+      toast.error(e.response?.data?.error?.message || 'Failed to approve')
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  const handleReject = (app: PendingApp) => {
+    setAppToReject(app)
+  }
+
+  const confirmReject = async () => {
+    if (!appToReject) return
+    const appId = appToReject.id
+    setProcessingId(appId)
+    setAppToReject(null)
+    try {
+      await api.post(`/admin/teachers/applications/${appId}/reject`)
+      toast.success('Application rejected')
+      // Realtime will handle the list update, but load() ensures consistency
+      load()
+    } catch (e: any) {
+      toast.error('Failed to reject')
+    } finally {
+      setProcessingId(null)
+    }
   }
 
   const filtered = teachers.filter(t =>
@@ -169,7 +242,7 @@ export default function AdminTeachersPage() {
                         <td className="px-5 py-4">
                           <span className="text-sm text-slate-600 flex items-center gap-1">
                             <Users className="h-3.5 w-3.5 text-slate-400" />
-                            — students
+                            {t.student_count} {t.student_count === 1 ? 'student' : 'students'}
                           </span>
                         </td>
                         <td className="px-5 py-4">
@@ -192,7 +265,7 @@ export default function AdminTeachersPage() {
         </div>
 
         {/* Right: Recruitment + Pending Applications */}
-        <div className="w-full lg:w-72 space-y-4 shrink-0">
+        <div className="w-full lg:w-80 space-y-4 shrink-0">
           {/* Recruitment Link */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
             <div className="flex items-center gap-2.5 mb-3">
@@ -201,11 +274,11 @@ export default function AdminTeachersPage() {
               </div>
               <div>
                 <p className="text-sm font-bold text-slate-900">Recruitment Link</p>
-                <p className="text-xs text-slate-400">Share with applicants</p>
+                <p className="text-xs text-slate-400">Public application page</p>
               </div>
             </div>
-            <div className="bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-500 font-mono border border-slate-100 mb-3 truncate">
-              https://thinktarteeb.com/apply/teacher
+            <div className="bg-slate-50 rounded-lg px-3 py-2 text-[10px] text-slate-500 font-mono border border-slate-100 mb-3 break-all">
+              {tenant ? `${window.location.origin}/apply/${tenant.slug}` : 'Loading...'}
             </div>
             <Button onClick={copyLink} className="w-full gap-2 h-9 bg-blue-600 hover:bg-blue-700 text-sm font-semibold">
               {copied ? <><Check className="h-4 w-4" /> Copied!</> : <><Copy className="h-4 w-4" /> Copy Link</>}
@@ -216,38 +289,61 @@ export default function AdminTeachersPage() {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-bold text-slate-900">Pending Applications</p>
-              <Badge className="bg-orange-100 text-orange-700 border-none text-[10px] font-bold px-2">
+              <Badge className="bg-blue-100 text-blue-700 border-none text-[10px] font-bold px-2">
                 {pendingApps.length}
               </Badge>
             </div>
-            <div className="space-y-3">
-              {pendingApps.map(app => (
-                <div key={app.id} className="border border-slate-100 rounded-xl p-3 bg-slate-50/50">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-7 w-7 border border-slate-100">
-                        <AvatarFallback className="bg-slate-200 text-slate-600 text-xs font-bold">
-                          {app.name.charAt(0)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-xs font-bold text-slate-900">{app.name}</p>
-                        <p className="text-[10px] text-slate-400">Applied {app.applied_ago}</p>
+            <div className="space-y-4">
+              {pendingApps.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-xs text-slate-400 italic">No pending applications</p>
+                </div>
+              ) : (
+                pendingApps.map(app => (
+                  <div key={app.id} className="border border-slate-100 rounded-xl p-3 bg-slate-50/50">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-7 w-7 border border-slate-100">
+                          <AvatarFallback className="bg-slate-200 text-slate-600 text-[10px] font-bold">
+                            {app.name.charAt(0)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-xs font-bold text-slate-900 leading-tight">{app.name}</p>
+                          <p className="text-[10px] text-slate-400">{app.applied_ago}</p>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {app.subject && <span className="text-[9px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-md border border-blue-100/50">{app.subject}</span>}
+                    </div>
+                    {app.experience && (
+                      <p className="text-[10px] text-slate-500 mb-3 line-clamp-2 leading-relaxed">
+                        {app.experience}
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        disabled={processingId === app.id}
+                        onClick={() => handleApprove(app.id)}
+                        className="flex-1 h-7 text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 border-none shadow-sm shadow-emerald-900/10"
+                      >
+                        {processingId === app.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Approve'}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost"
+                        disabled={processingId === app.id}
+                        onClick={() => handleReject(app)}
+                        className="flex-1 h-7 text-[10px] font-bold text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        {processingId === app.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Reject'}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {app.subject && <span className="text-[9px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-md">{app.subject}</span>}
-                    {app.experience && <span className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md">{app.experience}</span>}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1 h-7 text-[10px] font-bold bg-blue-600 hover:bg-blue-700">Review</Button>
-                    <Button size="sm" variant="outline" className="flex-1 h-7 text-[10px] font-bold border-slate-200">
-                      <Mail className="h-3 w-3 mr-1" /> Contact
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -270,6 +366,40 @@ export default function AdminTeachersPage() {
         onOpenChange={setInviteModalOpen}
         onSuccess={load}
       />
+      {/* Reject Confirmation Modal */}
+      <Dialog open={!!appToReject} onOpenChange={(open) => !open && setAppToReject(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <UserX className="h-5 w-5" />
+              Reject Application
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-slate-600 mb-2">
+              Are you sure you want to reject the application from <span className="font-bold text-slate-900">{appToReject?.name}</span>?
+            </p>
+            <p className="text-xs text-slate-400">
+              This action will mark the application as rejected. The applicant will not be notified automatically by this action alone, but they will no longer appear in your pending list.
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button 
+              variant="ghost" 
+              onClick={() => setAppToReject(null)}
+              className="font-semibold text-slate-600"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={confirmReject}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              Confirm Rejection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardPageLayout>
   )
 }

@@ -92,7 +92,7 @@ CREATE INDEX ix_students_user   ON students(user_id);
 CREATE TABLE classes (
   id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id     uuid        NOT NULL REFERENCES tenants(id),
-  teacher_id    uuid        NOT NULL REFERENCES users(id),
+  teacher_id    uuid        REFERENCES users(id) ON DELETE SET NULL,
   name          text        NOT NULL,
   zoom_link     text,
   capacity      integer,
@@ -130,7 +130,7 @@ CREATE TABLE study_plan_templates (
   name        text        NOT NULL,
   description text,
   total_days  integer     NOT NULL,
-  created_by  uuid        NOT NULL REFERENCES users(id),
+  created_by  uuid        REFERENCES users(id) ON DELETE SET NULL,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
@@ -198,7 +198,7 @@ CREATE INDEX ix_doubts_student        ON doubts(student_id);
 CREATE TABLE doubt_responses (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   doubt_id    uuid        NOT NULL REFERENCES doubts(id),
-  teacher_id  uuid        NOT NULL REFERENCES users(id),
+  teacher_id  uuid        REFERENCES users(id) ON DELETE SET NULL,
   tenant_id   uuid        NOT NULL REFERENCES tenants(id),
   body        text        NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now()
@@ -217,7 +217,7 @@ CREATE TABLE attendance (
   tenant_id     uuid              NOT NULL REFERENCES tenants(id),
   session_date  date              NOT NULL,
   status        attendance_status NOT NULL,
-  marked_by     uuid              NOT NULL REFERENCES users(id),
+  marked_by     uuid        REFERENCES users(id) ON DELETE SET NULL,
   created_at    timestamptz       NOT NULL DEFAULT now(),
   UNIQUE(student_id, class_id, session_date)
 );
@@ -233,7 +233,7 @@ CREATE TABLE grades (
   id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
   student_id  uuid        NOT NULL REFERENCES students(id),
   class_id    uuid        NOT NULL REFERENCES classes(id),
-  teacher_id  uuid        NOT NULL REFERENCES users(id),
+  teacher_id  uuid        REFERENCES users(id) ON DELETE SET NULL,
   tenant_id   uuid        NOT NULL REFERENCES tenants(id),
   month       text        NOT NULL,     -- YYYY-MM
   score       integer     NOT NULL CHECK (score BETWEEN 0 AND 100),

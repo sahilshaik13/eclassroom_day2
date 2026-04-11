@@ -377,13 +377,30 @@ async def list_teachers(request: Request, token: TokenData = Depends(require_adm
     admin = get_admin_client()
     res = (
         admin.table("users")
-        .select("id, name, email, deactivated_at, classes(count)")
+        .select("id, name, email, deactivated_at, classes(id, class_enrollments(count))")
         .eq("tenant_id", token.tenant_id)
         .eq("role", "teacher")
         .order("created_at", desc=True)
         .execute()
     )
-    return success(res.data or [])
+    
+    teachers = []
+    for row in (res.data or []):
+        classes = row.pop("classes", [])
+        class_count = len(classes)
+        student_count = 0
+        for c in classes:
+            enr = c.get("class_enrollments", [])
+            if enr and isinstance(enr, list):
+                student_count += enr[0].get("count", 0)
+        
+        teachers.append({
+            **row,
+            "class_count": class_count,
+            "student_count": student_count
+        })
+        
+    return success(teachers)
 
 
 class TeacherInvite(BaseModel):
@@ -557,8 +574,12 @@ async def delete_teacher(
     if not user.data:
         return error("NOT_FOUND", "Teacher not found", 404)
     
-    # 2. Unassign teacher from classes (set teacher_id to null)
+    # 2. Unassign teacher from related records (classes, doubts, attendance, grades)
     admin.table("classes").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("doubt_responses").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("attendance").update({"marked_by": None}).eq("marked_by", teacher_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("grades").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
+    admin.table("study_plan_templates").update({"created_by": None}).eq("created_by", teacher_id).eq("tenant_id", token.tenant_id).execute()
     
     # 3. Delete user row
     admin.table("users").delete().eq("id", teacher_id).eq("tenant_id", token.tenant_id).execute()
@@ -575,6 +596,135 @@ async def delete_teacher(
         )
     
     return success({"deleted": True})
+
+
+@router.get("/tenant-info")
+async def get_tenant_info(token: TokenData = Depends(require_admin)):
+    admin = get_admin_client()
+    res = admin.table("tenants").select("id, name, slug").eq("id", token.tenant_id).maybe_single().execute()
+    if not res.data:
+        return error("NOT_FOUND", "Organization not found", 404)
+    return success(res.data)
+
+
+@router.get("/teachers/applications")
+async def list_teacher_applications(
+    status: Optional[str] = "pending",
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    q = admin.table("teacher_applications").select("*").eq("tenant_id", token.tenant_id)
+    if status:
+        q = q.eq("status", status)
+    res = q.order("created_at", desc=True).execute()
+    
+    data = res.data or []
+    
+    # Simple relative time helper for internal use
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    for app in data:
+        dt = datetime.fromisoformat(app["created_at"].replace("Z", "+00:00"))
+        diff = now - dt
+        if diff.days > 0:
+            app["applied_ago"] = f"{diff.days}d ago"
+        elif diff.seconds > 3600:
+            app["applied_ago"] = f"{diff.seconds // 3600}h ago"
+        elif diff.seconds > 60:
+            app["applied_ago"] = f"{diff.seconds // 60}m ago"
+        else:
+            app["applied_ago"] = "just now"
+            
+    return success(data)
+
+
+@router.post("/teachers/applications/{app_id}/approve")
+async def approve_teacher_application(
+    app_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    
+    # 1. Get application
+    app_res = admin.table("teacher_applications").select("*").eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
+    if not app_res or not app_res.data:
+        return error("NOT_FOUND", "Application not found", 404)
+    
+    app = app_res.data[0]
+    if app["status"] != "pending":
+        return error("BAD_REQUEST", f"Application is already {app['status']}", 400)
+    
+    # 2. Trigger invitation
+    try:
+        # Determine dynamic redirect URL
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        base_url = settings.FRONTEND_URL
+        if origin and ("localhost" in origin or "127.0.0.1" in origin):
+            base_url = origin
+        elif referer and ("localhost" in referer or "127.0.0.1" in referer):
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            base_url = f"{p.scheme}://{p.netloc}"
+            
+        redirect_to = f"{base_url}/auth/callback"
+
+        invite = await AuthService.invite_user_by_email(
+            email=app["email"],
+            name=app["name"],
+            role="teacher",
+            tenant_id=app["tenant_id"],
+            redirect_to=redirect_to
+        )
+        
+        # 3. Create user row
+        admin.table("users").upsert({
+            "id": invite["user_id"],
+            "tenant_id": token.tenant_id,
+            "role": "teacher",
+            "name": app["name"],
+            "email": app["email"],
+            "is_registered": False
+        }).execute()
+
+        # 4. Update Supabase auth user app_metadata for login capabilities
+        import httpx
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient() as client:
+            await client.put(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{invite['user_id']}",
+                json={"app_metadata": {"role": "teacher", "tenant_id": token.tenant_id}},
+                headers=auth_headers
+            )
+
+        # 5. Update application status
+        admin.table("teacher_applications").update({
+            "status": "approved"
+        }).eq("id", app_id).execute()
+
+        return success({"message": "Application approved and invitation sent."})
+
+    except Exception as e:
+        import traceback
+        print(f"ERROR: {str(e)}\n{traceback.format_exc()}")
+        return error("INVITE_FAILED", str(e), 500)
+
+
+@router.post("/teachers/applications/{app_id}/reject")
+async def reject_teacher_application(
+    app_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("teacher_applications").update({"status": "rejected"}).eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
+    if not res.data:
+        return error("NOT_FOUND", "Application not found", 404)
+    return success({"message": "Application rejected."})
 
 
 # ── Classes ───────────────────────────────────────────────────

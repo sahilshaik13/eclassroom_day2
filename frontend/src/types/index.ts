@@ -179,6 +179,7 @@ export interface Teacher {
   name: string
   email: string
   class_count: number
+  student_count: number
   deactivated_at?: string
 }
 
