@@ -4,7 +4,7 @@ import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import {
   BookOpen, LayoutDashboard, GraduationCap, MessageCircle,
-  Users, Library, Settings, LogOut, Menu, X, Bell, Building2,
+  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { authApi } from '@/services/authApi'
@@ -21,6 +21,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Home', href: '/student', icon: LayoutDashboard },
     { label: 'Classes', href: '/student/classes', icon: GraduationCap },
     { label: 'Ask Teacher', href: '/student/doubts', icon: MessageCircle },
+    { label: 'Competitions', href: '/student/competitions', icon: Trophy },
     { label: 'Profile', href: '/student/profile', icon: Settings },
   ],
   teacher: [
@@ -28,6 +29,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Study Plan', href: '/teacher/study-plan', icon: BookOpen },
     { label: 'Students', href: '/teacher/students', icon: Users },
     { label: 'New Applicants', href: '/teacher/applicants', icon: GraduationCap },
+    { label: 'Competitions', href: '/teacher/competitions', icon: Trophy },
     { label: 'Profile', href: '/teacher/profile', icon: Settings },
   ],
   admin: [
@@ -36,6 +38,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Teachers', href: '/admin/teachers', icon: Users },
     { label: 'Classes', href: '/admin/classes', icon: Library },
     { label: 'Study Plans', href: '/admin/study-plans', icon: BookOpen },
+    { label: 'Competitions', href: '/admin/competitions', icon: Trophy },
     { label: 'Settings', href: '/admin/settings', icon: Settings },
   ],
   super_admin: [
@@ -57,6 +60,7 @@ const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Home', href: '/student', icon: LayoutDashboard },
     { label: 'Classes', href: '/student/classes', icon: GraduationCap },
     { label: 'Ask Teacher', href: '/student/doubts', icon: MessageCircle },
+    { label: 'Compete', href: '/student/competitions', icon: Trophy },
     { label: 'Profile', href: '/student/profile', icon: Settings },
   ],
   teacher: [

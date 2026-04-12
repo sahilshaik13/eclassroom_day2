@@ -211,3 +211,53 @@ export interface StudyPlanTaskItem {
   task_type: TaskType
   order_index: number
 }
+
+// ── Competition domain ────────────────────────────────────────────────────────
+
+export type CompetitionStatus = 'draft' | 'active' | 'closed'
+export type RegistrationStatus = 'registered' | 'participated' | 'disqualified'
+export type CompetitionCategory = 'mcq' | 'hifz' | 'khirat'
+
+export interface Competition {
+  id: string
+  tenant_id: string
+  title: string
+  category: CompetitionCategory
+  description?: string
+  start_date?: string
+  end_date?: string
+  status: CompetitionStatus
+  assigned_teacher_id?: string
+  assigned_teacher?: { name: string }
+  content?: any[]
+  settings?: any
+  created_at?: string
+}
+
+export interface CompetitionRegistration {
+  id: string
+  competition_id: string
+  tenant_id: string
+  phone: string
+  name: string
+  student_id: string | null
+  status: RegistrationStatus
+  registered_at: string
+  responses?: any[]
+  is_submitted?: boolean
+  submitted_at?: string
+  results_released?: boolean
+  competition_results?: CompetitionResult[] // from join in backend
+  competitions?: Competition // from join in backend
+}
+
+export interface CompetitionResult {
+  id: string
+  competition_id: string
+  tenant_id: string
+  registration_id: string
+  score: number
+  remarks?: string
+  recorded_by?: string
+  created_at: string
+}

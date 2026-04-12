@@ -27,6 +27,8 @@ import StudyPlanPage from '@/pages/student/StudyPlanPage'
 import StudentClassesPage from '@/pages/student/StudentClassesPage'
 import StudentDoubtsPage from '@/pages/student/StudentDoubtsPage'
 import StudentProfilePage from '@/pages/student/StudentProfilePage'
+import StudentCompetitionsPage from '@/pages/student/StudentCompetitionsPage'
+import StudentExamPage from '@/pages/student/StudentExamPage'
 
 // Teacher pages
 import TeacherDashboard from './pages/teacher/TeacherDashboard'
@@ -39,6 +41,13 @@ import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
 import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
 import TeacherApplicantsPage from './pages/teacher/TeacherApplicantsPage'
 import TeacherApplyPage from './pages/public/TeacherApplyPage'
+import TeacherCompetitionsPage from './pages/teacher/TeacherCompetitionsPage'
+import TeacherExamSetupPage from './pages/teacher/TeacherExamSetupPage'
+import TeacherParticipantPortal from './pages/teacher/TeacherParticipantPortal'
+
+// Competition pages
+import { CompetitionLandingPage } from './pages/public/CompetitionLandingPage'
+import { CompetitionPortalPage } from './pages/competition/CompetitionPortalPage'
 
 // Admin pages
 import AdminDashboard from '@/pages/admin/AdminDashboard'
@@ -47,6 +56,7 @@ import AdminTeachersPage from '@/pages/admin/AdminTeachersPage'
 import AdminClassesPage from '@/pages/admin/AdminClassesPage'
 import StudyPlansPage from '@/pages/admin/StudyPlansPage'
 import AdminSettingsPage from '@/pages/admin/AdminSettingsPage'
+import AdminCompetitionsPage from '@/pages/admin/AdminCompetitionsPage'
 
 // Super Admin pages
 import SuperAdminDashboard from '@/pages/superadmin/SuperAdminDashboard'
@@ -151,6 +161,13 @@ export default function App() {
           element={<RequireRole role="teacher"><TeacherRegistrationPage /></RequireRole>}
         />
         <Route path="/apply/:slug" element={<TeacherApplyPage />} />
+        <Route path="/compete/:competition_id" element={<CompetitionLandingPage />} />
+        
+        {/* ── Competition Portal (External Participants) ── */}
+        <Route 
+          path="/competition-portal" 
+          element={<RequireRole role="student"><CompetitionPortalPage /></RequireRole>} 
+        />
 
         {/* ── Student portal ────────────────── */}
         <Route
@@ -161,6 +178,8 @@ export default function App() {
           <Route path="study-plan" element={<StudyPlanPage />} />
           <Route path="classes" element={<StudentClassesPage />} />
           <Route path="doubts" element={<StudentDoubtsPage />} />
+          <Route path="competitions" element={<StudentCompetitionsPage />} />
+          <Route path="competitions/:id/exam" element={<StudentExamPage />} />
           <Route path="profile" element={<StudentProfilePage />} />
         </Route>
 
@@ -178,6 +197,9 @@ export default function App() {
           <Route path="grades" element={<GradesPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="profile" element={<TeacherProfilePage />} />
+          <Route path="competitions" element={<TeacherCompetitionsPage />} />
+          <Route path="competitions/:id/setup" element={<TeacherExamSetupPage />} />
+          <Route path="competitions/:competition_id/evaluate/:registration_id" element={<TeacherParticipantPortal />} />
         </Route>
 
         {/* ── Admin portal ──────────────────── */}
@@ -191,6 +213,7 @@ export default function App() {
           <Route path="classes" element={<AdminClassesPage />} />
           <Route path="study-plans" element={<StudyPlansPage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
+          <Route path="competitions" element={<AdminCompetitionsPage />} />
         </Route>
 
         {/* ── Super Admin portal ──────────────── */}

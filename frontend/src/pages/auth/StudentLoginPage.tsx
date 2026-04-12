@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -20,6 +20,8 @@ type Step = 'phone' | 'otp'
 export default function StudentLoginPage() {
   const navigate = useNavigate()
   const { setSession } = useAuthStore()
+  const [searchParams] = useSearchParams()
+  const competitionId = searchParams.get('competition_id')
   const [step, setStep] = useState<Step>('phone')
   const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
@@ -43,7 +45,7 @@ export default function StudentLoginPage() {
   const onSendOtp = async (data: PhoneForm) => {
     setLoading(true)
     try {
-      const res = await authApi.sendOtp(data.phone, DEMO_TENANT_ID)
+      const res = await authApi.sendOtp(data.phone, DEMO_TENANT_ID, competitionId ? 'competition' : 'classroom')
       setPhone(data.phone)
       setDevOtp(res.data.data.dev_otp)
       setStep('otp')
@@ -84,13 +86,20 @@ export default function StudentLoginPage() {
     if (code.length < 6) { toast.error('Enter all 6 digits'); return }
     setLoading(true)
     try {
-      const res = await authApi.verifyOtp(phone, code, DEMO_TENANT_ID)
-      const { user, access_token, refresh_token } = res.data.data
+      const res = await authApi.verifyOtp(phone, code, DEMO_TENANT_ID, competitionId || undefined)
+      const { user, access_token, refresh_token, is_existing_student } = res.data.data
 
       // No MFA for students — proceed directly to session
       setSession(user, access_token, refresh_token)
       toast.success('Welcome back!')
-      navigate(user.is_registered ? '/student' : '/auth/student-registration')
+      
+      if (is_existing_student) {
+        navigate('/student')
+      } else if (competitionId) {
+        navigate('/competition-portal')
+      } else {
+        navigate('/auth/student-registration')
+      }
     } catch (e) {
       setAttempts((a) => a + 1)
       if (e instanceof ApiClientError) toast.error(e.message)
@@ -106,7 +115,7 @@ export default function StudentLoginPage() {
     if (resendCooldown > 0) return
     setLoading(true)
     try {
-      const res = await authApi.sendOtp(phone, DEMO_TENANT_ID)
+      const res = await authApi.sendOtp(phone, DEMO_TENANT_ID, competitionId ? 'competition' : 'classroom')
       setDevOtp(res.data.data.dev_otp)
       setDigits(['', '', '', '', '', ''])
       setAttempts(0)
@@ -138,8 +147,12 @@ export default function StudentLoginPage() {
 
           {step === 'phone' ? (
             <>
-              <h1 className="text-2xl font-bold text-gray-900 mb-1">Student Login</h1>
-              <p className="text-sm text-gray-500 mb-8">Enter your registered phone number</p>
+              <h1 className="text-2xl font-bold text-gray-900 mb-1">
+                {competitionId ? 'Join Competition' : 'Student Login'}
+              </h1>
+              <p className="text-sm text-gray-500 mb-8">
+                {competitionId ? 'Enter your phone to participate' : 'Enter your registered phone number'}
+              </p>
 
               <form onSubmit={handlePhone(onSendOtp)} className="space-y-5">
                 <div>

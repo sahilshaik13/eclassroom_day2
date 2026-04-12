@@ -8,7 +8,7 @@ POST /api/v1/auth/mfa/enroll
 GET  /api/v1/auth/mfa/factors
 POST /api/v1/auth/mfa/verify
 POST /api/v1/auth/logout
-"""
+11: """
 from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr
@@ -27,12 +27,15 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 class OTPSendRequest(BaseModel):
     phone: str
     tenant_id: UUID
+    context: str = "classroom"
+    competition_id: UUID | None = None
 
 
 class OTPVerifyRequest(BaseModel):
     phone: str
     token: str
     tenant_id: UUID
+    competition_id: UUID | None = None
 
 
 class SetPasswordRequest(BaseModel):
@@ -58,7 +61,7 @@ class RefreshRequest(BaseModel):
 @router.post("/otp/send")
 async def send_otp(body: OTPSendRequest):
     try:
-        result = await AuthService.send_otp(body.phone, body.tenant_id)
+        result = await AuthService.send_otp(body.phone, str(body.tenant_id), body.context)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)
@@ -67,7 +70,8 @@ async def send_otp(body: OTPSendRequest):
 @router.post("/otp/verify")
 async def verify_otp(body: OTPVerifyRequest):
     try:
-        result = await AuthService.verify_otp(body.phone, body.token, body.tenant_id)
+        comp_id = str(body.competition_id) if body.competition_id else None
+        result = await AuthService.verify_otp(body.phone, body.token, str(body.tenant_id), comp_id)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)
@@ -100,8 +104,6 @@ async def mfa_enroll(
     request: Request,
     token: TokenData = Depends(get_current_user),
 ):
-    print(f"DEBUG enroll mfa_verified: {token.mfa_verified}, aal: {token.raw.get('aal')}")
-
     if token.role == "student":
         return error("FORBIDDEN", "MFA is not available for students", 403)
 
@@ -219,16 +221,3 @@ async def refresh_session(body: RefreshRequest):
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)
-
-
-@router.get("/debug-config")
-async def debug_config():
-    return {"frontend_url": settings.FRONTEND_URL}
-
-
-@router.get("/debug-invite-url")
-async def debug_invite_url():
-    from urllib.parse import quote
-    redirect_to = f"{settings.FRONTEND_URL}/auth/callback"
-    encoded = quote(redirect_to, safe=":/")
-    return {"redirect_to": redirect_to, "encoded": encoded}

@@ -28,7 +28,7 @@ JWT payload structure:
     "exp": ...
   }
 """
-from typing import Optional
+from typing import Optional, List
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt as pyjwt
@@ -53,11 +53,7 @@ def _get_jwks_client() -> PyJWKClient:
 
 
 def _get_hs256_key() -> bytes:
-    raw = settings.SUPABASE_JWT_SECRET
-    try:
-        return base64.b64decode(raw)
-    except Exception:
-        return raw.encode()
+    return settings.SUPABASE_JWT_SECRET.encode()
 
 
 class TokenData:
@@ -68,6 +64,7 @@ class TokenData:
         self.role:      str           = payload.get("app_metadata", {}).get("role", "")
         self.email:     Optional[str] = payload.get("email")
         self.raw:       dict          = payload
+        self.raw_token: str           = ""  # Populated by dependency
 
         # MFA verified:
         # - Real Supabase JWTs: aal="aal2" after successful TOTP challenge
@@ -159,6 +156,7 @@ async def get_current_user(
     token   = _extract_token(request, credentials)
     payload = _verify_token(token)
     data    = TokenData(payload)
+    data.raw_token = token
     
     # Check if the tenant is suspended (block mutations only to allow read-only access)
     if data.tenant_id and data.role != "super_admin" and request.method in ("POST", "PUT", "PATCH", "DELETE"):
@@ -227,3 +225,49 @@ async def require_super_admin(
         )
     # MFA check temporarily removed per user request
     return token
+
+
+class RequireRole:
+    """Dependency factory for role-based access control."""
+    def __init__(self, allowed_roles: List[str]):
+        self.allowed_roles = allowed_roles
+
+    async def __call__(
+        self, token: TokenData = Depends(get_current_user)
+    ) -> TokenData:
+        if token.role not in self.allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "UNAUTHORIZED",
+                    "message": f"Access denied. One of these roles required: {self.allowed_roles}",
+                },
+            )
+        return token
+
+
+class RequireActiveTenant:
+    """Dependency that ensures the tenant is active."""
+    async def __call__(
+        self, token: TokenData = Depends(get_current_user)
+    ) -> TokenData:
+        if not token.tenant_id or token.role == "super_admin":
+            return token
+
+        admin = get_admin_client()
+        res = (
+            admin.table("tenants")
+            .select("is_active")
+            .eq("id", token.tenant_id)
+            .maybe_single()
+            .execute()
+        )
+        if res and res.data and not res.data.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "TENANT_SUSPENDED",
+                    "message": "Your organization account has been suspended.",
+                },
+            )
+        return token

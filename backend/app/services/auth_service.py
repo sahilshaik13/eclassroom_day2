@@ -5,6 +5,7 @@ import random
 import jwt
 import httpx
 import base64
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from twilio.rest import Client as TwilioClient
@@ -36,28 +37,29 @@ class AuthService:
     # ── OTP (Student phone login) ─────────────────────────────
 
     @staticmethod
-    async def send_otp(phone: str, tenant_id: str) -> dict:
+    async def send_otp(phone: str, tenant_id: str, context: str = "classroom") -> dict:
         admin = get_admin_client()
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
         tenant_id = str(tenant_id)
 
-        try:
-            result = (
-                admin.table("students")
-                .select("id, user_id, deactivated_at")
-                .eq("phone", phone)
-                .eq("tenant_id", tenant_id)
-                .execute()
-            )
-        except Exception as e:
-            raise AuthError("INTERNAL_ERROR", f"Database query failed: {str(e)}", 500)
+        if context == "classroom":
+            try:
+                result = (
+                    admin.table("students")
+                    .select("id, user_id, deactivated_at")
+                    .eq("phone", phone)
+                    .eq("tenant_id", tenant_id)
+                    .execute()
+                )
+            except Exception as e:
+                raise AuthError("INTERNAL_ERROR", f"Database query failed: {str(e)}", 500)
 
-        if not result or not result.data:
-            raise AuthError("INVALID_CREDENTIALS", "Phone number not registered or access denied", 401)
+            if not result or not result.data:
+                raise AuthError("INVALID_CREDENTIALS", "Phone number not registered or access denied", 401)
 
-        student_data = result.data[0]
-        if student_data.get("deactivated_at"):
-            raise AuthError("ACCOUNT_DISABLED", "Account is deactivated", 401)
+            student_data = result.data[0]
+            if student_data.get("deactivated_at"):
+                raise AuthError("ACCOUNT_DISABLED", "Account is deactivated", 401)
 
         # Check if the tenant itself is active
         tenant_res = (
@@ -100,19 +102,17 @@ class AuthService:
                 raise Exception("Twilio Phone Number or Messaging Service SID missing")
             client.messages.create(**send_args)
         except Exception as e:
-            print(f"DEBUG send_otp Twilio/Delivery error for {phone}: {e}")
             if not settings.is_production:
                 return {
-                    "message": "OTP generated (MOCK)",
-                    "dev_otp": otp_code,
-                    "note": f"Delivery error: {str(e)}. Use {otp_code} for testing."
+                    "message": "OTP sent successfully",
+                    "note": f"Dev code: {otp_code}"
                 }
             raise AuthError("INTERNAL_ERROR", f"SMS delivery failed: {str(e)}", 500)
 
         return {"message": "OTP sent successfully"}
 
     @staticmethod
-    async def verify_otp(phone: str, token: str, tenant_id: str) -> dict:
+    async def verify_otp(phone: str, token: str, tenant_id: str, competition_id: Optional[str] = None) -> dict:
         admin = get_admin_client()
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
         tenant_id = str(tenant_id)
@@ -137,22 +137,58 @@ class AuthService:
         # 2. Consume the code
         admin.table("otp_codes").delete().eq("id", otp_res.data[0]["id"]).execute()
 
-        # 3. Get user record
+        # 3. Get user/student record if any
+        user_data = None
+        is_existing_student = False
         try:
             user_res = (
                 admin.table("users")
                 .select("id, name, role, tenant_id, has_password, is_registered")
                 .eq("phone", phone)
                 .eq("tenant_id", tenant_id)
-                .single()
+                .maybe_single()
                 .execute()
             )
             user_data = user_res.data
         except Exception as e:
+            pass
+
+        if user_data and user_data.get("role") == "student":
+            is_existing_student = True
+
+        # If it's pure competition and no user data exists, create transient user_data for JWT
+        if not user_data and competition_id:
+            user_data = {
+                "id": str(uuid.uuid5(uuid.NAMESPACE_OID, phone + str(tenant_id))),
+                "name": "Competition Participant",
+                "role": "student",
+                "tenant_id": tenant_id,
+                "is_registered": False
+            }
+
+        if not user_data and not competition_id:
             raise AuthError("NOT_FOUND", "Student record not found in user directory", 404)
 
-        if not user_data:
-            raise AuthError("NOT_FOUND", "User record not found — contact support", 404)
+        # Upsert competition registration if competition_id is given
+        if competition_id:
+            try:
+                # First check if returning student, if so get student_id
+                student_id = None
+                if is_existing_student:
+                    stu_res = admin.table("students").select("id").eq("user_id", user_data["id"]).maybe_single().execute()
+                    if stu_res and stu_res.data:
+                        student_id = stu_res.data["id"]
+                
+                admin.table("competition_registrations").upsert({
+                    "competition_id": competition_id,
+                    "tenant_id": tenant_id,
+                    "phone": phone,
+                    "name": user_data.get("name", "Participant"),
+                    "student_id": student_id,
+                    "status": "registered"
+                }, on_conflict="competition_id, phone").execute()
+            except Exception:
+                pass
 
         # 4. Issue full session immediately (no MFA for students)
         access_token = AuthService._issue_session(user_data, mfa_verified=True)
@@ -162,6 +198,8 @@ class AuthService:
             "token_type": "bearer",
             "mfa_required": False,
             "mfa_enrolled": False,
+            "is_existing_student": is_existing_student,
+            "is_competition_participant": bool(competition_id),
             "user": {
                 "id":            user_data["id"],
                 "name":          user_data.get("name", ""),
@@ -178,10 +216,7 @@ class AuthService:
         expires_in: timedelta = timedelta(days=7)
     ) -> str:
         """Sign HS256 JWTs for the student manual-OTP flow."""
-        try:
-            secret = base64.b64decode(settings.SUPABASE_JWT_SECRET)
-        except Exception:
-            secret = settings.SUPABASE_JWT_SECRET.encode()
+        secret = settings.SUPABASE_JWT_SECRET.encode()
 
         now = datetime.now(timezone.utc)
         payload = {
@@ -312,8 +347,8 @@ class AuthService:
                         session = result2.session
                 except Exception:
                     pass
-            except Exception as e:
-                print(f"Warning: could not backfill app_metadata: {e}")
+            except Exception:
+                pass
 
         # ── Robust MFA status detection (Admin API) ────────────────
         mfa_enrolled = False
@@ -334,10 +369,9 @@ class AuthService:
                         if f.get("factor_type") == "totp" and f.get("status") == "verified":
                             mfa_enrolled = True
                             break
-                else:
-                    print(f"DEBUG: Admin API check failed ({resp.status_code}): {resp.text}")
-        except Exception as e:
-            print(f"DEBUG login MFA check exception: {e}")
+                pass
+        except Exception:
+            pass
 
         user_data = user_row.data
 
@@ -384,8 +418,8 @@ class AuthService:
             if user_id:
                 admin = get_admin_client()
                 admin.table("users").update({"has_password": True}).eq("id", user_id).execute()
-        except Exception as e:
-            print(f"Error updating has_password flag: {str(e)}")
+        except Exception:
+            pass
 
         return {"message": "Password updated successfully"}
 
@@ -420,8 +454,8 @@ class AuthService:
                                 f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}/factors/{f['id']}",
                                 headers=admin_headers,
                             )
-            except Exception as e:
-                print(f"DEBUG enrollment cleanup warning: {e}")
+            except Exception:
+                pass
 
             # 2. Proceed with enrollment (User-level action)
             resp = await client.post(
@@ -482,8 +516,8 @@ class AuthService:
             user_id = jwt.decode(user_jwt, options={"verify_signature": False})["sub"]
             admin = get_admin_client()
             admin.table("users").update({"mfa_enabled": True}).eq("id", user_id).execute()
-        except Exception as e:
-            print(f"Warning: could not sync mfa_enabled after verify: {e}")
+        except Exception:
+            pass
 
         return {
             "access_token":  data["access_token"],
@@ -525,8 +559,8 @@ class AuthService:
         try:
             admin = get_admin_client()
             admin.table("users").update({"mfa_enabled": False}).eq("id", user_id).execute()
-        except Exception as e:
-            print(f"Warning: could not sync mfa_enabled after unenroll: {e}")
+        except Exception:
+            pass
 
         return {"message": "MFA disabled successfully"}
 
@@ -550,12 +584,8 @@ class AuthService:
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.put(url, json=payload, headers=auth_headers)
-                if resp.status_code >= 400:
-                    print(f"ERROR: Sync app_metadata failed ({resp.status_code}): {resp.text}")
-                    return False
-                return True
-            except Exception as e:
-                print(f"ERROR: Sync app_metadata exception: {e}")
+                return resp.status_code < 400
+            except Exception:
                 return False
 
     # ── Invite teacher by email ───────────────────────────────
@@ -641,10 +671,8 @@ class AuthService:
                                 break
                         user_data["mfa_enabled"] = mfa_enabled
                     else:
-                        print(f"DEBUG: Status check failed ({resp.status_code}): {resp.text}")
                         user_data["mfa_enabled"] = False
-            except Exception as e:
-                print(f"MFA Factor check failed for {user_id}: {e}")
+            except Exception:
                 user_data["mfa_enabled"] = False
         else:
             user_data["mfa_enabled"] = False

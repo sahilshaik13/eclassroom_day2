@@ -40,7 +40,9 @@ export function RequireRole({ children, role, redirectTo }: Props) {
 
   // Redirect unregistered teachers/students to their registration form
   const isRegistrationPath = location.pathname.includes('-registration')
-  if (!isRegistrationPath && user.is_registered === false && role !== 'admin') {
+  const isCompetitionPortal = location.pathname.includes('/competition-portal')
+  
+  if (!isRegistrationPath && !isCompetitionPortal && user.is_registered === false && role !== 'admin') {
     const regPath = role === 'student'
       ? '/auth/student-registration'
       : '/auth/teacher-registration'

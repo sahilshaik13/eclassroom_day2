@@ -710,8 +710,6 @@ async def approve_teacher_application(
         return success({"message": "Application approved and invitation sent."})
 
     except Exception as e:
-        import traceback
-        print(f"ERROR: {str(e)}\n{traceback.format_exc()}")
         return error("INVITE_FAILED", str(e), 500)
 
 

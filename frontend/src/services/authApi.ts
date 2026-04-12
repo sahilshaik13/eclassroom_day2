@@ -2,16 +2,16 @@ import api from './api'
 import type { AuthUser, LoginResponse, MFAEnrollResponse } from '@/types'
 
 export const authApi = {
-  sendOtp: (phone: string, tenantId: string) =>
+  sendOtp: (phone: string, tenantId: string, context?: string) =>
     api.post<{ success: true; data: { message: string; dev_otp?: string } }>(
       '/auth/otp/send',
-      { phone, tenant_id: tenantId }
+      { phone, tenant_id: tenantId, context }
     ),
 
-  verifyOtp: (phone: string, token: string, tenantId: string) =>
-    api.post<{ success: true; data: LoginResponse }>(
+  verifyOtp: (phone: string, token: string, tenantId: string, competitionId?: string) =>
+    api.post<{ success: true; data: LoginResponse & { is_existing_student?: boolean; is_competition_participant?: boolean } }>(
       '/auth/otp/verify',
-      { phone, token, tenant_id: tenantId }
+      { phone, token, tenant_id: tenantId, competition_id: competitionId }
     ),
 
   login: (email: string, password: string) =>

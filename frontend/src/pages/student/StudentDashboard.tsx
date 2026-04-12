@@ -12,6 +12,8 @@ import type { Task, TaskType } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import api from '@/services/api'
+import { competitionApi } from '@/services/competitionApi'
+import type { CompetitionRegistration } from '@/types'
 
 async function fetchTodayTasks(): Promise<Task[]> {
   try {
@@ -41,6 +43,7 @@ export default function StudentDashboard() {
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [pendingDoubts, setPendingDoubts] = useState(1)
+  const [competitions, setCompetitions] = useState<CompetitionRegistration[]>([])
 
   useEffect(() => {
     fetchTodayTasks()
@@ -51,6 +54,10 @@ export default function StudentDashboard() {
       const d = r.data?.data
       if (Array.isArray(d)) setPendingDoubts(d.filter((x: any) => x.status === 'pending').length)
     }).catch(() => { })
+
+    competitionApi.getStudentCompetitions().then(r => {
+      if (r.success) setCompetitions(r.data)
+    }).catch(() => {})
   }, [])
 
   const completedCount = tasks.filter((t) => t.completed).length
@@ -241,6 +248,41 @@ export default function StudentDashboard() {
           <UpcomingClass name="Islamic History" day="Wed" time="4:00 PM" teacher="Dr. Ahmed" />
         </div>
       </section>
+
+      {/* My Competitions  */}
+      {competitions.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold text-slate-900">My Competitions</h2>
+          </div>
+          <div className="space-y-3">
+            {competitions.map(reg => {
+              const comp = reg.competitions
+              return (
+                <div key={reg.id} className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">{comp?.title}</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {comp?.start_date ? new Date(comp?.start_date).toLocaleDateString() : ''} 
+                    </p>
+                    <div className="mt-2 inline-flex items-center">
+                       <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full uppercase">
+                         {reg.status}
+                       </span>
+                    </div>
+                  </div>
+                  {reg.competition_results && reg.competition_results.length > 0 && (
+                    <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-right shrink-0">
+                      <p className="text-2xl font-bold text-green-700">{reg.competition_results[0].score}/100</p>
+                      {reg.competition_results[0].remarks && <p className="text-xs text-green-600 mt-0.5 max-w-[150px] truncate">{reg.competition_results[0].remarks}</p>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
     </div>
   )
 }
