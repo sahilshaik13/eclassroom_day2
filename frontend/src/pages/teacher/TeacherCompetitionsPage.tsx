@@ -25,9 +25,6 @@ export default function TeacherCompetitionsPage() {
   const [loading, setLoading] = useState(true)
   const [loadingRegs, setLoadingRegs] = useState(false)
   const [search, setSearch] = useState('')
-  const [scores, setScores] = useState<Record<string, number>>({})
-  const [remarks, setRemarks] = useState<Record<string, string>>({})
-  const [savingId, setSavingId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const load = () => {
@@ -58,48 +55,12 @@ export default function TeacherCompetitionsPage() {
       .then(r => {
         if (r.success) {
           setRegistrations(r.data)
-          // Pre-fill state
-          const newScores: Record<string, number> = {}
-          const newRemarks: Record<string, string> = {}
-          r.data.forEach(reg => {
-            if (reg.competition_results && reg.competition_results.length > 0) {
-              newScores[reg.id] = reg.competition_results[0].score
-              newRemarks[reg.id] = reg.competition_results[0].remarks || ''
-            }
-          })
-          setScores(newScores)
-          setRemarks(newRemarks)
         }
       })
       .catch(() => toast.error('Could not load participants'))
       .finally(() => setLoadingRegs(false))
   }
 
-  const handleSaveResult = async (regId: string) => {
-    if (!selectedComp) return
-    const score = scores[regId]
-    if (score === undefined || score < 0 || score > 100) {
-      toast.error("Valid score between 0 and 100 required")
-      return
-    }
-
-    setSavingId(regId)
-    try {
-      const existing = registrations.find(r => r.id === regId)?.competition_results?.[0]
-      if (existing) {
-        await competitionApi.updateResult(selectedComp.id, existing.id, score, remarks[regId])
-      } else {
-        await competitionApi.submitResult(selectedComp.id, regId, score, remarks[regId])
-      }
-      toast.success("Result saved!")
-      // Reload to reflect proper DB state and ID if newly inserted
-      loadRegistrations(selectedComp)
-    } catch (e) {
-      toast.error("Failed to save result")
-    } finally {
-      setSavingId(null)
-    }
-  }
 
   const filtered = competitions.filter(c =>
     c.title.toLowerCase().includes(search.toLowerCase())
