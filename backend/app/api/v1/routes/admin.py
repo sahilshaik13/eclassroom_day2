@@ -477,6 +477,58 @@ async def invite_teacher(
         return error("INTERNAL_ERROR", f"An unexpected error occurred: {str(e)}", 500)
 
 
+@router.post("/teachers/{teacher_id}/resend-invite")
+async def resend_teacher_invite(
+    teacher_id: str,
+    request: Request,
+    token: TokenData = Depends(require_admin),
+):
+    """Resend the invitation email to a teacher who has not yet set their password."""
+    admin_client = get_admin_client()
+    try:
+        # Fetch teacher (must belong to same tenant)
+        res = admin_client.table("users") \
+            .select("id, email, role, has_password, tenant_id") \
+            .eq("id", teacher_id) \
+            .eq("tenant_id", token.tenant_id) \
+            .eq("role", "teacher") \
+            .maybe_single() \
+            .execute()
+
+        if not res or not res.data:
+            return error("NOT_FOUND", "Teacher not found", 404)
+
+        teacher = res.data
+        if teacher.get("has_password"):
+            return error("ALREADY_REGISTERED", "This teacher has already set their password. No invite needed.", 400)
+
+        # Determine redirect URL (localhost vs production)
+        origin = request.headers.get("origin", "")
+        referer = request.headers.get("referer", "")
+        base_url = settings.FRONTEND_URL
+        if origin and ("localhost" in origin or "127.0.0.1" in origin):
+            base_url = origin
+        elif referer and ("localhost" in referer or "127.0.0.1" in referer):
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            base_url = f"{p.scheme}://{p.netloc}"
+        redirect_to = f"{base_url}/auth/callback"
+
+        result = await AuthService.resend_invite_or_reset(
+            user_id=teacher["id"],
+            email=teacher["email"],
+            role="teacher",
+            tenant_id=token.tenant_id,
+            redirect_to=redirect_to,
+        )
+        return success(result)
+
+    except AuthError as e:
+        return error(e.code, e.message, e.status)
+    except Exception as e:
+        return error("INTERNAL_ERROR", str(e), 500)
+
+
 @router.patch("/teachers/{teacher_id}")
 async def update_teacher(
     teacher_id: str,

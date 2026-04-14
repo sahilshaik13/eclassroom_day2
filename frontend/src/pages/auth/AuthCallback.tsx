@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
+import { Loader2, MailX } from 'lucide-react'
 import { authApi } from '@/services/authApi'
 import toast from 'react-hot-toast'
 
@@ -16,8 +16,14 @@ const decodeJWT = (token: string) => {
   }
 }
 
+const isTokenExpired = (decoded: Record<string, any> | null): boolean => {
+  if (!decoded?.exp) return false
+  return Date.now() / 1000 > decoded.exp
+}
+
 export default function AuthCallback() {
   const navigate = useNavigate()
+  const [expired, setExpired] = useState(false)
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -25,62 +31,79 @@ export default function AuthCallback() {
       const hashData = new URLSearchParams(window.location.hash.substring(1))
       const searchData = new URLSearchParams(window.location.search.substring(1))
 
-      // Prefer explicit access_token, but fall back to generic token if needed
       const accessToken =
         hashData.get('access_token') ||
         searchData.get('access_token') ||
         searchData.get('token')
 
-      // Treat any callback that contains an access_token (or token) as a valid invite/session.
-      // Some Supabase flows don't pass type=invite or use query params instead of hash.
-      if (accessToken) {
-        // Decode token to extract email
-        const decoded = decodeJWT(accessToken)
-        const email = decoded?.email
-        
-        // Store temporarily for setPassword
-        localStorage.setItem('temp_invite_token', accessToken)
-        if (email) {
-          localStorage.setItem('temp_invite_email', email)
-        }
+      // No token present — link is missing or expired
+      if (!accessToken) {
+        setExpired(true)
+        return
+      }
 
-        try {
-          // Temporarily set token for the status check
-          localStorage.setItem('access_token', accessToken)
-          
-          const statusRes = await authApi.getUserStatus()
-          const { has_password } = statusRes.data.data
+      const decoded = decodeJWT(accessToken)
 
-          if (has_password) {
-            // If password already set, go to login
-            localStorage.removeItem('temp_invite_token')
-            localStorage.removeItem('temp_invite_email')
-            localStorage.removeItem('access_token')
-            toast.success('Account already active. Please login.')
-            navigate('/auth/login', { replace: true })
-          } else {
-            // Direct to password setup
-            // Note: We keep access_token in localStorage so SetupPasswordPage 
-            // can use it if needed, OR we can rely on temp_invite_token.
-            // SetupPasswordPage uses temp_invite_token explicitly.
-            localStorage.removeItem('access_token') 
-            navigate('/auth/setup-password', { replace: true })
-          }
-        } catch (error) {
-          console.error('Failed to verify user status:', error)
+      // Token is expired
+      if (isTokenExpired(decoded)) {
+        setExpired(true)
+        return
+      }
+
+      const email = decoded?.email
+
+      // Store temporarily for setPassword
+      localStorage.setItem('temp_invite_token', accessToken)
+      if (email) {
+        localStorage.setItem('temp_invite_email', email)
+      }
+
+      try {
+        // Temporarily set token for the status check
+        localStorage.setItem('access_token', accessToken)
+
+        const statusRes = await authApi.getUserStatus()
+        const { has_password } = statusRes.data.data
+
+        if (has_password) {
+          // Password already set → go to login
+          localStorage.removeItem('temp_invite_token')
+          localStorage.removeItem('temp_invite_email')
           localStorage.removeItem('access_token')
-          // Fallback to setup password if status check fails but we have a token
+          toast.success('Account already active. Please login.')
+          navigate('/auth/login', { replace: true })
+        } else {
+          // Not set yet → go to setup
+          localStorage.removeItem('access_token')
           navigate('/auth/setup-password', { replace: true })
         }
-      } else {
-        // Unknown or unsupported callback type, redirect to login
+      } catch (error) {
+        console.error('Failed to verify user status:', error)
         localStorage.removeItem('access_token')
-        navigate('/auth/login', { replace: true })
+        // If status check fails but token exists and isn't expired, still try setup
+        navigate('/auth/setup-password', { replace: true })
       }
     }
 
     handleCallback()
   }, [navigate])
+
+  if (expired) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 text-center">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-8 max-w-md">
+          <MailX className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <h2 className="text-white text-xl font-bold mb-2">Invite Link Expired</h2>
+          <p className="text-white/60 text-sm leading-relaxed mb-4">
+            This invitation link has expired or is no longer valid.
+          </p>
+          <p className="text-white/40 text-xs">
+            Please contact your administrator to resend the invitation email.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4">

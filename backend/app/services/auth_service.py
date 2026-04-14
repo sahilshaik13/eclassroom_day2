@@ -37,29 +37,55 @@ class AuthService:
     # ── OTP (Student phone login) ─────────────────────────────
 
     @staticmethod
-    async def send_otp(phone: str, tenant_id: str, context: str = "classroom") -> dict:
+    async def send_otp(phone: str, tenant_id: Optional[str], context: str = "classroom") -> dict:
         admin = get_admin_client()
+        # Normalize: keep only digits and leading +
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
-        tenant_id = str(tenant_id)
 
         if context == "classroom":
             try:
-                result = (
-                    admin.table("students")
-                    .select("id, user_id, deactivated_at")
-                    .eq("phone", phone)
-                    .eq("tenant_id", tenant_id)
-                    .execute()
-                )
+                # Auto-resolve: look up student globally (or within tenant if provided)
+                query = admin.table("students").select("id, user_id, deactivated_at, tenant_id, phone").eq("phone", phone)
+                if tenant_id:
+                    query = query.eq("tenant_id", tenant_id)
+                result = query.execute()
+
+                # Fallback: suffix match for format differences (+91XXXXXXXXXX vs XXXXXXXXXX)
+                if not result or not result.data:
+                    digits_only = phone.lstrip('+')
+                    last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+                    all_q = admin.table("students").select("id, user_id, deactivated_at, tenant_id, phone")
+                    if tenant_id:
+                        all_q = all_q.eq("tenant_id", tenant_id)
+                    all_students = all_q.execute()
+                    matched = [
+                        s for s in (all_students.data or [])
+                        if s.get("phone", "").lstrip('+').endswith(last10)
+                    ]
+                    if matched:
+                        phone = matched[0]["phone"]
+                        result = type('obj', (object,), {'data': matched})()
             except Exception as e:
                 raise AuthError("INTERNAL_ERROR", f"Database query failed: {str(e)}", 500)
 
             if not result or not result.data:
-                raise AuthError("INVALID_CREDENTIALS", "Phone number not registered or access denied", 401)
+                raise AuthError(
+                    "NOT_REGISTERED",
+                    "This phone number is not registered. Student access is invite-only.",
+                    401
+                )
 
             student_data = result.data[0]
             if student_data.get("deactivated_at"):
                 raise AuthError("ACCOUNT_DISABLED", "Account is deactivated", 401)
+
+            # ✅ Always resolve tenant_id from the matched student record
+            tenant_id = student_data["tenant_id"]
+
+        if not tenant_id:
+            raise AuthError("INVALID_REQUEST", "tenant_id is required for non-classroom context", 400)
+
+        tenant_id = str(tenant_id)
 
         # Check if the tenant itself is active
         tenant_res = (
@@ -105,16 +131,37 @@ class AuthService:
             if not settings.is_production:
                 return {
                     "message": "OTP sent successfully",
-                    "note": f"Dev code: {otp_code}"
+                    "dev_otp": otp_code,
+                    "tenant_id": tenant_id,
                 }
             raise AuthError("INTERNAL_ERROR", f"SMS delivery failed: {str(e)}", 500)
 
-        return {"message": "OTP sent successfully"}
+        return {"message": "OTP sent successfully", "tenant_id": tenant_id}
 
     @staticmethod
-    async def verify_otp(phone: str, token: str, tenant_id: str, competition_id: Optional[str] = None) -> dict:
+    async def verify_otp(phone: str, token: str, tenant_id: Optional[str], competition_id: Optional[str] = None) -> dict:
         admin = get_admin_client()
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
+
+        # Auto-resolve tenant_id from phone if not provided
+        if not tenant_id:
+            try:
+                stu_lookup = (
+                    admin.table("students")
+                    .select("tenant_id, phone")
+                    .eq("phone", phone)
+                    .maybe_single()
+                    .execute()
+                )
+                if stu_lookup and stu_lookup.data:
+                    tenant_id = stu_lookup.data["tenant_id"]
+                    phone = stu_lookup.data["phone"]  # use stored phone for OTP lookup
+            except Exception:
+                pass
+
+        if not tenant_id:
+            raise AuthError("NOT_REGISTERED", "Phone number not registered", 401)
+
         tenant_id = str(tenant_id)
 
         # 1. Validate OTP code
@@ -137,10 +184,31 @@ class AuthService:
         # 2. Consume the code
         admin.table("otp_codes").delete().eq("id", otp_res.data[0]["id"]).execute()
 
-        # 3. Get user/student record if any
-        user_data = None
+        # 3. Handle Student Account Setup (Lazy Allocation)
         is_existing_student = False
+        student_record = None
+        
         try:
+            # First, check the students table for an invite/record
+            stu_res = (
+                admin.table("students")
+                .select("id, user_id, name, tenant_id")
+                .eq("phone", phone)
+                .eq("tenant_id", tenant_id)
+                .maybe_single()
+                .execute()
+            )
+            student_record = stu_res.data
+        except Exception:
+            pass
+
+        if not student_record and not competition_id:
+            raise AuthError("NOT_REGISTERED", "Student record not found. Access is invite-only.", 401)
+
+        # 4. Find or Create User Record
+        user_data = None
+        try:
+            # Check if a user record already exists for this phone + tenant
             user_res = (
                 admin.table("users")
                 .select("id, name, role, tenant_id, has_password, is_registered")
@@ -150,47 +218,34 @@ class AuthService:
                 .execute()
             )
             user_data = user_res.data
-        except Exception as e:
+        except Exception:
             pass
 
-        if user_data and user_data.get("role") == "student":
-            is_existing_student = True
-
-        # If it's pure competition and no user data exists, create transient user_data for JWT
-        if not user_data and competition_id:
-            user_data = {
-                "id": str(uuid.uuid5(uuid.NAMESPACE_OID, phone + str(tenant_id))),
-                "name": "Competition Participant",
-                "role": "student",
-                "tenant_id": tenant_id,
-                "is_registered": False
-            }
-
-        if not user_data and not competition_id:
-            raise AuthError("NOT_FOUND", "Student record not found in user directory", 404)
-
-        # Upsert competition registration if competition_id is given
-        if competition_id:
+        if not user_data:
+            # First-time login: Create the user record
+            new_user_id = str(uuid.uuid4())
             try:
-                # First check if returning student, if so get student_id
-                student_id = None
-                if is_existing_student:
-                    stu_res = admin.table("students").select("id").eq("user_id", user_data["id"]).maybe_single().execute()
-                    if stu_res and stu_res.data:
-                        student_id = stu_res.data["id"]
+                # 1. Insert into users table
+                user_res = admin.table("users").insert({
+                    "id":            new_user_id,
+                    "name":          student_record.get("name", "Student") if student_record else "Participant",
+                    "phone":         phone,
+                    "role":          "student",
+                    "tenant_id":     tenant_id,
+                    "is_registered": False,
+                    "has_password":  False
+                }).execute()
                 
-                admin.table("competition_registrations").upsert({
-                    "competition_id": competition_id,
-                    "tenant_id": tenant_id,
-                    "phone": phone,
-                    "name": user_data.get("name", "Participant"),
-                    "student_id": student_id,
-                    "status": "registered"
-                }, on_conflict="competition_id, phone").execute()
-            except Exception:
-                pass
-
-        # 4. Issue full session immediately (no MFA for students)
+                user_data = user_res.data[0]
+                
+                # 2. Link the student record to this new user
+                if student_record:
+                    admin.table("students").update({"user_id": new_user_id}).eq("id", student_record["id"]).execute()
+                    
+            except Exception as e:
+                raise AuthError("INTERNAL_ERROR", f"Failed to setup user account: {str(e)}", 500)
+        
+        # 6. Issue full session immediately (no MFA for students)
         access_token = AuthService._issue_session(user_data, mfa_verified=True)
         return {
             "access_token": access_token,
@@ -202,6 +257,7 @@ class AuthService:
             "is_competition_participant": bool(competition_id),
             "user": {
                 "id":            user_data["id"],
+                "student_id":    student_record["id"] if student_record else None,
                 "name":          user_data.get("name", ""),
                 "role":          user_data["role"],
                 "tenant_id":     user_data["tenant_id"],
@@ -631,6 +687,71 @@ class AuthService:
         await AuthService.update_auth_app_metadata(user_id, {"role": role, "tenant_id": tenant_id})
 
         return {"user_id": user_id, "email": email, "message": "Invite email sent"}
+
+    @staticmethod
+    async def resend_invite_or_reset(
+        user_id: str,
+        email: str,
+        role: str,
+        tenant_id: str,
+        redirect_to: Optional[str] = None,
+    ) -> dict:
+        """
+        Resend an invite for a user who hasn't completed registration.
+        - If email NOT confirmed → resend /auth/v1/invite
+        - If email confirmed but has_password = false → send password-reset link
+        - If has_password = true → raise AuthError (no action needed)
+        """
+        from urllib.parse import quote
+
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type":  "application/json",
+        }
+
+        # Fetch current auth user state from Supabase
+        async with httpx.AsyncClient() as client:
+            user_resp = await client.get(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                headers=auth_headers,
+            )
+        if user_resp.status_code >= 400:
+            raise AuthError("NOT_FOUND", "Auth user not found", 404)
+
+        auth_user = user_resp.json()
+        email_confirmed = bool(auth_user.get("email_confirmed_at"))
+
+        if not email_confirmed:
+            # Email not confirmed — re-send invite
+            invite_url = f"{settings.SUPABASE_URL}/auth/v1/invite"
+            if redirect_to:
+                invite_url += "?redirect_to=" + quote(redirect_to, safe=":/")
+            payload = {
+                "email": email,
+                "data": {"name": auth_user.get("user_metadata", {}).get("name", ""), "role": role, "tenant_id": tenant_id},
+            }
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(invite_url, json=payload, headers=auth_headers)
+            if resp.status_code >= 400:
+                error_msg = resp.json().get("msg", resp.text)
+                raise AuthError("INVITE_ERROR", error_msg, resp.status_code)
+            return {"message": "Invite email resent", "method": "invite"}
+        else:
+            # Email confirmed but password not set — send password reset link
+            gen_url = f"{settings.SUPABASE_URL}/auth/v1/admin/generate_link"
+            payload = {
+                "type": "recovery",
+                "email": email,
+            }
+            if redirect_to:
+                payload["redirect_to"] = redirect_to
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(gen_url, json=payload, headers=auth_headers)
+            if resp.status_code >= 400:
+                error_msg = resp.json().get("msg", resp.text)
+                raise AuthError("RESET_ERROR", error_msg, resp.status_code)
+            return {"message": "Password setup email sent", "method": "recovery"}
 
     # ── User Status ───────────────────────────────────────────
 

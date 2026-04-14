@@ -35,6 +35,7 @@ class CompetitionUpdate(BaseModel):
     status: Optional[str] = None
     content: Optional[List] = None
     settings: Optional[dict] = None
+    is_exam_active: Optional[bool] = None
 
 
 class CompetitionRegister(BaseModel):
@@ -75,7 +76,7 @@ async def get_competition_info(competition_id: UUID):
     
     res = (
         admin.table("competitions")
-        .select("id, title, description, start_date, end_date, status, tenant_id, category, content, settings")
+        .select("id, title, description, start_date, end_date, status, tenant_id, category, content, settings, is_exam_active")
         .eq("id", str(competition_id))
         .maybe_single()
         .execute()
@@ -321,7 +322,10 @@ async def get_competition_content(competition_id: UUID, token: TokenData = Depen
     if not reg or not reg.data:
         return error("FORBIDDEN", "You are not registered for this competition", 403)
         
-    res = admin.table("competitions").select("category, content, settings").eq("id", str(competition_id)).maybe_single().execute()
+    res = admin.table("competitions").select("category, content, settings, is_exam_active").eq("id", str(competition_id)).maybe_single().execute()
+    if res.data and not res.data.get("is_exam_active"):
+        return error("FORBIDDEN", "The exam has not started yet. Please wait for the teacher.", 403)
+        
     return success(res.data)
 
 
@@ -446,6 +450,26 @@ async def save_teacher_exam_content(competition_id: UUID, body: CompetitionUpdat
 
     res = admin.table("competitions").update(allowed).eq("id", str(competition_id)).execute()
     return success(res.data[0] if res.data else {"message": "Content saved"})
+
+
+@router.patch("/teacher/competitions/{competition_id}/toggle-exam", dependencies=[Depends(RequireRole(["teacher"]))])
+async def toggle_competition_exam(competition_id: UUID, body: dict, token: TokenData = Depends(get_current_user)):
+    from app.db.supabase import get_admin_client
+    admin = get_admin_client()
+
+    # Verify teacher is assigned to this competition
+    comp = admin.table("competitions").select("id").eq("id", str(competition_id)).eq("tenant_id", str(token.tenant_id)).eq("assigned_teacher_id", str(token.user_id)).maybe_single().execute()
+    if not comp.data:
+        return error("FORBIDDEN", "Not assigned to this competition", 403)
+
+    is_active = body.get("is_exam_active", False)
+    update_data = {"is_exam_active": is_active}
+    if is_active:
+        update_data["status"] = "active"
+        
+    res = admin.table("competitions").update(update_data).eq("id", str(competition_id)).execute()
+    
+    return success(res.data[0] if res.data else {"message": "Exam status updated"})
 
 
 # ── Student Endpoint ───────────────────────────────────────────────

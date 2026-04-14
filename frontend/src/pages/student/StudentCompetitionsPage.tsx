@@ -138,18 +138,30 @@ export default function StudentCompetitionsPage() {
                           <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-center min-w-[120px]">
                             <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Status</p>
                             <p className="text-sm font-bold text-slate-600 flex items-center justify-center gap-1.5">
-                              <Info className="w-3.5 h-3.5" /> Awaiting Result
+                              <Info className="w-3.5 h-3.5" /> Pending Start
                             </p>
                           </div>
                         )}
-                        <div className="hidden sm:flex flex-col gap-2">
-                           {!reg.is_submitted && comp?.status === 'active' && (
+                        <div className="flex flex-col gap-2 min-w-[140px]">
+                           {!reg.is_submitted && (
                              <Button
                                size="sm"
-                               className="bg-blue-600 hover:bg-blue-700 gap-1 text-xs"
+                               disabled={!comp?.is_exam_active || comp?.status !== 'active'}
+                               className={clsx(
+                                 "gap-1 text-xs transition-all w-full shadow-sm hover:shadow-md",
+                                 (comp?.is_exam_active && comp?.status === 'active')
+                                   ? "bg-blue-600 hover:bg-blue-700 shadow-blue-200" 
+                                   : "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-100"
+                               )}
                                onClick={() => navigate(`/student/competitions/${comp?.id}/exam`)}
                              >
-                               Enter Exam <ArrowRight className="w-3.5 h-3.5" />
+                               {comp?.is_exam_active ? (
+                                 <>Enter Exam <ArrowRight className="w-3.5 h-3.5" /></>
+                               ) : comp?.status !== 'active' ? (
+                                 <>Not Active</>
+                               ) : (
+                                 <>Waiting for Teacher...</>
+                               )}
                              </Button>
                            )}
                            {reg.is_submitted && (

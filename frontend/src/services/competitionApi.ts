@@ -113,4 +113,9 @@ export const competitionApi = {
     const { data } = await api.get<ApiResponse<CompetitionRegistration[]>>('/student/competitions')
     return data
   },
+  
+  toggleExamStatus: async (competitionId: string, isActive: boolean) => {
+    const { data } = await api.patch<ApiResponse<Competition>>(`/teacher/competitions/${competitionId}/toggle-exam`, { is_exam_active: isActive })
+    return data
+  },
 }

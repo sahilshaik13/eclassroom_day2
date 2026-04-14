@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { Building2, Plus, ArrowLeft, ShieldCheck, Mail, GraduationCap, Users, Trash2, AlertTriangle, Power } from 'lucide-react'
+import { Building2, Plus, ArrowLeft, ShieldCheck, Mail, GraduationCap, Users, Trash2, AlertTriangle, Power, Send, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -34,6 +34,7 @@ export default function TenantDetailPage() {
     const [togglingTenant, setTogglingTenant] = useState(false)
     const [showDeleteDialog, setShowDeleteDialog] = useState(false)
     const [deleting, setDeleting] = useState(false)
+    const [resendingAdmin, setResendingAdmin] = useState(false)
 
     const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateAdminForm>({
         resolver: zodResolver(createAdminSchema),
@@ -82,6 +83,19 @@ export default function TenantDetailPage() {
             toast.error('Failed to update organization status')
         } finally {
             setTogglingTenant(false)
+        }
+    }
+
+    const handleResendAdminInvite = async () => {
+        if (!tenant?.admin) return
+        setResendingAdmin(true)
+        try {
+            await superAdminApi.resendAdminInvite(tenant.admin.id)
+            toast.success('Invite email resent successfully!')
+        } catch (e: any) {
+            toast.error(e?.response?.data?.error?.message || 'Failed to resend invite')
+        } finally {
+            setResendingAdmin(false)
         }
     }
 
@@ -374,6 +388,21 @@ export default function TenantDetailPage() {
                                         <span className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${tenant.admin.is_registered ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                                             {tenant.admin.is_registered ? 'Active Manager' : 'Invite Sent'}
                                         </span>
+                                        <button
+                                            onClick={handleResendAdminInvite}
+                                            disabled={!!tenant.admin.has_password || resendingAdmin}
+                                            title={tenant.admin.has_password ? 'Admin already registered' : 'Resend invite email'}
+                                            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all border ${
+                                                tenant.admin.has_password
+                                                    ? 'text-slate-300 bg-slate-50 border-slate-100 cursor-not-allowed'
+                                                    : 'text-blue-600 bg-blue-50 border-blue-100 hover:bg-blue-100'
+                                            }`}
+                                        >
+                                            {resendingAdmin
+                                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                                : <Send className="h-3 w-3" />}
+                                            {tenant.admin.has_password ? 'Registered' : 'Resend Invite'}
+                                        </button>
                                     </div>
                                 </div>
                             </div>

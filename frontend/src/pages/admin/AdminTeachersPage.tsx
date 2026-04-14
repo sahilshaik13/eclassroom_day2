@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Download, Search, Filter, MoreVertical, Copy, Check, User, Users, Loader2, UserX } from 'lucide-react'
+import { Plus, Download, Search, Filter, Copy, Check, User, Users, Loader2, UserX, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import type { Teacher } from '@/types'
@@ -46,6 +46,7 @@ export default function AdminTeachersPage() {
   const [tenant, setTenant] = useState<{ id: string; name: string; slug: string } | null>(null)
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [appToReject, setAppToReject] = useState<PendingApp | null>(null)
+  const [resendingId, setResendingId] = useState<string | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -138,6 +139,19 @@ export default function AdminTeachersPage() {
     }
   }
 
+  const handleResendInvite = async (e: React.MouseEvent, teacherId: string) => {
+    e.stopPropagation()
+    setResendingId(teacherId)
+    try {
+      await api.post(`/admin/teachers/${teacherId}/resend-invite`)
+      toast.success('Invite email resent successfully!')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Failed to resend invite')
+    } finally {
+      setResendingId(null)
+    }
+  }
+
   const filtered = teachers.filter(t =>
     t.name.toLowerCase().includes(search.toLowerCase()) ||
     t.email.toLowerCase().includes(search.toLowerCase())
@@ -195,7 +209,7 @@ export default function AdminTeachersPage() {
                   <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Classes</th>
                   <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Students</th>
                   <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Status</th>
-                  <th className="px-5 py-3 border-b border-slate-100"></th>
+                  <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Invite</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -250,9 +264,21 @@ export default function AdminTeachersPage() {
                             {statusStyle.label}
                           </span>
                         </td>
-                        <td className="px-5 py-4">
-                          <button className="text-slate-300 hover:text-slate-600 transition-colors">
-                            <MoreVertical className="h-4 w-4" />
+                        <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={e => handleResendInvite(e, t.id)}
+                            disabled={!!t.has_password || resendingId === t.id}
+                            title={t.has_password ? 'Password already set' : 'Resend invite email'}
+                            className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-all ${
+                              t.has_password
+                                ? 'text-slate-300 bg-slate-50 border border-slate-100 cursor-not-allowed'
+                                : 'text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100'
+                            }`}
+                          >
+                            {resendingId === t.id
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <Send className="h-3 w-3" />}
+                            {t.has_password ? 'Registered' : 'Resend'}
                           </button>
                         </td>
                       </tr>

@@ -9,8 +9,6 @@ import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
 import { ApiClientError } from '@/services/api'
 
-const DEMO_TENANT_ID = '00000000-0000-0000-0000-000000000001'
-
 const phoneSchema = z.object({
   phone: z.string().min(7, 'Enter a valid phone number'),
 })
@@ -22,8 +20,10 @@ export default function StudentLoginPage() {
   const { setSession } = useAuthStore()
   const [searchParams] = useSearchParams()
   const competitionId = searchParams.get('competition_id')
+
   const [step, setStep] = useState<Step>('phone')
   const [phone, setPhone] = useState('')
+  const [resolvedTenantId, setResolvedTenantId] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
   const [attempts, setAttempts] = useState(0)
   const [devOtp, setDevOtp] = useState<string>()
@@ -45,8 +45,10 @@ export default function StudentLoginPage() {
   const onSendOtp = async (data: PhoneForm) => {
     setLoading(true)
     try {
-      const res = await authApi.sendOtp(data.phone, DEMO_TENANT_ID, competitionId ? 'competition' : 'classroom')
+      // No tenant_id needed — backend resolves it from the phone number
+      const res = await authApi.sendOtp(data.phone, undefined, competitionId ? 'competition' : 'classroom')
       setPhone(data.phone)
+      setResolvedTenantId(res.data.data.tenant_id)
       setDevOtp(res.data.data.dev_otp)
       setStep('otp')
       setResendCooldown(30)
@@ -86,14 +88,14 @@ export default function StudentLoginPage() {
     if (code.length < 6) { toast.error('Enter all 6 digits'); return }
     setLoading(true)
     try {
-      const res = await authApi.verifyOtp(phone, code, DEMO_TENANT_ID, competitionId || undefined)
-      const { user, access_token, refresh_token, is_existing_student } = res.data.data
+      const res = await authApi.verifyOtp(phone, code, resolvedTenantId, competitionId || undefined)
+      const { user, access_token, refresh_token } = res.data.data
 
       // No MFA for students — proceed directly to session
       setSession(user, access_token, refresh_token)
       toast.success('Welcome back!')
-      
-      if (is_existing_student) {
+
+      if (user.is_registered) {
         navigate('/student')
       } else if (competitionId) {
         navigate('/competition-portal')
@@ -115,7 +117,7 @@ export default function StudentLoginPage() {
     if (resendCooldown > 0) return
     setLoading(true)
     try {
-      const res = await authApi.sendOtp(phone, DEMO_TENANT_ID, competitionId ? 'competition' : 'classroom')
+      const res = await authApi.sendOtp(phone, resolvedTenantId, competitionId ? 'competition' : 'classroom')
       setDevOtp(res.data.data.dev_otp)
       setDigits(['', '', '', '', '', ''])
       setAttempts(0)

@@ -12,7 +12,7 @@ PATCH /api/v1/super-admin/admins/:id
 """
 from uuid import UUID
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr
 
 from app.core.deps import require_super_admin, TokenData
@@ -308,28 +308,63 @@ async def create_tenant_admin(tenant_id: UUID, body: CreateAdminRequest, token: 
     
     try:
         # Check tenant exists
-        tenant_res = admin_client.table("tenants").select("id").eq("id", str(tenant_id)).single().execute()
-        if not tenant_res.data:
+        tenant_res = admin_client.table("tenants").select("id").eq("id", str(tenant_id)).maybe_single().execute()
+        if not tenant_res or not tenant_res.data:
             return error("NOT_FOUND", "Tenant not found", 404)
         
         # Check if an admin already exists (singular enforcement)
         existing = admin_client.table("users").select("id").eq("tenant_id", str(tenant_id)).eq("role", "admin").maybe_single().execute()
-        if existing.data:
+        if existing and existing.data:
             return error("CONFLICT", "This tenant already has an admin. Use 'Change Manager' instead.", 409)
 
-        # Use existing invite flow
+        # Send invite email (non-fatal — admin must be created even if email fails)
         redirect_url = f"{settings.FRONTEND_URL}/auth/callback"
-        result = await AuthService.invite_user_by_email(
-            email=body.email,
-            name=body.name,
-            role="admin",
-            tenant_id=str(tenant_id),
-            redirect_to=redirect_url,
-        )
-        
+        invite_result = None
+        invite_warning = None
+        try:
+            invite_result = await AuthService.invite_user_by_email(
+                email=body.email,
+                name=body.name,
+                role="admin",
+                tenant_id=str(tenant_id),
+                redirect_to=redirect_url,
+            )
+        except AuthError as e:
+            invite_warning = f"Invite email failed: {e.message}. Please share login details manually."
+        except Exception as e:
+            invite_warning = f"Invite email failed: {str(e)}. Please share login details manually."
+
+        # Fallback: create auth user directly if invite failed
+        if not invite_result:
+            import httpx
+            import uuid as _uuid
+            try:
+                auth_headers = {
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+                    "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+                    "Content-Type": "application/json",
+                }
+                async with httpx.AsyncClient() as http:
+                    resp = await http.post(
+                        f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+                        json={
+                            "email": body.email,
+                            "email_confirm": True,
+                            "app_metadata": {"role": "admin", "tenant_id": str(tenant_id)},
+                            "user_metadata": {"name": body.name},
+                        },
+                        headers=auth_headers,
+                    )
+                    if resp.status_code < 400:
+                        invite_result = {"user_id": resp.json()["id"]}
+                    else:
+                        return error("INTERNAL_ERROR", f"Could not create auth user: {resp.text}", 500)
+            except Exception as e2:
+                return error("INTERNAL_ERROR", f"Auth user creation failed: {str(e2)}", 500)
+
         # Create user record in users table
         admin_client.table("users").insert({
-            "id": result["user_id"],
+            "id": invite_result["user_id"],
             "name": body.name,
             "email": body.email,
             "role": "admin",
@@ -337,11 +372,15 @@ async def create_tenant_admin(tenant_id: UUID, body: CreateAdminRequest, token: 
             "has_password": False,
             "is_registered": False,
         }).execute()
-        
-        return success({
-            "message": f"Invite email sent to {body.email}",
-            "admin_id": result["user_id"],
-        })
+
+        response_data = {
+            "message": f"Admin created for {body.email}" if invite_warning else f"Invite email sent to {body.email}",
+            "admin_id": invite_result["user_id"],
+        }
+        if invite_warning:
+            response_data["invite_warning"] = invite_warning
+
+        return success(response_data)
     except AuthError as e:
         return error(e.code, e.message, e.status)
     except Exception as e:
@@ -366,6 +405,51 @@ async def update_admin(admin_id: UUID, body: UpdateAdminRequest, token: TokenDat
             return error("NOT_FOUND", "Admin not found", 404)
         
         return success({"admin": result.data[0]})
+    except Exception as e:
+        return error("INTERNAL_ERROR", str(e), 500)
+
+
+@router.post("/admins/{admin_id}/resend-invite")
+async def resend_admin_invite(admin_id: UUID, request: Request, token: TokenData = Depends(require_super_admin)):
+    """Resend the invitation email to a tenant admin who has not yet set their password."""
+    admin_client = get_admin_client()
+    try:
+        res = admin_client.table("users") \
+            .select("id, email, role, has_password, tenant_id") \
+            .eq("id", str(admin_id)) \
+            .eq("role", "admin") \
+            .maybe_single() \
+            .execute()
+
+        if not res or not res.data:
+            return error("NOT_FOUND", "Admin not found", 404)
+
+        user = res.data
+        if user.get("has_password"):
+            return error("ALREADY_REGISTERED", "This admin has already set their password. No invite needed.", 400)
+
+        origin = request.headers.get("origin", "")
+        referer = request.headers.get("referer", "")
+        base_url = settings.FRONTEND_URL
+        if origin and ("localhost" in origin or "127.0.0.1" in origin):
+            base_url = origin
+        elif referer and ("localhost" in referer or "127.0.0.1" in referer):
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            base_url = f"{p.scheme}://{p.netloc}"
+        redirect_to = f"{base_url}/auth/callback"
+
+        result = await AuthService.resend_invite_or_reset(
+            user_id=user["id"],
+            email=user["email"],
+            role="admin",
+            tenant_id=user["tenant_id"],
+            redirect_to=redirect_to,
+        )
+        return success(result)
+
+    except AuthError as e:
+        return error(e.code, e.message, e.status)
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
 

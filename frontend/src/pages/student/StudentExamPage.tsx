@@ -29,6 +29,7 @@ export default function StudentExamPage() {
   const [questions, setQuestions] = useState<MCQQuestion[]>([])
   const [passages, setPassages] = useState<Passage[]>([])
   const [title, setTitle] = useState('')
+  const [isExamActive, setIsExamActive] = useState(false)
 
   // MCQ answers: { index: number, answer: number }[]
   const [mcqAnswers, setMcqAnswers] = useState<Record<number, number>>({})
@@ -42,13 +43,13 @@ export default function StudentExamPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
-  useEffect(() => {
+  const loadInfo = useCallback(() => {
     if (!id) return
-    // Load competition info first
     competitionApi.getCompetitionInfo(id).then(r => {
       if (r.success) {
         setTitle(r.data.title)
         setCategory(r.data.category || 'mcq')
+        setIsExamActive(!!r.data.is_exam_active)
 
         const content = r.data.content || []
         if (r.data.category === 'mcq') {
@@ -56,16 +57,21 @@ export default function StudentExamPage() {
         } else {
           setPassages(content as Passage[])
         }
-
-        if (content.length === 0) {
-          toast.error('This exam has not been set up yet.')
-          setPhase('welcome')
-        } else {
-          setPhase('welcome')
-        }
+        setPhase('welcome')
       }
     }).catch(() => toast.error('Failed to load exam'))
   }, [id])
+
+  useEffect(() => {
+    loadInfo()
+  }, [loadInfo])
+
+  // Polling for exam status while on welcome screen
+  useEffect(() => {
+    if (phase !== 'welcome' || isExamActive) return
+    const interval = setInterval(loadInfo, 5000) // Poll every 5s
+    return () => clearInterval(interval)
+  }, [phase, isExamActive, loadInfo])
 
   // ── Audio Recording ──
   const startRecording = useCallback(async (idx: number) => {
@@ -236,10 +242,24 @@ export default function StudentExamPage() {
             <div className="text-amber-400 text-sm flex items-center justify-center gap-2 mb-4">
               <AlertTriangle className="h-4 w-4" /> Exam content not yet configured by teacher.
             </div>
+          ) : !isExamActive ? (
+            <div className="space-y-4">
+               <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-center gap-3">
+                 <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                 <p className="text-sm text-amber-200 font-medium">Waiting for the teacher to start the competition...</p>
+               </div>
+               <Button
+                size="lg"
+                disabled
+                className="bg-slate-700 text-slate-400 font-bold px-10 py-3 text-base cursor-not-allowed opacity-50 w-full"
+              >
+                Enter Exam Hall
+              </Button>
+            </div>
           ) : (
             <Button
               size="lg"
-              className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-10 py-3 text-base"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-10 py-3 text-base w-full shadow-lg shadow-blue-500/20"
               onClick={() => setPhase('exam')}
             >
               Enter Exam Hall

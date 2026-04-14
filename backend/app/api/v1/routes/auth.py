@@ -26,7 +26,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class OTPSendRequest(BaseModel):
     phone: str
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     context: str = "classroom"
     competition_id: UUID | None = None
 
@@ -34,7 +34,7 @@ class OTPSendRequest(BaseModel):
 class OTPVerifyRequest(BaseModel):
     phone: str
     token: str
-    tenant_id: UUID
+    tenant_id: UUID | None = None
     competition_id: UUID | None = None
 
 
@@ -61,7 +61,8 @@ class RefreshRequest(BaseModel):
 @router.post("/otp/send")
 async def send_otp(body: OTPSendRequest):
     try:
-        result = await AuthService.send_otp(body.phone, str(body.tenant_id), body.context)
+        tenant_id = str(body.tenant_id) if body.tenant_id else None
+        result = await AuthService.send_otp(body.phone, tenant_id, body.context)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)
@@ -70,8 +71,9 @@ async def send_otp(body: OTPSendRequest):
 @router.post("/otp/verify")
 async def verify_otp(body: OTPVerifyRequest):
     try:
+        tenant_id = str(body.tenant_id) if body.tenant_id else None
         comp_id = str(body.competition_id) if body.competition_id else None
-        result = await AuthService.verify_otp(body.phone, body.token, str(body.tenant_id), comp_id)
+        result = await AuthService.verify_otp(body.phone, body.token, tenant_id, comp_id)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)

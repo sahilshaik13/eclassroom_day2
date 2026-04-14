@@ -4,6 +4,7 @@ export type UserRole = 'student' | 'teacher' | 'admin' | 'super_admin'
 
 export interface AuthUser {
   id: string
+  student_id: string | null
   name: string
   role: UserRole
   tenant_id: string | null
@@ -181,6 +182,8 @@ export interface Teacher {
   class_count: number
   student_count: number
   deactivated_at?: string
+  has_password?: boolean
+  is_registered?: boolean
 }
 
 export interface ClassItem {
@@ -231,6 +234,7 @@ export interface Competition {
   assigned_teacher?: { name: string }
   content?: any[]
   settings?: any
+  is_exam_active?: boolean
   created_at?: string
 }
 

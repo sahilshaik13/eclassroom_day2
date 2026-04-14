@@ -18,6 +18,7 @@ export interface TenantAdmin {
     email: string
     role: string
     is_registered: boolean
+    has_password: boolean
     is_active: boolean
     created_at: string
     deactivated_at: string | null
@@ -61,6 +62,9 @@ export const superAdminApi = {
 
     getTenantStudents: (tenantId: string) =>
         api.get<{ success: true; data: { students: any[] } }>(`/super-admin/tenants/${tenantId}/students`),
+
+    resendAdminInvite: (adminId: string) =>
+        api.post<{ success: true; data: { message: string } }>(`/super-admin/admins/${adminId}/resend-invite`),
 
     deleteTenant: (tenantId: string) =>
         api.delete<{ success: true; data: { message: string } }>(`/super-admin/tenants/${tenantId}`),

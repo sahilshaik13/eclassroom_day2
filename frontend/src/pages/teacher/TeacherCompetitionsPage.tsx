@@ -147,12 +147,40 @@ export default function TeacherCompetitionsPage() {
              </div>
           ) : (
              <>
-              <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50">
-                <div>
-                  <h2 className="text-base font-bold text-slate-800">{selectedComp.title} Participants</h2>
-                  <p className="text-sm text-slate-500">{registrations.length} registered</p>
+                <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50">
+                  <div>
+                    <h2 className="text-base font-bold text-slate-800">{selectedComp.title} Participants</h2>
+                    <p className="text-sm text-slate-500">{registrations.length} registered</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedComp.status !== 'closed' && (
+                      <Button
+                        size="sm"
+                        className={clsx(
+                          "font-bold px-4",
+                          selectedComp.is_exam_active 
+                            ? "bg-red-500 hover:bg-red-600 text-white" 
+                            : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        )}
+                        onClick={async () => {
+                          const newStatus = !selectedComp.is_exam_active
+                          try {
+                            const res = await competitionApi.toggleExamStatus(selectedComp.id, newStatus)
+                            if (res.success) {
+                              toast.success(newStatus ? 'Exam started!' : 'Exam stopped!')
+                              setCompetitions(prev => prev.map(c => c.id === selectedComp.id ? { ...c, is_exam_active: newStatus } : c))
+                              setSelectedComp({ ...selectedComp, is_exam_active: newStatus })
+                            }
+                          } catch (e) {
+                            toast.error('Failed to update status')
+                          }
+                        }}
+                      >
+                        {selectedComp.is_exam_active ? 'Stop Exam' : 'Start Exam'}
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[500px]">
                   <thead className="bg-slate-50">

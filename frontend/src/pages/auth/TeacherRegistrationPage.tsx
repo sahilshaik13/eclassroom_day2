@@ -11,7 +11,7 @@ import { useAuthStore } from '@/stores/authStore'
 
 const profileSchema = z.object({
   first_name: z.string().min(2, 'First name is required'),
-  last_name: z.string().min(2, 'Last name is required'),
+  last_name: z.string().optional(),
   islamic_name: z.string().optional(),
   gender: z.string().min(1, 'Gender is required'),
   dob: z.string().min(1, 'Date of birth is required'),
@@ -187,7 +187,7 @@ export default function TeacherRegistrationPage() {
                     {errors.first_name && <p className="mt-1 text-xs text-red-400">{errors.first_name.message}</p>}
                   </div>
                   <div>
-                    <label className={LABEL}>Last Name <span className="text-red-400">*</span></label>
+                    <label className={LABEL}>Last Name</label>
                     <input {...register('last_name')} readOnly className={`${INPUT} opacity-50 cursor-not-allowed`} />
                     {errors.last_name && <p className="mt-1 text-xs text-red-400">{errors.last_name.message}</p>}
                   </div>
