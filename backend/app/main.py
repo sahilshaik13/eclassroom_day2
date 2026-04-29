@@ -35,20 +35,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # ── CORS ──────────────────────────────────────────────────────
-# Using a list of origins explicitly. Starlette's CORSMiddleware
-# handles this best when allow_credentials=True.
+# Relaxed CORS for development/deployment testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=list(set([
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://eclassroom-day2-afok.vercel.app",
-        settings.FRONTEND_URL,
-    ] + settings.CORS_ORIGINS)),
-    allow_origin_regex=r"https://eclassroom-day2.*\.vercel\.app",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
