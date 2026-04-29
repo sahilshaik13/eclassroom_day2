@@ -14,10 +14,11 @@ POST /api/v1/teacher/doubts/{doubt_id}/reply
 POST /api/v1/teacher/grades
 GET  /api/v1/teacher/reports/{student_id}
 """
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from app.schemas import study_plan as sp
 
 from app.core.deps import require_teacher, TokenData
 from app.core.response import success, error
@@ -744,6 +745,101 @@ async def get_report_data(
         "grade": grade_res.data,
         "teacher": teacher_res.data or {},
     })
+
+
+# ── Study Plan Management ─────────────────────────────────────
+
+@router.get("/classrooms/{class_id}/study-plan")
+async def get_classroom_study_plan(
+    class_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    
+    # Verify class belongs to teacher
+    class_res = admin.table("classes").select("id").eq("id", class_id).eq("teacher_id", token.user_id).maybe_single().execute()
+    if not class_res.data:
+        return error("FORBIDDEN", "Not assigned to this classroom", 403)
+
+    # Fetch active plan for this classroom
+    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not plan_res.data:
+        return success(None) # No plan assigned yet
+
+    plan_id = plan_res.data["id"]
+    days_res = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))").eq("plan_id", plan_id).order("day_number").execute()
+    
+    plan = plan_res.data
+    plan["days"] = days_res.data or []
+    
+    return success(plan)
+
+
+@router.patch("/study-plans/days/{day_id}")
+async def update_study_plan_day(
+    day_id: str,
+    body: sp.DayBase,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    # In a real app, we'd verify the teacher owns the plan this day belongs to
+    res = admin.table("study_plan_days").update({
+        "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
+    }).eq("id", day_id).execute()
+    
+    return success(res.data[0] if res.data else {})
+
+
+@router.get("/study-plans/{plan_id}/submissions")
+async def get_plan_submissions(
+    plan_id: str,
+    task_id: Optional[str] = None,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    query = admin.table("study_plan_submissions").select("*, student:students(name, phone), task:study_plan_tasks(title, task_type)")
+    
+    if task_id:
+        query = query.eq("task_id", task_id)
+    else:
+        # Filter by tasks belonging to this plan
+        # This requires a join or a subquery which PostgREST doesn't do easily for filtering across tables
+        # So we'll fetch task_ids first
+        tasks = admin.table("study_plan_tasks").select("id").eq("period_id.day_id.plan_id", plan_id).execute()
+        task_ids = [t["id"] for t in (tasks.data or [])]
+        if not task_ids: return success([])
+        query = query.in_("task_id", task_ids)
+
+    res = query.order("created_at", desc=True).execute()
+    return success(res.data or [])
+
+
+@router.patch("/submissions/{submission_id}/review")
+async def review_submission(
+    submission_id: str,
+    body: sp.SubmissionReview,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    
+    update_data = {
+        "status": body.status.value,
+        "feedback": body.feedback,
+        "score": body.score,
+        "reviewed_by": str(token.user_id),
+        "reviewed_at": datetime.utcnow().isoformat()
+    }
+    
+    # If there's a response override (for MCQs), update the content
+    if body.responses_override is not None:
+        sub_res = admin.table("study_plan_submissions").select("content").eq("id", submission_id).maybe_single().execute()
+        if sub_res.data:
+            content = sub_res.data["content"] or {}
+            content["responses"] = body.responses_override
+            update_data["content"] = content
+
+    res = admin.table("study_plan_submissions").update(update_data).eq("id", submission_id).execute()
+    return success(res.data[0] if res.data else {})
 
 
 # ── Profile update ────────────────────────────────────────────

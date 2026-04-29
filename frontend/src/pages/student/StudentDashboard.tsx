@@ -35,6 +35,9 @@ const TASK_COLORS: Record<TaskType, { bg: string; text: string; tag: string }> =
   recite: { bg: 'bg-violet-50 border-violet-100', text: 'text-violet-600', tag: 'Recite' },
   listen: { bg: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-600', tag: 'Audio' },
   read: { bg: 'bg-amber-50 border-amber-100', text: 'text-amber-600', tag: 'Read' },
+  mcq: { bg: 'bg-orange-50 border-orange-100', text: 'text-orange-600', tag: 'Quiz' },
+  written: { bg: 'bg-rose-50 border-rose-100', text: 'text-rose-600', tag: 'Write' },
+  reflection: { bg: 'bg-teal-50 border-teal-100', text: 'text-teal-600', tag: 'Reflect' },
 }
 
 export default function StudentDashboard() {

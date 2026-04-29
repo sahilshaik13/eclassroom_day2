@@ -29,6 +29,7 @@ from datetime import date, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr
+from app.schemas import study_plan as sp
 
 from app.core.deps import require_admin, TokenData
 from app.core.response import success, error, paginated
@@ -897,27 +898,21 @@ async def list_study_plans(request: Request, token: TokenData = Depends(require_
     admin = get_admin_client()
     res = (
         admin.table("study_plan_templates")
-        .select("*, study_plan_tasks(count)")
+        .select("*, days:study_plan_days(count)")
         .eq("tenant_id", token.tenant_id)
         .order("created_at", desc=True)
         .execute()
     )
     plans = []
     for row in (res.data or []):
-        tasks = row.pop("study_plan_tasks", []) or []
-        plans.append({**row, "task_count": len(tasks)})
+        days = row.pop("days", []) or []
+        plans.append({**row, "day_count": len(days)})
     return success(plans)
-
-
-class StudyPlanCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    total_days: int
 
 
 @router.post("/study-plans")
 async def create_study_plan(
-    body: StudyPlanCreate,
+    body: sp.StudyPlanBase,
     request: Request,
     token: TokenData = Depends(require_admin),
 ):
@@ -927,109 +922,171 @@ async def create_study_plan(
         "created_by": token.user_id,
         "name": body.name,
         "description": body.description,
-        "total_days": body.total_days,
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
 
 
-@router.get("/study-plans/{template_id}/tasks")
-async def get_plan_tasks(
+@router.get("/study-plans/{template_id}")
+async def get_study_plan_template(
     template_id: str,
     request: Request,
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
-    res = (
-        admin.table("study_plan_tasks")
-        .select("*")
-        .eq("template_id", template_id)
-        .order("day_number")
-        .order("order_index")
-        .execute()
-    )
-    return success(res.data or [])
+    # Fetch template with nested hierarchy
+    # Supabase doesn't support deep nested joins easily in one go with select()
+    # So we'll fetch them in steps or use a complex select if possible
+    plan_res = admin.table("study_plan_templates").select("*").eq("id", template_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not plan_res.data:
+        return error("NOT_FOUND", "Template not found", 404)
+    
+    days_res = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))").eq("template_id", template_id).order("day_number").execute()
+    
+    # Sort nested periods and tasks manually if needed, or rely on Supabase order if configured
+    plan = plan_res.data
+    plan["days"] = days_res.data or []
+    
+    return success(plan)
 
 
-class TaskCreate(BaseModel):
-    day_number: int
-    title: str
-    description: Optional[str] = None
-    task_type: str = "memorise"
-    order_index: int = 0
-
-
-@router.post("/study-plans/{template_id}/tasks")
-async def add_plan_task(
+@router.post("/study-plans/{template_id}/days")
+async def add_template_day(
     template_id: str,
-    body: TaskCreate,
-    request: Request,
+    body: sp.DayCreate,
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
-    res = admin.table("study_plan_tasks").insert({
+    res = admin.table("study_plan_days").insert({
         "template_id": template_id,
-        "tenant_id": token.tenant_id,
         "day_number": body.day_number,
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+
+@router.post("/study-plans/days/{day_id}/periods")
+async def add_template_period(
+    day_id: str,
+    body: sp.PeriodCreate,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_periods").insert({
+        "day_id": day_id,
         "title": body.title,
-        "description": body.description,
-        "task_type": body.task_type,
+        "duration_minutes": body.duration_minutes,
         "order_index": body.order_index,
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
 
 
-@router.delete("/study-plans/{template_id}/tasks/{task_id}")
-async def delete_plan_task(
-    template_id: str,
-    task_id: str,
-    request: Request,
+@router.post("/study-plans/periods/{period_id}/tasks")
+async def add_template_task(
+    period_id: str,
+    body: sp.TaskCreate,
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
-    admin.table("study_plan_tasks").delete().eq("id", task_id).eq("template_id", template_id).eq("tenant_id", token.tenant_id).execute()
+    # Get template_id from period -> day
+    period = admin.table("study_plan_periods").select("day_id").eq("id", period_id).maybe_single().execute()
+    if not period.data: return error("NOT_FOUND", "Period not found", 404)
+    
+    day = admin.table("study_plan_days").select("template_id").eq("id", period.data["day_id"]).maybe_single().execute()
+    template_id = day.data["template_id"] if day.data else None
+
+    res = admin.table("study_plan_tasks").insert({
+        "period_id": period_id,
+        "template_id": template_id,
+        "tenant_id": token.tenant_id,
+        "title": body.title,
+        "description": body.description,
+        "task_type": body.task_type.value,
+        "required": body.required,
+        "order_index": body.order_index,
+        "config": body.config
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+
+@router.delete("/study-plans/tasks/{task_id}")
+async def delete_template_task(
+    task_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    admin.table("study_plan_tasks").delete().eq("id", task_id).eq("tenant_id", token.tenant_id).execute()
     return success({"deleted": True})
-
-
-class ApplyPayload(BaseModel):
-    class_id: str
-    start_date: Optional[str] = None   # YYYY-MM-DD, defaults to today
 
 
 @router.post("/study-plans/{template_id}/apply")
 async def apply_study_plan(
     template_id: str,
-    body: ApplyPayload,
-    request: Request,
+    body: sp.StudyPlanCreate,
     token: TokenData = Depends(require_admin),
 ):
+    """
+    Forks a template into a classroom-specific Study Plan.
+    """
     admin = get_admin_client()
-    start = date.fromisoformat(body.start_date) if body.start_date else date.today()
+    
+    if not body.class_id:
+        return error("BAD_REQUEST", "class_id is required", 400)
 
-    # Get all enrolled students
-    enr_res = admin.table("class_enrollments").select("student_id").eq("class_id", body.class_id).execute()
-    student_ids = [r["student_id"] for r in (enr_res.data or [])]
+    # 1. Create the Study Plan (Instance)
+    plan_res = admin.table("study_plans").insert({
+        "tenant_id": token.tenant_id,
+        "class_id": str(body.class_id),
+        "template_id": template_id,
+        "name": body.name,
+        "description": body.description,
+        "status": "active"
+    }).execute()
+    
+    if not plan_res.data:
+        return error("INTERNAL_ERROR", "Failed to create classroom study plan", 500)
+    
+    new_plan_id = plan_res.data[0]["id"]
 
-    # Get all tasks for this template
-    tasks_res = admin.table("study_plan_tasks").select("id, day_number").eq("template_id", template_id).execute()
-    tasks = tasks_res.data or []
+    # 2. Fork Days, Periods, and Tasks
+    # We'll do this in a few steps since deep cloning is manual in this setup
+    days = admin.table("study_plan_days").select("*").eq("template_id", template_id).execute()
+    for day in (days.data or []):
+        old_day_id = day["id"]
+        new_day = admin.table("study_plan_days").insert({
+            "plan_id": new_plan_id,
+            "day_number": day["day_number"]
+        }).execute()
+        
+        if not new_day.data: continue
+        new_day_id = new_day.data[0]["id"]
+        
+        periods = admin.table("study_plan_periods").select("*").eq("day_id", old_day_id).execute()
+        for period in (periods.data or []):
+            old_period_id = period["id"]
+            new_period = admin.table("study_plan_periods").insert({
+                "day_id": new_day_id,
+                "title": period["title"],
+                "duration_minutes": period["duration_minutes"],
+                "order_index": period["order_index"]
+            }).execute()
+            
+            if not new_period.data: continue
+            new_period_id = new_period.data[0]["id"]
+            
+            tasks = admin.table("study_plan_tasks").select("*").eq("period_id", old_period_id).execute()
+            task_rows = []
+            for task in (tasks.data or []):
+                task_rows.append({
+                    "period_id": new_period_id,
+                    "tenant_id": token.tenant_id,
+                    "title": task["title"],
+                    "description": task["description"],
+                    "task_type": task["task_type"],
+                    "required": task["required"],
+                    "order_index": task["order_index"],
+                    "config": task["config"]
+                })
+            
+            if task_rows:
+                admin.table("study_plan_tasks").insert(task_rows).execute()
 
-    # Build task_completions rows: day 1 → start_date, day 2 → start+1, etc.
-    rows = []
-    for task in tasks:
-        assigned = (start + timedelta(days=task["day_number"] - 1)).isoformat()
-        for sid in student_ids:
-            rows.append({
-                "student_id": sid,
-                "task_id": task["id"],
-                "tenant_id": token.tenant_id,
-                "assigned_date": assigned,
-            })
-
-    # Batch upsert
-    BATCH = 500
-    total = 0
-    for i in range(0, len(rows), BATCH):
-        res = admin.table("task_completions").upsert(rows[i:i+BATCH], on_conflict="student_id,task_id,assigned_date").execute()
-        total += len(res.data or [])
-
-    return success({"tasks_assigned": total, "students": len(student_ids)})
+    return success({"plan_id": new_plan_id})

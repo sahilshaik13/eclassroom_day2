@@ -12,6 +12,7 @@ GET  /api/v1/announcements/latest
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from app.schemas import study_plan as sp
 from typing import Optional
 
 from app.core.deps import require_student, TokenData
@@ -25,47 +26,108 @@ router = APIRouter(prefix="/classroom", tags=["student"])
 
 @router.get("/tasks/today")
 async def get_today_tasks(request: Request, token: TokenData = Depends(require_student)):
-    client = get_user_client(request.state.jwt_token)
+    admin = get_admin_client()
     today = date.today().isoformat()
 
-    # Get student record for this user
-    student_res = (
-        client.table("students")
-        .select("id")
-        .eq("user_id", token.user_id)
-        .single()
-        .execute()
-    )
+    # 1. Get student record
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
     if not student_res.data:
         return error("NOT_FOUND", "Student record not found", 404)
-
     student_id = student_res.data["id"]
 
-    # Get task completions for today joined with task details
-    res = (
-        client.table("task_completions")
-        .select("id, assigned_date, completed_at, notes, study_plan_tasks(id, title, description, task_type, day_number)")
-        .eq("student_id", student_id)
-        .eq("assigned_date", today)
+    # 2. Find scheduled days for today
+    # Find plans for classes this student is enrolled in
+    enrolled_res = admin.table("class_enrollments").select("class_id").eq("student_id", student_id).execute()
+    class_ids = [r["class_id"] for r in (enrolled_res.data or [])]
+    
+    if not class_ids: return success([])
+
+    plans_res = admin.table("study_plans").select("id").in_("class_id", class_ids).execute()
+    plan_ids = [r["id"] for r in (plans_res.data or [])]
+
+    if not plan_ids: return success([])
+
+    # Find days scheduled for today
+    days_res = (
+        admin.table("study_plan_days")
+        .select("id, day_number, study_plans(name), study_plan_periods(id, title, study_plan_tasks(*, study_plan_submissions(*)))")
+        .in_("plan_id", plan_ids)
+        .eq("scheduled_date", today)
         .execute()
     )
 
     tasks = []
-    for row in (res.data or []):
-        task = row.get("study_plan_tasks") or {}
-        tasks.append({
-            "id": row["id"],                         # completion row id — used for complete/uncomplete
-            "task_id": task.get("id"),
-            "title": task.get("title", ""),
-            "description": task.get("description"),
-            "task_type": task.get("task_type", "memorise"),
-            "day_number": task.get("day_number", 1),
-            "completed": row["completed_at"] is not None,
-            "completed_at": row["completed_at"],
-            "notes": row["notes"],
-        })
+    for day in (days_res.data or []):
+        plan_name = day.get("study_plans", {}).get("name", "Study Plan")
+        for period in (day.get("study_plan_periods") or []):
+            for t in (period.get("study_plan_tasks") or []):
+                # Check if student already submitted this task
+                submissions = t.pop("study_plan_submissions", []) or []
+                my_sub = next((s for s in submissions if s["student_id"] == student_id), None)
+                
+                tasks.append({
+                    **t,
+                    "plan_name": plan_name,
+                    "period_title": period["title"],
+                    "status": my_sub["status"] if my_sub else "pending",
+                    "submission": my_sub
+                })
 
     return success(tasks)
+
+
+@router.post("/tasks/{task_id}/submit")
+async def submit_task(
+    task_id: str,
+    body: sp.SubmissionCreate,
+    token: TokenData = Depends(require_student)
+):
+    admin = get_admin_client()
+    from datetime import datetime
+
+    # 1. Get student record
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
+    if not student_res.data: return error("NOT_FOUND", "Student not found", 404)
+    student_id = student_res.data["id"]
+
+    # 2. Get task details for auto-grading if MCQ
+    task_res = admin.table("study_plan_tasks").select("*").eq("id", task_id).maybe_single().execute()
+    if not task_res.data: return error("NOT_FOUND", "Task not found", 404)
+    task = task_res.data
+
+    # 3. Create/Upsert submission
+    sub_data = {
+        "tenant_id": token.tenant_id,
+        "student_id": student_id,
+        "task_id": task_id,
+        "status": "submitted",
+        "content": body.content,
+        "audio_url": body.audio_url,
+        "updated_at": datetime.utcnow().isoformat()
+    }
+
+    # MCQ AUTO GRADING
+    if task["task_type"] == "mcq" and "responses" in body.content:
+        correct_count = 0
+        questions = task.get("config", {}).get("questions", [])
+        student_responses = body.content["responses"] # [{index: 0, answer: 1}, ...]
+        
+        for q_idx, q_meta in enumerate(questions):
+            # Find student's answer for this question index
+            ans = next((r["answer"] for r in student_responses if r.get("index") == q_idx), None)
+            if ans is not None and ans == q_meta.get("correct_option"):
+                correct_count += 1
+        
+        total = len(questions)
+        score = int((correct_count / total) * 100) if total > 0 else 0
+        
+        sub_data["score"] = score
+        sub_data["feedback"] = f"Automated Score: {correct_count}/{total}"
+        # We leave it as 'submitted' so the teacher can still review/override if they want
+
+    res = admin.table("study_plan_submissions").upsert(sub_data, on_conflict="student_id,task_id").execute()
+    
+    return success(res.data[0] if res.data else {})
 
 
 # ── Week progress ─────────────────────────────────────────────

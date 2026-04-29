@@ -39,6 +39,7 @@ import GradesPage from './pages/teacher/GradesPage'
 import ReportsPage from './pages/teacher/ReportsPage'
 import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
 import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
+import TeacherSubmissionsPage from './pages/teacher/TeacherSubmissionsPage'
 import TeacherApplicantsPage from './pages/teacher/TeacherApplicantsPage'
 import TeacherApplyPage from './pages/public/TeacherApplyPage'
 import TeacherCompetitionsPage from './pages/teacher/TeacherCompetitionsPage'
@@ -55,6 +56,7 @@ import AdminStudentsPage from '@/pages/admin/AdminStudentsPage'
 import AdminTeachersPage from '@/pages/admin/AdminTeachersPage'
 import AdminClassesPage from '@/pages/admin/AdminClassesPage'
 import StudyPlansPage from '@/pages/admin/StudyPlansPage'
+import AdminStudyPlanDetail from '@/pages/admin/AdminStudyPlanDetail'
 import AdminSettingsPage from '@/pages/admin/AdminSettingsPage'
 import AdminCompetitionsPage from '@/pages/admin/AdminCompetitionsPage'
 
@@ -190,7 +192,8 @@ export default function App() {
         >
           <Route index element={<TeacherDashboard />} />
           <Route path="students" element={<TeacherStudentsPage />} />
-          <Route path="study-plan" element={<TeacherStudyPlanPage />} />   {/* ← was missing */}
+          <Route path="study-plan" element={<TeacherStudyPlanPage />} />
+          <Route path="submissions" element={<TeacherSubmissionsPage />} />
           <Route path="applicants" element={<TeacherApplicantsPage />} />  {/* ← was missing */}
           <Route path="attendance" element={<AttendancePage />} />
           <Route path="doubts" element={<TeacherDoubtsPage />} />
@@ -212,6 +215,7 @@ export default function App() {
           <Route path="teachers" element={<AdminTeachersPage />} />
           <Route path="classes" element={<AdminClassesPage />} />
           <Route path="study-plans" element={<StudyPlansPage />} />
+          <Route path="study-plans/:id" element={<AdminStudyPlanDetail />} />
           <Route path="settings" element={<AdminSettingsPage />} />
           <Route path="competitions" element={<AdminCompetitionsPage />} />
         </Route>

@@ -1,12 +1,14 @@
 // TeacherStudyPlanPage component
 import { useEffect, useState } from 'react'
-import { BookOpen, ChevronDown, Circle, Calendar, Layers, Target, Sparkles, Flame } from 'lucide-react'
+import { BookOpen, ChevronDown, Circle, Calendar, Layers, Target, Sparkles, Flame, Clock, CheckCircle2, ChevronRight } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 
 interface ClassItem { id: string; name: string }
 interface Task {
@@ -14,10 +16,20 @@ interface Task {
     title: string
     description?: string
     task_type: string
-    day_number: number
     order_index: number
 }
-interface DayGroup { day: number; tasks: Task[] }
+interface Period {
+    id: string
+    title: string
+    duration_minutes: number
+    tasks: Task[]
+}
+interface Day {
+    id: string
+    day_number: number
+    scheduled_date?: string
+    periods: Period[]
+}
 
 const TASK_ICONS: Record<string, React.ReactNode> = {
     memorise: <Target className="h-3.5 w-3.5" />,
@@ -25,6 +37,7 @@ const TASK_ICONS: Record<string, React.ReactNode> = {
     recite: <Flame className="h-3.5 w-3.5" />,
     listen: <BookOpen className="h-3.5 w-3.5" />,
     read: <Calendar className="h-3.5 w-3.5" />,
+    mcq: <CheckCircle2 className="h-3.5 w-3.5" />,
 }
 
 const TASK_COLORS: Record<string, string> = {
@@ -33,15 +46,16 @@ const TASK_COLORS: Record<string, string> = {
     recite: 'text-rose-500 bg-rose-50 border-rose-100',
     listen: 'text-indigo-500 bg-indigo-50 border-indigo-100',
     read: 'text-emerald-500 bg-emerald-50 border-emerald-100',
+    mcq: 'text-violet-500 bg-violet-50 border-violet-100',
 }
 
 export default function TeacherStudyPlanPage() {
     const [classes, setClasses] = useState<ClassItem[]>([])
     const [selectedClassId, setSelectedClassId] = useState('')
-    const [tasks, setTasks] = useState<Task[]>([])
+    const [plan, setPlan] = useState<any>(null)
     const [loading, setLoading] = useState(false)
     const [loadingClasses, setLoadingClasses] = useState(true)
-    const [openDay, setOpenDay] = useState<number>(1)
+    const [openDay, setOpenDay] = useState<string | null>(null)
 
     // Load teacher's classes
     useEffect(() => {
@@ -59,39 +73,38 @@ export default function TeacherStudyPlanPage() {
     useEffect(() => {
         if (!selectedClassId) return
         setLoading(true)
-        setTasks([])
+        setPlan(null)
 
-        api.get(`/teacher/study-plan?class_id=${selectedClassId}`)
+        api.get(`/teacher/classrooms/${selectedClassId}/study-plan`)
             .then(r => {
-                const data = r.data.data || []
-                setTasks(data)
-                if (data.length > 0) setOpenDay(data[0].day_number || 1)
+                setPlan(r.data.data)
+                if (r.data.data?.days?.length > 0) {
+                    setOpenDay(r.data.data.days[0].id)
+                }
             })
-            .catch(() => {
-                // Fallback: try fetching via admin endpoint
-                api.get(`/admin/classes/${selectedClassId}/tasks`)
-                    .then(r => setTasks(r.data.data || []))
-                    .catch(() => setTasks([]))
-            })
+            .catch(() => toast.error("Failed to load study plan"))
             .finally(() => setLoading(false))
     }, [selectedClassId])
 
-    // Group tasks by day
-    const byDay: Record<number, Task[]> = {}
-    tasks.forEach(t => {
-        if (!byDay[t.day_number]) byDay[t.day_number] = []
-        byDay[t.day_number].push(t)
-    })
-    const groups: DayGroup[] = Object.entries(byDay)
-        .sort(([a], [b]) => Number(a) - Number(b))
-        .map(([day, tasks]) => ({ day: Number(day), tasks }))
+    const updateDayDate = async (dayId: string, dateStr: string) => {
+        try {
+            await api.patch(`/teacher/study-plans/days/${dayId}`, { scheduled_date: dateStr })
+            setPlan((prev: any) => ({
+                ...prev,
+                days: prev.days.map((d: Day) => d.id === dayId ? { ...d, scheduled_date: dateStr } : d)
+            }))
+            toast.success("Date updated")
+        } catch {
+            toast.error("Failed to update date")
+        }
+    }
 
     const selectedClassName = classes.find(c => c.id === selectedClassId)?.name || ''
 
     return (
         <DashboardPageLayout
-            title="Study Plan"
-            description="View the curriculum assigned to your classes."
+            title="Classroom Curriculum"
+            description="Manage your class's multi-day study schedule and assign dates."
             actions={
                 classes.length > 1 ? (
                     <Select value={selectedClassId} onValueChange={setSelectedClassId}>
@@ -127,21 +140,19 @@ export default function TeacherStudyPlanPage() {
                 ) : (
                     <>
                         {/* Class header */}
-                        <div className="flex items-center gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-                            <div className="h-10 w-10 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100">
-                                <BookOpen className="h-5 w-5 text-blue-600" />
+                        <div className="flex items-center gap-4 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+                            <div className="h-12 w-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
+                                <BookOpen className="h-6 w-6" />
                             </div>
                             <div>
-                                <p className="text-base font-bold text-slate-900">{selectedClassName}</p>
-                                <p className="text-xs text-slate-400">
-                                    {groups.length > 0
-                                        ? `${groups.length} learning days · ${tasks.length} total tasks`
-                                        : 'No curriculum assigned yet'}
+                                <p className="text-xl font-black text-slate-900">{plan?.name || selectedClassName}</p>
+                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
+                                    {plan ? `${plan.days.length} Days • Classroom Blueprint` : 'No plan assigned yet'}
                                 </p>
                             </div>
-                            {groups.length > 0 && (
-                                <Badge className="ml-auto bg-blue-50 text-blue-700 border-blue-100 text-[10px] font-bold">
-                                    Active Plan
+                            {plan && (
+                                <Badge className="ml-auto bg-emerald-50 text-emerald-700 border-emerald-100 text-[10px] font-black uppercase px-3 py-1">
+                                    Live Curriculum
                                 </Badge>
                             )}
                         </div>
@@ -152,8 +163,8 @@ export default function TeacherStudyPlanPage() {
                                     <div key={i} className="h-14 bg-slate-100 animate-pulse rounded-2xl" />
                                 ))}
                             </div>
-                        ) : groups.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center py-16 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        ) : !plan ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
                                 <BookOpen className="h-10 w-10 text-slate-300 mb-3" />
                                 <h3 className="text-sm font-bold text-slate-700">No study plan assigned</h3>
                                 <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
@@ -161,71 +172,97 @@ export default function TeacherStudyPlanPage() {
                                 </p>
                             </div>
                         ) : (
-                            <div className="space-y-3">
-                                {groups.map(({ day, tasks: dayTasks }) => {
-                                    const isOpen = openDay === day
+                            <div className="space-y-4">
+                                {plan.days.map((day: Day) => {
+                                    const isOpen = openDay === day.id
                                     return (
                                         <div
-                                            key={day}
+                                            key={day.id}
                                             className={clsx(
-                                                'bg-white rounded-2xl border overflow-hidden transition-all duration-300',
-                                                isOpen ? 'border-blue-200 shadow-sm' : 'border-slate-200'
+                                                'bg-white rounded-3xl border overflow-hidden transition-all duration-300',
+                                                isOpen ? 'border-blue-200 shadow-xl shadow-slate-200/50' : 'border-slate-200 shadow-sm'
                                             )}
                                         >
-                                            <button
-                                                onClick={() => setOpenDay(isOpen ? -1 : day)}
-                                                className="w-full flex items-center justify-between p-4 text-left"
-                                            >
-                                                <div className="flex items-center gap-3">
+                                            <div className="flex flex-col md:flex-row md:items-center justify-between p-4 px-6 gap-4">
+                                                <div className="flex items-center gap-4 cursor-pointer" onClick={() => setOpenDay(isOpen ? null : day.id)}>
                                                     <div className={clsx(
-                                                        'h-10 w-10 rounded-xl text-xs font-black flex items-center justify-center transition-all',
+                                                        'h-12 w-12 rounded-2xl text-base font-black flex items-center justify-center transition-all',
                                                         isOpen ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
                                                     )}>
-                                                        {day}
+                                                        {day.day_number}
                                                     </div>
                                                     <div>
-                                                        <p className="text-sm font-bold text-slate-900">Day {day}</p>
-                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
-                                                            {dayTasks.length} {dayTasks.length === 1 ? 'task' : 'tasks'}
+                                                        <p className="text-base font-black text-slate-900">Day {day.day_number}</p>
+                                                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+                                                            {day.periods.length} Periods • {day.periods.reduce((acc, p) => acc + p.tasks.length, 0)} Tasks
                                                         </p>
                                                     </div>
                                                 </div>
-                                                <div className={clsx(
-                                                    'h-7 w-7 rounded-full flex items-center justify-center transition-all',
-                                                    isOpen ? 'bg-blue-100 text-blue-600 rotate-180' : 'bg-slate-50 text-slate-400'
-                                                )}>
-                                                    <ChevronDown className="h-4 w-4" />
+
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+                                                        <Calendar className="h-3.5 w-3.5 text-slate-400 ml-2" />
+                                                        <Input 
+                                                            type="date"
+                                                            value={day.scheduled_date || ''}
+                                                            onChange={(e) => updateDayDate(day.id, e.target.value)}
+                                                            className="h-8 border-none bg-transparent font-bold text-xs focus-visible:ring-0 w-32"
+                                                        />
+                                                    </div>
+                                                    <Button 
+                                                      variant="ghost" 
+                                                      size="icon" 
+                                                      className={clsx(
+                                                        'h-10 w-10 rounded-xl transition-all',
+                                                        isOpen ? 'bg-blue-50 text-blue-600 rotate-180' : 'bg-slate-50 text-slate-400'
+                                                      )}
+                                                      onClick={() => setOpenDay(isOpen ? null : day.id)}
+                                                    >
+                                                        <ChevronDown className="h-5 w-5" />
+                                                    </Button>
                                                 </div>
-                                            </button>
+                                            </div>
 
                                             {isOpen && (
-                                                <div className="px-4 pb-4 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                                                    <div className="h-px bg-slate-100 mb-3" />
-                                                    {dayTasks.map(task => (
-                                                        <div
-                                                            key={task.id}
-                                                            className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100"
-                                                        >
-                                                            <div className={clsx(
-                                                                'h-8 w-8 rounded-lg flex items-center justify-center border shrink-0',
-                                                                TASK_COLORS[task.task_type] || 'bg-slate-100 text-slate-400 border-slate-200'
-                                                            )}>
-                                                                {TASK_ICONS[task.task_type] || <Circle className="h-3.5 w-3.5" />}
+                                                <div className="px-6 pb-6 space-y-6 bg-slate-50/50">
+                                                    <div className="h-px bg-slate-100" />
+                                                    {day.periods.map(period => (
+                                                        <div key={period.id} className="space-y-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <Clock className="h-3.5 w-3.5 text-slate-400" />
+                                                                <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">{period.title} ({period.duration_minutes}m)</h4>
                                                             </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <p className="text-sm font-semibold text-slate-900 truncate">{task.title}</p>
-                                                                {task.description && (
-                                                                    <p className="text-xs text-slate-400 mt-0.5 truncate">{task.description}</p>
-                                                                )}
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                {period.tasks.map(task => (
+                                                                    <div
+                                                                        key={task.id}
+                                                                        className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow"
+                                                                    >
+                                                                        <div className={clsx(
+                                                                            'h-9 w-9 rounded-xl flex items-center justify-center border shrink-0',
+                                                                            TASK_COLORS[task.task_type] || 'bg-slate-100 text-slate-400 border-slate-200'
+                                                                        )}>
+                                                                            {TASK_ICONS[task.task_type] || <Circle className="h-3.5 w-3.5" />}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-sm font-bold text-slate-900 truncate">{task.title}</p>
+                                                                            <p className="text-[10px] text-slate-400 font-bold uppercase">{task.task_type}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
                                                             </div>
-                                                            <span className={clsx(
-                                                                'text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wide shrink-0',
-                                                                TASK_COLORS[task.task_type] || 'bg-slate-100 text-slate-500 border-slate-200'
-                                                            )}>
-                                                                {task.task_type}
-                                                            </span>
                                                         </div>
                                                     ))}
+                                                    
+                                                    <div className="pt-2">
+                                                       <Button 
+                                                         className="w-full h-12 bg-white border border-slate-200 text-slate-900 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 hover:border-slate-300"
+                                                         onClick={() => toast.success("Opening Submissions Dashboard...")}
+                                                       >
+                                                          View Student Submissions for Day {day.day_number}
+                                                          <ChevronRight className="h-4 w-4" />
+                                                       </Button>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>

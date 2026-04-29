@@ -9,12 +9,14 @@ const SelectContext = React.createContext<{
     onValueChange: (value: string) => void;
     open: boolean;
     setOpen: (open: boolean) => void;
-}>({ value: "", onValueChange: () => { }, open: false, setOpen: () => { } });
+    disabled?: boolean;
+}>({ value: "", onValueChange: () => { }, open: false, setOpen: () => { }, disabled: false });
 
-const Select = ({ value, onValueChange, children }: {
+const Select = ({ value, onValueChange, children, disabled }: {
     value?: string;
     onValueChange?: (value: string) => void;
     children: React.ReactNode;
+    disabled?: boolean;
 }) => {
     const [selectedValue, setSelectedValue] = React.useState(value || "");
     const [open, setOpen] = React.useState(false);
@@ -45,22 +47,27 @@ const Select = ({ value, onValueChange, children }: {
                 setOpen(false);
             },
             open,
-            setOpen
+            setOpen,
+            disabled
         }}>
             <div ref={ref} className="relative inline-block w-full">{children}</div>
         </SelectContext.Provider>
     )
 }
 
-const SelectTrigger = ({ className, children }: {
+const SelectTrigger = ({ className, children, disabled: localDisabled }: {
     className?: string;
     children: React.ReactNode;
+    disabled?: boolean;
 }) => {
-    const { setOpen, open } = React.useContext(SelectContext);
+    const { setOpen, open, disabled: contextDisabled } = React.useContext(SelectContext);
+    const isDisabled = localDisabled || contextDisabled;
+
     return (
         <button
             type="button"
-            onClick={() => setOpen(!open)}
+            disabled={isDisabled}
+            onClick={() => !isDisabled && setOpen(!open)}
             className={cn(
                 "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer",
                 className

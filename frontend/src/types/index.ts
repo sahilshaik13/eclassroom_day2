@@ -63,7 +63,7 @@ export interface PaginationMeta {
 
 // ── Student domain ────────────────────────────────────────────────────────────
 
-export type TaskType = 'memorise' | 'review' | 'recite' | 'listen' | 'read'
+export type TaskType = 'memorise' | 'review' | 'recite' | 'listen' | 'read' | 'mcq' | 'written' | 'reflection'
 
 export interface Task {
   id: string
@@ -202,7 +202,9 @@ export interface StudyPlanTemplate {
   name: string
   description?: string
   total_days: number
+  day_count?: number
   task_count: number
+  total_tasks?: number
   created_at: string
 }
 
