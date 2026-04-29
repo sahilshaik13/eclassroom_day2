@@ -117,7 +117,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
               <div>
                 <h3 className="font-bold text-slate-900">Day {day.day_number}</h3>
                 <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">
-                  {day.periods.length} Periods • {day.periods.reduce((acc, p) => acc + p.tasks.length, 0)} Tasks
+                  {(day.periods || []).length} Periods • {(day.periods || []).reduce((acc, p) => acc + (p.tasks || []).length, 0)} Tasks
                 </p>
               </div>
             </div>
@@ -139,7 +139,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
           {/* Day Content */}
           {expandedDays[day.day_number] && (
             <div className="p-6 pt-0 space-y-6 bg-slate-50/50">
-              {day.periods.map((period, pIdx) => (
+              {(day.periods || []).map((period, pIdx) => (
                 <Card key={pIdx} className="border-slate-200 shadow-none rounded-2xl overflow-hidden bg-white">
                   <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-4 flex-1">
@@ -183,7 +183,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                     )}
                   </div>
                   <CardContent className="p-5 space-y-3">
-                    {period.tasks.map((task, tIdx) => (
+                    {(period.tasks || []).map((task, tIdx) => (
                       <div key={tIdx} className="group flex items-start gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50/30 hover:bg-white hover:border-slate-200 hover:shadow-md hover:shadow-slate-200/40 transition-all">
                         <div className="pt-1">
                           {task.task_type === 'mcq' ? <CheckSquare className="h-5 w-5 text-violet-500" /> : 
