@@ -29,12 +29,17 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
     setSubmitting(true);
     try {
       const payload = {
-        submission_text: submission.submission_text,
-        mcq_answers: task.task_type === 'mcq' ? submission.mcq_answers : null,
-        media_url: submission.media_url
+        content: {
+          submission_text: submission.submission_text,
+          responses: task.task_type === 'mcq' 
+            ? Object.entries(submission.mcq_answers).map(([idx, ans]) => ({ index: parseInt(idx), answer: parseInt(ans) }))
+            : null,
+          media_url: submission.media_url
+        },
+        audio_url: null // Add if voice recording is implemented later
       };
       
-      const res = await api.post(`/student/tasks/${task.id}/submit`, payload);
+      const res = await api.post(`/classroom/tasks/${task.id}/submit`, payload);
       const data = res.data.data;
       
       if (task.task_type === 'mcq') {
@@ -91,18 +96,21 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
                 })}
                 className="grid gap-3 ml-12"
               >
-                {q.options.map((opt: string, optIdx: number) => (
-                  <Label 
-                    key={optIdx} 
-                    className={`flex items-center gap-3 p-4 rounded-2xl border cursor-pointer transition-all ${submission.mcq_answers[idx] === opt ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
-                  >
-                    <RadioGroupItem value={opt} className="sr-only" />
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${submission.mcq_answers[idx] === opt ? 'border-blue-600' : 'border-slate-300'}`}>
-                      {submission.mcq_answers[idx] === opt && <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />}
-                    </div>
-                    <span className="font-bold text-slate-700">{opt}</span>
-                  </Label>
-                ))}
+                {q.options.map((opt: string, optIdx: number) => {
+                  const isSelected = submission.mcq_answers[idx] === optIdx.toString();
+                  return (
+                    <Label 
+                      key={optIdx} 
+                      className={`flex items-center gap-3 p-4 rounded-2xl border cursor-pointer transition-all ${isSelected ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
+                    >
+                      <RadioGroupItem value={optIdx.toString()} className="sr-only" />
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-blue-600' : 'border-slate-300'}`}>
+                        {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />}
+                      </div>
+                      <span className="font-bold text-slate-700">{opt}</span>
+                    </Label>
+                  );
+                })}
               </RadioGroup>
             </div>
           ))}

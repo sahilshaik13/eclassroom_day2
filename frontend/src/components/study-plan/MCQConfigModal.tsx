@@ -20,7 +20,7 @@ interface MCQConfigModalProps {
 
 export default function MCQConfigModal({ isOpen, onClose, config, onSave }: MCQConfigModalProps) {
   const [questions, setQuestions] = useState<MCQQuestion[]>(
-    config.questions.length > 0 ? config.questions : [{ question: '', options: ['', '', '', ''], correct_option: 0 }]
+    (config?.questions?.length || 0) > 0 ? config.questions : [{ question: '', options: ['', '', '', ''], correct_option: 0 }]
   );
 
   const addQuestion = () => {

@@ -70,6 +70,7 @@ async def get_today_tasks(request: Request, token: TokenData = Depends(require_s
                     "plan_name": plan_name,
                     "period_title": period["title"],
                     "status": my_sub["status"] if my_sub else "pending",
+                    "completed": my_sub is not None,
                     "submission": my_sub
                 })
 
@@ -127,7 +128,11 @@ async def submit_task(
 
     res = admin.table("study_plan_submissions").upsert(sub_data, on_conflict="student_id,task_id").execute()
     
-    return success(res.data[0] if res.data else {})
+    response_data = res.data[0] if res.data else {}
+    if task["task_type"] == "mcq":
+        response_data["total_questions"] = len(task.get("config", {}).get("questions", []))
+    
+    return success(response_data)
 
 
 # ── Week progress ─────────────────────────────────────────────
@@ -217,6 +222,41 @@ async def uncomplete_task(
         return error("NOT_FOUND", "Task not found", 404)
 
     return success(res.data[0])
+
+
+@router.patch("/tasks/{task_id}/toggle")
+async def toggle_task(
+    task_id: str,
+    token: TokenData = Depends(require_student)
+):
+    admin = get_admin_client()
+    from datetime import datetime
+
+    # 1. Get student record
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
+    if not student_res.data: return error("NOT_FOUND", "Student not found", 404)
+    student_id = student_res.data["id"]
+
+    # 2. Check if submission exists
+    existing = admin.table("study_plan_submissions").select("id, status").eq("student_id", student_id).eq("task_id", task_id).maybe_single().execute()
+    
+    if existing.data:
+        # Toggle: if submitted, we can't easily "un-submit" without deleting, 
+        # but for simple tasks, we'll just delete the submission to mark as uncompleted
+        admin.table("study_plan_submissions").delete().eq("id", existing.data["id"]).execute()
+        return success({"completed": False})
+    else:
+        # Mark as completed
+        new_sub = {
+            "tenant_id": token.tenant_id,
+            "student_id": student_id,
+            "task_id": task_id,
+            "status": "submitted",
+            "content": {"toggled": True},
+            "created_at": datetime.utcnow().isoformat()
+        }
+        admin.table("study_plan_submissions").insert(new_sub).execute()
+        return success({"completed": True})
 
 
 # ── My classes ────────────────────────────────────────────────

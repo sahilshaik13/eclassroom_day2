@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import api from '@/services/api'
 import { competitionApi } from '@/services/competitionApi'
 import type { CompetitionRegistration } from '@/types'
+import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
 
 async function fetchTodayTasks(): Promise<Task[]> {
   try {
@@ -47,6 +48,7 @@ export default function StudentDashboard() {
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [pendingDoubts, setPendingDoubts] = useState(1)
   const [competitions, setCompetitions] = useState<CompetitionRegistration[]>([])
+  const [selectedTask, setSelectedTask] = useState<any>(null)
 
   useEffect(() => {
     fetchTodayTasks()
@@ -175,10 +177,18 @@ export default function StudentDashboard() {
             tasks.map((task) => {
               const colors = TASK_COLORS[task.task_type]
               const isLoading = completingId === task.id
+              const isSubmissionTask = ['mcq', 'written', 'reflection'].includes(task.task_type)
+              
               return (
                 <button
                   key={task.id}
-                  onClick={() => toggleTask(task.id)}
+                  onClick={() => {
+                    if (isSubmissionTask && !task.completed) {
+                      setSelectedTask(task)
+                    } else {
+                      toggleTask(task.id)
+                    }
+                  }}
                   disabled={isLoading}
                   className={clsx(
                     'w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all duration-200',
@@ -219,6 +229,19 @@ export default function StudentDashboard() {
             })
           )}
         </div>
+
+        {/* Submission Modal */}
+        {selectedTask && (
+          <TaskSubmissionModal 
+            task={selectedTask}
+            isOpen={!!selectedTask}
+            onClose={() => setSelectedTask(null)}
+            onSuccess={() => {
+              setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, completed: true } : t))
+              setSelectedTask(null)
+            }}
+          />
+        )}
       </section>
 
       {/* Recent Doubts */}
