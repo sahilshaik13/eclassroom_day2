@@ -916,6 +916,7 @@ async def create_study_plan(
     request: Request,
     token: TokenData = Depends(require_admin),
 ):
+    admin = get_admin_client()
     res = admin.table("study_plan_templates").insert({
         "tenant_id": token.tenant_id,
         "created_by": token.user_id,
