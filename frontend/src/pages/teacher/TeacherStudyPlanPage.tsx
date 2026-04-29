@@ -1,53 +1,14 @@
-// TeacherStudyPlanPage component
 import { useEffect, useState } from 'react'
-import { BookOpen, ChevronDown, Circle, Calendar, Layers, Target, Sparkles, Flame, Clock, CheckCircle2, ChevronRight } from 'lucide-react'
-import { clsx } from 'clsx'
+import { BookOpen, Layers, ChevronRight, Loader2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import StudyPlanBuilder from '@/components/study-plan/StudyPlanBuilder'
 
 interface ClassItem { id: string; name: string }
-interface Task {
-    id: string
-    title: string
-    description?: string
-    task_type: string
-    order_index: number
-}
-interface Period {
-    id: string
-    title: string
-    duration_minutes: number
-    tasks: Task[]
-}
-interface Day {
-    id: string
-    day_number: number
-    scheduled_date?: string
-    periods: Period[]
-}
-
-const TASK_ICONS: Record<string, React.ReactNode> = {
-    memorise: <Target className="h-3.5 w-3.5" />,
-    review: <Sparkles className="h-3.5 w-3.5" />,
-    recite: <Flame className="h-3.5 w-3.5" />,
-    listen: <BookOpen className="h-3.5 w-3.5" />,
-    read: <Calendar className="h-3.5 w-3.5" />,
-    mcq: <CheckCircle2 className="h-3.5 w-3.5" />,
-}
-
-const TASK_COLORS: Record<string, string> = {
-    memorise: 'text-blue-600 bg-blue-50 border-blue-100',
-    review: 'text-amber-500 bg-amber-50 border-amber-100',
-    recite: 'text-rose-500 bg-rose-50 border-rose-100',
-    listen: 'text-indigo-500 bg-indigo-50 border-indigo-100',
-    read: 'text-emerald-500 bg-emerald-50 border-emerald-100',
-    mcq: 'text-violet-500 bg-violet-50 border-violet-100',
-}
 
 export default function TeacherStudyPlanPage() {
     const [classes, setClasses] = useState<ClassItem[]>([])
@@ -55,7 +16,7 @@ export default function TeacherStudyPlanPage() {
     const [plan, setPlan] = useState<any>(null)
     const [loading, setLoading] = useState(false)
     const [loadingClasses, setLoadingClasses] = useState(true)
-    const [openDay, setOpenDay] = useState<string | null>(null)
+    const [days, setDays] = useState<any[]>([])
 
     // Load teacher's classes
     useEffect(() => {
@@ -78,25 +39,112 @@ export default function TeacherStudyPlanPage() {
         api.get(`/teacher/classrooms/${selectedClassId}/study-plan`)
             .then(r => {
                 setPlan(r.data.data)
-                if (r.data.data?.days?.length > 0) {
-                    setOpenDay(r.data.data.days[0].id)
-                }
+                setDays(r.data.data?.days || [])
             })
             .catch(() => toast.error("Failed to load study plan"))
             .finally(() => setLoading(false))
     }, [selectedClassId])
 
-    const updateDayDate = async (dayId: string, dateStr: string) => {
+    const handleAddDay = async () => {
+        if (!plan) return
+        const nextDay = (days.length + 1)
         try {
-            await api.patch(`/teacher/study-plans/days/${dayId}`, { scheduled_date: dateStr })
-            setPlan((prev: any) => ({
-                ...prev,
-                days: prev.days.map((d: Day) => d.id === dayId ? { ...d, scheduled_date: dateStr } : d)
-            }))
+            const res = await api.post('/teacher/study-plans/days', {
+                plan_id: plan.id,
+                day_number: nextDay,
+                scheduled_date: null
+            })
+            setDays([...days, { ...res.data.data, periods: [] }])
+            toast.success(`Day ${nextDay} added`)
+        } catch { toast.error("Failed to add day") }
+    }
+
+    const handleAddPeriod = async (dayIdx: number) => {
+        const day = days[dayIdx]
+        const nextOrder = (day.periods?.length || 0)
+        try {
+            const res = await api.post('/teacher/study-plans/periods', {
+                day_id: day.id,
+                title: 'New Period',
+                duration_minutes: 30,
+                order_index: nextOrder
+            })
+            const newDays = [...days]
+            newDays[dayIdx].periods = [...(newDays[dayIdx].periods || []), { ...res.data.data, tasks: [] }]
+            setDays(newDays)
+        } catch { toast.error("Failed to add period") }
+    }
+
+    const handleUpdatePeriod = async (dayIdx: number, pIdx: number, updates: any) => {
+        const period = days[dayIdx].periods[pIdx]
+        try {
+            await api.patch(`/teacher/study-plans/periods/${period.id}`, updates)
+            const newDays = [...days]
+            newDays[dayIdx].periods[pIdx] = { ...period, ...updates }
+            setDays(newDays)
+        } catch { toast.error("Failed to update period") }
+    }
+
+    const handleDeletePeriod = async (dayIdx: number, pIdx: number) => {
+        const period = days[dayIdx].periods[pIdx]
+        if (!confirm("Delete this period and all its tasks?")) return
+        try {
+            await api.delete(`/teacher/study-plans/periods/${period.id}`)
+            const newDays = [...days]
+            newDays[dayIdx].periods.splice(pIdx, 1)
+            setDays(newDays)
+            toast.success("Period deleted")
+        } catch { toast.error("Failed to delete period") }
+    }
+
+    const handleAddTask = async (dayIdx: number, pIdx: number, type: string) => {
+        const period = days[dayIdx].periods[pIdx]
+        const nextOrder = (period.tasks?.length || 0)
+        try {
+            const res = await api.post('/teacher/study-plans/tasks', {
+                period_id: period.id,
+                title: `New ${type} Task`,
+                task_type: type,
+                required: true,
+                order_index: nextOrder,
+                config: type === 'mcq' ? { questions: [] } : {}
+            })
+            const newDays = [...days]
+            newDays[dayIdx].periods[pIdx].tasks = [...(newDays[dayIdx].periods[pIdx].tasks || []), res.data.data]
+            setDays(newDays)
+        } catch { toast.error("Failed to add task") }
+    }
+
+    const handleUpdateTask = async (dayIdx: number, pIdx: number, tIdx: number, updates: any) => {
+        const task = days[dayIdx].periods[pIdx].tasks[tIdx]
+        try {
+            await api.patch(`/teacher/study-plans/tasks/${task.id}`, updates)
+            const newDays = [...days]
+            newDays[dayIdx].periods[pIdx].tasks[tIdx] = { ...task, ...updates }
+            setDays(newDays)
+        } catch { toast.error("Failed to update task") }
+    }
+
+    const handleDeleteTask = async (dayIdx: number, pIdx: number, tIdx: number) => {
+        const task = days[dayIdx].periods[pIdx].tasks[tIdx]
+        try {
+            await api.delete(`/teacher/study-plans/tasks/${task.id}`)
+            const newDays = [...days]
+            newDays[dayIdx].periods[pIdx].tasks.splice(tIdx, 1)
+            setDays(newDays)
+            toast.success("Task deleted")
+        } catch { toast.error("Failed to delete task") }
+    }
+
+    const handleUpdateDayDate = async (dayIdx: number, dateStr: string) => {
+        const day = days[dayIdx]
+        try {
+            await api.patch(`/teacher/study-plans/days/${day.id}`, { scheduled_date: dateStr })
+            const newDays = [...days]
+            newDays[dayIdx].scheduled_date = dateStr
+            setDays(newDays)
             toast.success("Date updated")
-        } catch {
-            toast.error("Failed to update date")
-        }
+        } catch { toast.error("Failed to update date") }
     }
 
     const selectedClassName = classes.find(c => c.id === selectedClassId)?.name || ''
@@ -104,42 +152,45 @@ export default function TeacherStudyPlanPage() {
     return (
         <DashboardPageLayout
             title="Classroom Curriculum"
-            description="Manage your class's multi-day study schedule and assign dates."
+            description="Customize your class's study schedule, add tasks, and assign dates."
             actions={
-                classes.length > 1 ? (
-                    <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                        <SelectTrigger className="w-52 h-9 border-slate-200 bg-white text-sm">
-                            <SelectValue placeholder="Select class">
-                                {classes.find(c => c.id === selectedClassId)?.name}
-                            </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                            {classes.map(c => (
-                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                ) : undefined
+                <div className="flex items-center gap-3">
+                    {classes.length > 1 && (
+                        <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                            <SelectTrigger className="w-52 h-11 border-slate-200 bg-white text-sm rounded-xl">
+                                <SelectValue placeholder="Select class" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {classes.map(c => (
+                                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    )}
+                    {plan && (
+                        <Button 
+                            onClick={handleAddDay}
+                            className="bg-slate-900 text-white hover:bg-slate-800 rounded-xl gap-2 h-11 px-5"
+                        >
+                            <Plus className="h-4 w-4" /> Add Day
+                        </Button>
+                    )}
+                </div>
             }
         >
-            <div className="space-y-5">
+            <div className="space-y-6">
                 {loadingClasses ? (
                     <div className="space-y-3">
-                        {[1, 2].map(i => <div key={i} className="h-14 bg-slate-100 animate-pulse rounded-2xl" />)}
+                        {[1, 2].map(i => <div key={i} className="h-20 bg-slate-100 animate-pulse rounded-2xl" />)}
                     </div>
                 ) : classes.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-24 text-center bg-white rounded-2xl border border-slate-100 shadow-sm">
-                        <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 border border-slate-100">
-                            <Layers className="h-8 w-8 text-slate-300" />
-                        </div>
+                        <Layers className="h-12 w-12 text-slate-300 mb-4" />
                         <h3 className="text-base font-bold text-slate-900">No classes assigned</h3>
-                        <p className="text-sm text-slate-400 max-w-xs mt-2 leading-relaxed">
-                            Your admin needs to assign you to a class before you can view the study plan.
-                        </p>
+                        <p className="text-sm text-slate-400 max-w-xs mt-2">Your admin needs to assign you to a class first.</p>
                     </div>
                 ) : (
                     <>
-                        {/* Class header */}
                         <div className="flex items-center gap-4 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
                             <div className="h-12 w-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
                                 <BookOpen className="h-6 w-6" />
@@ -147,127 +198,52 @@ export default function TeacherStudyPlanPage() {
                             <div>
                                 <p className="text-xl font-black text-slate-900">{plan?.name || selectedClassName}</p>
                                 <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-                                    {plan ? `${plan.days.length} Days • Classroom Blueprint` : 'No plan assigned yet'}
+                                    {plan ? `${days.length} Days • Classroom-Specific Plan` : 'No plan assigned yet'}
                                 </p>
                             </div>
                             {plan && (
                                 <Badge className="ml-auto bg-emerald-50 text-emerald-700 border-emerald-100 text-[10px] font-black uppercase px-3 py-1">
-                                    Live Curriculum
+                                    Live Editing Enabled
                                 </Badge>
                             )}
                         </div>
 
                         {loading ? (
-                            <div className="space-y-3">
-                                {[1, 2, 3, 4].map(i => (
-                                    <div key={i} className="h-14 bg-slate-100 animate-pulse rounded-2xl" />
-                                ))}
+                            <div className="flex items-center justify-center py-20">
+                                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
                             </div>
                         ) : !plan ? (
-                            <div className="flex flex-col items-center justify-center py-16 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
-                                <BookOpen className="h-10 w-10 text-slate-300 mb-3" />
+                            <div className="flex flex-col items-center justify-center py-20 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                                <BookOpen className="h-12 w-12 text-slate-300 mb-4" />
                                 <h3 className="text-sm font-bold text-slate-700">No study plan assigned</h3>
-                                <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
-                                    Ask your admin to apply a study plan template to this class.
-                                </p>
+                                <p className="text-xs text-slate-400 mt-2">Ask your admin to apply a template to this classroom.</p>
                             </div>
                         ) : (
-                            <div className="space-y-4">
-                                {plan.days.map((day: Day) => {
-                                    const isOpen = openDay === day.id
-                                    return (
-                                        <div
-                                            key={day.id}
-                                            className={clsx(
-                                                'bg-white rounded-3xl border overflow-hidden transition-all duration-300',
-                                                isOpen ? 'border-blue-200 shadow-xl shadow-slate-200/50' : 'border-slate-200 shadow-sm'
-                                            )}
-                                        >
-                                            <div className="flex flex-col md:flex-row md:items-center justify-between p-4 px-6 gap-4">
-                                                <div className="flex items-center gap-4 cursor-pointer" onClick={() => setOpenDay(isOpen ? null : day.id)}>
-                                                    <div className={clsx(
-                                                        'h-12 w-12 rounded-2xl text-base font-black flex items-center justify-center transition-all',
-                                                        isOpen ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'
-                                                    )}>
-                                                        {day.day_number}
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-base font-black text-slate-900">Day {day.day_number}</p>
-                                                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
-                                                            {day.periods.length} Periods • {day.periods.reduce((acc, p) => acc + p.tasks.length, 0)} Tasks
-                                                        </p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
-                                                        <Calendar className="h-3.5 w-3.5 text-slate-400 ml-2" />
-                                                        <Input 
-                                                            type="date"
-                                                            value={day.scheduled_date || ''}
-                                                            onChange={(e) => updateDayDate(day.id, e.target.value)}
-                                                            className="h-8 border-none bg-transparent font-bold text-xs focus-visible:ring-0 w-32"
-                                                        />
-                                                    </div>
-                                                    <Button 
-                                                      variant="ghost" 
-                                                      size="icon" 
-                                                      className={clsx(
-                                                        'h-10 w-10 rounded-xl transition-all',
-                                                        isOpen ? 'bg-blue-50 text-blue-600 rotate-180' : 'bg-slate-50 text-slate-400'
-                                                      )}
-                                                      onClick={() => setOpenDay(isOpen ? null : day.id)}
-                                                    >
-                                                        <ChevronDown className="h-5 w-5" />
-                                                    </Button>
-                                                </div>
-                                            </div>
-
-                                            {isOpen && (
-                                                <div className="px-6 pb-6 space-y-6 bg-slate-50/50">
-                                                    <div className="h-px bg-slate-100" />
-                                                    {day.periods.map(period => (
-                                                        <div key={period.id} className="space-y-3">
-                                                            <div className="flex items-center gap-2">
-                                                                <Clock className="h-3.5 w-3.5 text-slate-400" />
-                                                                <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">{period.title} ({period.duration_minutes}m)</h4>
-                                                            </div>
-                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                                {period.tasks.map(task => (
-                                                                    <div
-                                                                        key={task.id}
-                                                                        className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow"
-                                                                    >
-                                                                        <div className={clsx(
-                                                                            'h-9 w-9 rounded-xl flex items-center justify-center border shrink-0',
-                                                                            TASK_COLORS[task.task_type] || 'bg-slate-100 text-slate-400 border-slate-200'
-                                                                        )}>
-                                                                            {TASK_ICONS[task.task_type] || <Circle className="h-3.5 w-3.5" />}
-                                                                        </div>
-                                                                        <div className="flex-1 min-w-0">
-                                                                            <p className="text-sm font-bold text-slate-900 truncate">{task.title}</p>
-                                                                            <p className="text-[10px] text-slate-400 font-bold uppercase">{task.task_type}</p>
-                                                                        </div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                    
-                                                    <div className="pt-2">
-                                                       <Button 
-                                                         className="w-full h-12 bg-white border border-slate-200 text-slate-900 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 hover:border-slate-300"
-                                                         onClick={() => toast.success("Opening Submissions Dashboard...")}
-                                                       >
-                                                          View Student Submissions for Day {day.day_number}
-                                                          <ChevronRight className="h-4 w-4" />
-                                                       </Button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )
-                                })}
+                            <div className="space-y-6">
+                                <StudyPlanBuilder 
+                                    days={days}
+                                    onChange={setDays}
+                                    onAddPeriod={handleAddPeriod}
+                                    onUpdatePeriod={handleUpdatePeriod}
+                                    onDeletePeriod={handleDeletePeriod}
+                                    onAddTask={handleAddTask}
+                                    onUpdateTask={handleUpdateTask}
+                                    onDeleteTask={handleDeleteTask}
+                                    onUpdateDayDate={handleUpdateDayDate}
+                                />
+                                
+                                <div className="p-6 bg-blue-50 rounded-3xl border border-blue-100 flex items-center justify-between">
+                                    <div>
+                                        <h4 className="font-bold text-blue-900">Need to see student progress?</h4>
+                                        <p className="text-xs text-blue-700/70 font-medium">Review task completions and MCQ scores for this plan.</p>
+                                    </div>
+                                    <Button 
+                                        className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-2 font-bold"
+                                        onClick={() => toast.success("Opening Submissions Dashboard...")}
+                                    >
+                                        View Submissions <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </>

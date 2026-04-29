@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -29,6 +29,7 @@ export interface Period {
 export interface Day {
   id?: string;
   day_number: number;
+  scheduled_date?: string;
   periods: Period[];
 }
 
@@ -36,9 +37,28 @@ interface StudyPlanBuilderProps {
   days: Day[];
   onChange: (days: Day[]) => void;
   readOnly?: boolean;
+  // Optional CRUD callbacks for real-time saving (Teacher mode)
+  onAddPeriod?: (dayIdx: number) => void;
+  onUpdatePeriod?: (dayIdx: number, pIdx: number, updates: any) => void;
+  onDeletePeriod?: (dayIdx: number, pIdx: number) => void;
+  onAddTask?: (dayIdx: number, pIdx: number, type: TaskType) => void;
+  onUpdateTask?: (dayIdx: number, pIdx: number, tIdx: number, updates: any) => void;
+  onDeleteTask?: (dayIdx: number, pIdx: number, tIdx: number) => void;
+  onUpdateDayDate?: (dayIdx: number, dateStr: string) => void;
 }
 
-export default function StudyPlanBuilder({ days, onChange, readOnly = false }: StudyPlanBuilderProps) {
+export default function StudyPlanBuilder({ 
+  days, 
+  onChange, 
+  readOnly = false,
+  onAddPeriod,
+  onUpdatePeriod,
+  onDeletePeriod,
+  onAddTask,
+  onUpdateTask,
+  onDeleteTask,
+  onUpdateDayDate
+}: StudyPlanBuilderProps) {
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({ 1: true });
   const [activeMCQTask, setActiveMCQTask] = useState<{ dIdx: number, pIdx: number, tIdx: number } | null>(null);
 
@@ -57,7 +77,8 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
     onChange(newDays);
   };
 
-  const addPeriod = (dayIdx: number) => {
+  const handleAddPeriod = (dayIdx: number) => {
+    if (onAddPeriod) return onAddPeriod(dayIdx);
     const newDays = [...days];
     newDays[dayIdx].periods.push({
       title: `Period ${newDays[dayIdx].periods.length + 1}`,
@@ -68,7 +89,22 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
     onChange(newDays);
   };
 
-  const addTask = (dayIdx: number, periodIdx: number, type: TaskType = 'memorise') => {
+  const handleUpdatePeriod = (dayIdx: number, pIdx: number, updates: any) => {
+    if (onUpdatePeriod) return onUpdatePeriod(dayIdx, pIdx, updates);
+    const newDays = [...days];
+    newDays[dayIdx].periods[pIdx] = { ...newDays[dayIdx].periods[pIdx], ...updates };
+    onChange(newDays);
+  };
+
+  const handleRemovePeriod = (dayIdx: number, pIdx: number) => {
+    if (onDeletePeriod) return onDeletePeriod(dayIdx, pIdx);
+    const newDays = [...days];
+    newDays[dayIdx].periods.splice(pIdx, 1);
+    onChange(newDays);
+  };
+
+  const handleAddTask = (dayIdx: number, periodIdx: number, type: TaskType = 'memorise') => {
+    if (onAddTask) return onAddTask(dayIdx, periodIdx, type);
     const newDays = [...days];
     newDays[dayIdx].periods[periodIdx].tasks.push({
       title: 'New Task',
@@ -80,7 +116,8 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
     onChange(newDays);
   };
 
-  const updateTask = (dayIdx: number, periodIdx: number, taskIdx: number, updates: Partial<Task>) => {
+  const handleUpdateTask = (dayIdx: number, periodIdx: number, taskIdx: number, updates: Partial<Task>) => {
+    if (onUpdateTask) return onUpdateTask(dayIdx, periodIdx, taskIdx, updates);
     const newDays = [...days];
     newDays[dayIdx].periods[periodIdx].tasks[taskIdx] = {
       ...newDays[dayIdx].periods[periodIdx].tasks[taskIdx],
@@ -89,15 +126,10 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
     onChange(newDays);
   };
 
-  const removeTask = (dayIdx: number, periodIdx: number, taskIdx: number) => {
+  const handleRemoveTask = (dayIdx: number, periodIdx: number, taskIdx: number) => {
+    if (onDeleteTask) return onDeleteTask(dayIdx, periodIdx, taskIdx);
     const newDays = [...days];
     newDays[dayIdx].periods[periodIdx].tasks.splice(taskIdx, 1);
-    onChange(newDays);
-  };
-
-  const removePeriod = (dayIdx: number, periodIdx: number) => {
-    const newDays = [...days];
-    newDays[dayIdx].periods.splice(periodIdx, 1);
     onChange(newDays);
   };
 
@@ -121,8 +153,20 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              {!readOnly && (
+            <div className="flex items-center gap-4">
+              {/* Date Selection */}
+              <div className="hidden sm:flex items-center gap-2 bg-slate-100 rounded-xl px-3 py-1.5 border border-slate-200" onClick={e => e.stopPropagation()}>
+                <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                <input 
+                  type="date"
+                  value={day.scheduled_date || ''}
+                  onChange={(e) => onUpdateDayDate ? onUpdateDayDate(dIdx, e.target.value) : null}
+                  className="bg-transparent border-none text-[11px] font-black uppercase text-slate-600 focus:ring-0 outline-none"
+                  disabled={readOnly || !onUpdateDayDate}
+                />
+              </div>
+              
+              {!readOnly && !onDeletePeriod && ( // Only show remove day in admin template mode
                 <Button 
                   variant="ghost" 
                   size="icon" 
@@ -146,11 +190,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                       <GripVertical className="h-4 w-4 text-slate-300 cursor-move" />
                       <Input 
                         value={period.title} 
-                        onChange={(e) => {
-                          const newDays = [...days];
-                          newDays[dIdx].periods[pIdx].title = e.target.value;
-                          onChange(newDays);
-                        }}
+                        onChange={(e) => handleUpdatePeriod(dIdx, pIdx, { title: e.target.value })}
                         placeholder="Period Title"
                         className="h-8 bg-transparent border-none font-bold text-slate-700 focus-visible:ring-0 px-0 w-48"
                         readOnly={readOnly}
@@ -160,11 +200,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                         <Input 
                           type="number"
                           value={period.duration_minutes}
-                          onChange={(e) => {
-                            const newDays = [...days];
-                            newDays[dIdx].periods[pIdx].duration_minutes = parseInt(e.target.value);
-                            onChange(newDays);
-                          }}
+                          onChange={(e) => handleUpdatePeriod(dIdx, pIdx, { duration_minutes: parseInt(e.target.value) })}
                           className="h-8 w-16 bg-transparent border-none text-xs font-bold focus-visible:ring-0 p-0"
                           readOnly={readOnly}
                         />
@@ -176,7 +212,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                         variant="ghost" 
                         size="icon" 
                         className="h-8 w-8 text-slate-300 hover:text-red-500 rounded-lg"
-                        onClick={() => removePeriod(dIdx, pIdx)}
+                        onClick={() => handleRemovePeriod(dIdx, pIdx)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -194,7 +230,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                           <div className="flex items-center justify-between">
                             <Input 
                               value={task.title}
-                              onChange={(e) => updateTask(dIdx, pIdx, tIdx, { title: e.target.value })}
+                              onChange={(e) => handleUpdateTask(dIdx, pIdx, tIdx, { title: e.target.value })}
                               className="h-7 bg-transparent border-none font-bold text-sm text-slate-800 p-0 focus-visible:ring-0"
                               placeholder="Task Title"
                               readOnly={readOnly}
@@ -202,7 +238,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                             <div className="flex items-center gap-2">
                                 <Select 
                                   value={task.task_type} 
-                                  onValueChange={(val) => updateTask(dIdx, pIdx, tIdx, { task_type: val as TaskType })}
+                                  onValueChange={(val) => handleUpdateTask(dIdx, pIdx, tIdx, { task_type: val as TaskType })}
                                   disabled={readOnly}
                                 >
                                 <SelectTrigger className="h-6 w-24 text-[10px] uppercase font-black tracking-wider border-none bg-slate-100 rounded-lg focus:ring-0 shadow-none">
@@ -221,7 +257,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                                   variant="ghost" 
                                   size="icon" 
                                   className="h-6 w-6 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => removeTask(dIdx, pIdx, tIdx)}
+                                  onClick={() => handleRemoveTask(dIdx, pIdx, tIdx)}
                                 >
                                   <Trash2 className="h-3 w-3" />
                                 </Button>
@@ -230,7 +266,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                           </div>
                           <Input 
                             value={task.description || ''}
-                            onChange={(e) => updateTask(dIdx, pIdx, tIdx, { description: e.target.value })}
+                            onChange={(e) => handleUpdateTask(dIdx, pIdx, tIdx, { description: e.target.value })}
                             className="h-6 bg-transparent border-none text-xs text-slate-500 p-0 focus-visible:ring-0"
                             placeholder="Add instructions or description..."
                             readOnly={readOnly}
@@ -256,7 +292,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                         variant="ghost" 
                         size="sm" 
                         className="w-full h-10 border border-dashed border-slate-200 text-slate-400 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-100 rounded-xl font-bold text-xs gap-2"
-                        onClick={() => addTask(dIdx, pIdx)}
+                        onClick={() => handleAddTask(dIdx, pIdx)}
                       >
                         <Plus className="h-4 w-4" /> Add Task
                       </Button>
@@ -268,7 +304,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
                 <Button 
                   variant="outline" 
                   className="w-full py-6 border-dashed border-slate-300 text-slate-500 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200 rounded-2xl font-black text-sm gap-2"
-                  onClick={() => addPeriod(dIdx)}
+                  onClick={() => handleAddPeriod(dIdx)}
                 >
                   <Plus className="h-5 w-5" /> Add New Period
                 </Button>
@@ -278,7 +314,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
         </div>
       ))}
 
-      {!readOnly && (
+      {!readOnly && !onAddPeriod && ( // In admin mode (no real-time callbacks), show add day button
         <Button 
           onClick={addDay}
           className="w-full py-8 bg-slate-900 hover:bg-slate-800 text-white rounded-3xl font-black text-lg shadow-xl shadow-slate-200 flex items-center justify-center gap-3 transition-transform hover:scale-[1.01] active:scale-[0.99]"
@@ -294,7 +330,7 @@ export default function StudyPlanBuilder({ days, onChange, readOnly = false }: S
           onClose={() => setActiveMCQTask(null)}
           config={days[activeMCQTask.dIdx].periods[activeMCQTask.pIdx].tasks[activeMCQTask.tIdx].config}
           onSave={(config) => {
-            updateTask(activeMCQTask.dIdx, activeMCQTask.pIdx, activeMCQTask.tIdx, { config });
+            handleUpdateTask(activeMCQTask.dIdx, activeMCQTask.pIdx, activeMCQTask.tIdx, { config });
           }}
         />
       )}

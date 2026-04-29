@@ -874,3 +874,100 @@ async def complete_teacher_profile(
     admin.table("users").update(update_data).eq("id", token.user_id).eq("tenant_id", token.tenant_id).execute()
 
     return success({"message": "Profile completed successfully"})
+
+
+# ── Teacher Plan Editing ──────────────────────────────────────
+
+@router.post("/study-plans/days")
+async def create_classroom_day(
+    body: sp.DayCreate & { "plan_id": str },
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_days").insert({
+        "plan_id": body.plan_id,
+        "day_number": body.day_number,
+        "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+@router.post("/study-plans/periods")
+async def create_classroom_period(
+    body: sp.PeriodCreate & { "day_id": str },
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_periods").insert({
+        "day_id": body.day_id,
+        "title": body.title,
+        "duration_minutes": body.duration_minutes,
+        "order_index": body.order_index
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+@router.patch("/study-plans/periods/{period_id}")
+async def update_classroom_period(
+    period_id: str,
+    body: sp.PeriodBase,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_periods").update({
+        "title": body.title,
+        "duration_minutes": body.duration_minutes,
+        "order_index": body.order_index
+    }).eq("id", period_id).execute()
+    return success(res.data[0] if res.data else {})
+
+@router.delete("/study-plans/periods/{period_id}")
+async def delete_classroom_period(
+    period_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_periods").delete().eq("id", period_id).execute()
+    return success({"deleted": True})
+
+@router.post("/study-plans/tasks")
+async def create_classroom_task(
+    body: sp.TaskCreate & { "period_id": str },
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_tasks").insert({
+        "period_id": body.period_id,
+        "tenant_id": token.tenant_id,
+        "title": body.title,
+        "description": body.description,
+        "task_type": body.task_type.value,
+        "required": body.required,
+        "order_index": body.order_index,
+        "config": body.config
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+@router.patch("/study-plans/tasks/{task_id}")
+async def update_classroom_task(
+    task_id: str,
+    body: sp.TaskBase,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_tasks").update({
+        "title": body.title,
+        "description": body.description,
+        "task_type": body.task_type.value,
+        "required": body.required,
+        "order_index": body.order_index,
+        "config": body.config
+    }).eq("id", task_id).execute()
+    return success(res.data[0] if res.data else {})
+
+@router.delete("/study-plans/tasks/{task_id}")
+async def delete_classroom_task(
+    task_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_tasks").delete().eq("id", task_id).execute()
+    return success({"deleted": True})

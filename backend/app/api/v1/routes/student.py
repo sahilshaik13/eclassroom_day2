@@ -290,6 +290,42 @@ async def get_my_classes(request: Request, token: TokenData = Depends(require_st
     return success(classes)
 
 
+@router.get("/classes/{class_id}/study-plan")
+async def get_student_classroom_study_plan(
+    class_id: str,
+    token: TokenData = Depends(require_student)
+):
+    admin = get_admin_client()
+    
+    # Verify student is enrolled in this class
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
+    if not student_res.data: return error("NOT_FOUND", "Student not found", 404)
+    student_id = student_res.data["id"]
+    
+    enr_check = admin.table("class_enrollments").select("id").eq("class_id", class_id).eq("student_id", student_id).maybe_single().execute()
+    if not enr_check.data:
+        return error("FORBIDDEN", "Not enrolled in this classroom", 403)
+
+    # Fetch active plan for this classroom
+    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not plan_res.data:
+        return success(None)
+
+    plan_id = plan_res.data["id"]
+    days_res = (
+        admin.table("study_plan_days")
+        .select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*, study_plan_submissions(*)))")
+        .eq("plan_id", plan_id)
+        .order("day_number")
+        .execute()
+    )
+    
+    plan = plan_res.data
+    plan["days"] = days_res.data or []
+    
+    return success(plan)
+
+
 # ── Accountability partner ────────────────────────────────────
 
 @router.get("/partner")
