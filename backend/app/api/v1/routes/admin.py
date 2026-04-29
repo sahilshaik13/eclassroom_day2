@@ -916,12 +916,12 @@ async def create_study_plan(
     request: Request,
     token: TokenData = Depends(require_admin),
 ):
-    admin = get_admin_client()
     res = admin.table("study_plan_templates").insert({
         "tenant_id": token.tenant_id,
         "created_by": token.user_id,
         "name": body.name,
         "description": body.description,
+        "total_days": 0,
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
 

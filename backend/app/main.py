@@ -36,6 +36,27 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 
 # ── CORS ──────────────────────────────────────────────────────
 # Relaxed CORS for development/deployment testing
+# We use a custom middleware to ensure headers are added even for exception responses
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    # Handle preflight OPTIONS requests
+    if request.method == "OPTIONS":
+        response = JSONResponse(content="OK")
+    else:
+        response = await call_next(request)
+    
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    else:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+    
+    return response
+
+# Also keep the standard CORSMiddleware as a backup/standard
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
