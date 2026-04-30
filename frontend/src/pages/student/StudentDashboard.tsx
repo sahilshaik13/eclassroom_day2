@@ -147,27 +147,32 @@ export default function StudentDashboard() {
         </div>
 
         {/* Plan Card */}
-        <Card className="bg-[#0f4c81] text-white border-0 shadow-lg mb-5 overflow-hidden relative">
-          <div className="absolute top-0 right-0 p-6 opacity-10">
-            <TrendingUp className="w-28 h-28" />
-          </div>
-          <CardContent className="p-6 relative z-10">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-xl font-bold mb-1">Hifz Intensive</h3>
-                <p className="text-blue-100/70 text-sm">Juz 30 • Week 1</p>
+        <Link to="/student/today">
+          <Card className="bg-[#0f4c81] hover:bg-[#0c3d69] transition-colors cursor-pointer text-white border-0 shadow-lg mb-5 overflow-hidden relative group">
+            <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform">
+              <TrendingUp className="w-28 h-28" />
+            </div>
+            <CardContent className="p-6 relative z-10">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xl font-bold mb-1">Hifz Intensive</h3>
+                  <p className="text-blue-100/70 text-sm">Juz 30 • Week 1</p>
+                </div>
+                <div className="bg-white/10 p-2 rounded-xl flex items-center gap-2">
+                   <span className="text-[10px] font-black uppercase">View All</span>
+                   <ArrowRight className="w-3 h-3" />
+                </div>
               </div>
-              <div className="bg-white/10 p-2 rounded-xl"><TrendingUp className="w-4 h-4" /></div>
-            </div>
-            <div className="w-full bg-black/20 h-1.5 rounded-full overflow-hidden mb-3">
-              <div className="bg-white h-full rounded-full shadow-[0_0_8px_rgba(255,255,255,0.5)]" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="flex justify-between text-xs text-blue-100/80">
-              <span>{pct}% Complete</span>
-              <span>{totalCount - completedCount} tasks left</span>
-            </div>
-          </CardContent>
-        </Card>
+              <div className="w-full bg-black/20 h-1.5 rounded-full overflow-hidden mb-3">
+                <div className="bg-white h-full rounded-full shadow-[0_0_8px_rgba(255,255,255,0.5)]" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="flex justify-between text-xs text-blue-100/80">
+                <span>{pct}% Complete</span>
+                <span>{totalCount - completedCount} tasks left</span>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
 
         {/* Task List */}
         <div className="space-y-3">

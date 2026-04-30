@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Plus, Video, Users, MoreVertical, Settings, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Video, Users, MoreVertical, Settings, Trash2, BookOpen } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../services/api'
 import type { ClassItem } from '../../types'
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export default function AdminClassesPage() {
+  const navigate = useNavigate()
   const [classes, setClasses] = useState<ClassItem[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -122,7 +124,15 @@ export default function AdminClassesPage() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="pt-0 border-t border-slate-50 mt-auto">
+              <CardFooter className="pt-0 border-t border-slate-50 mt-auto flex flex-col gap-1 p-3">
+                <Button 
+                  variant="ghost" 
+                  className="w-full justify-center text-xs text-slate-500 hover:text-blue-600 hover:bg-blue-50 gap-2 h-9"
+                  onClick={() => navigate(`/admin/classes/${c.id}/study-plan`)}
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  View Study Plan
+                </Button>
                 <Button 
                   variant="ghost" 
                   className="w-full justify-center text-xs text-slate-500 hover:text-primary hover:bg-primary/5 gap-2 h-9"

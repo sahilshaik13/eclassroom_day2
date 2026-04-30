@@ -159,7 +159,7 @@ async def get_current_user(
     data.raw_token = token
     
     # Check if the tenant is suspended (block mutations only to allow read-only access)
-    if data.tenant_id and data.role != "super_admin" and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+    if data.tenant_id and data.role not in ("super_admin", "platform_admin") and request.method in ("POST", "PUT", "PATCH", "DELETE"):
         admin = get_admin_client()
         tenant_res = admin.table("tenants").select("is_active").eq("id", data.tenant_id).maybe_single().execute()
         if tenant_res and tenant_res.data and not tenant_res.data.get("is_active", True):
@@ -188,7 +188,7 @@ async def require_student(
 async def require_teacher(
     token: TokenData = Depends(get_current_user),
 ) -> TokenData:
-    if token.role not in ("teacher", "admin"):
+    if token.role not in ("teacher", "admin", "platform_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "UNAUTHORIZED", "message": "Teacher access required"},
@@ -199,7 +199,7 @@ async def require_teacher(
 async def require_admin(
     token: TokenData = Depends(get_current_user),
 ) -> TokenData:
-    if token.role != "admin":
+    if token.role not in ("admin", "platform_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "UNAUTHORIZED", "message": "Admin access required"},
@@ -218,10 +218,10 @@ async def require_admin(
 async def require_super_admin(
     token: TokenData = Depends(get_current_user),
 ) -> TokenData:
-    if token.role != "super_admin":
+    if token.role not in ("super_admin", "platform_admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "UNAUTHORIZED", "message": "Super admin access required"},
+            detail={"code": "UNAUTHORIZED", "message": "Platform level access required"},
         )
     # MFA check temporarily removed per user request
     return token
@@ -251,7 +251,7 @@ class RequireActiveTenant:
     async def __call__(
         self, token: TokenData = Depends(get_current_user)
     ) -> TokenData:
-        if not token.tenant_id or token.role == "super_admin":
+        if not token.tenant_id or token.role in ("super_admin", "platform_admin"):
             return token
 
         admin = get_admin_client()

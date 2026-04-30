@@ -43,7 +43,7 @@ export default function AdminClassStudyPlanPage() {
         if (!plan) return
         const nextDay = (days.length + 1)
         try {
-            const res = await api.post('/admin/study-plans/days', {
+            const res = await api.post('/admin/classroom-study-plans/days', {
                 plan_id: plan.id,
                 day_number: nextDay,
                 scheduled_date: null
@@ -57,7 +57,7 @@ export default function AdminClassStudyPlanPage() {
         const day = days[dayIdx]
         const nextOrder = (day.periods?.length || 0)
         try {
-            const res = await api.post('/admin/study-plans/periods', {
+            const res = await api.post('/admin/classroom-study-plans/periods', {
                 day_id: day.id,
                 title: 'New Period',
                 duration_minutes: 30,
@@ -72,7 +72,7 @@ export default function AdminClassStudyPlanPage() {
     const handleUpdatePeriod = async (dayIdx: number, pIdx: number, updates: any) => {
         const period = days[dayIdx].periods[pIdx]
         try {
-            await api.patch(`/admin/study-plans/periods/${period.id}`, updates)
+            await api.patch(`/admin/classroom-study-plans/periods/${period.id}`, updates)
             const newDays = [...days]
             newDays[dayIdx].periods[pIdx] = { ...period, ...updates }
             setDays(newDays)
@@ -83,7 +83,7 @@ export default function AdminClassStudyPlanPage() {
         const period = days[dayIdx].periods[pIdx]
         if (!confirm("Delete this period?")) return
         try {
-            await api.delete(`/admin/study-plans/periods/${period.id}`)
+            await api.delete(`/admin/classroom-study-plans/periods/${period.id}`)
             const newDays = [...days]
             newDays[dayIdx].periods.splice(pIdx, 1)
             setDays(newDays)
@@ -95,7 +95,7 @@ export default function AdminClassStudyPlanPage() {
         const period = days[dayIdx].periods[pIdx]
         const nextOrder = (period.tasks?.length || 0)
         try {
-            const res = await api.post('/admin/study-plans/tasks', {
+            const res = await api.post('/admin/classroom-study-plans/tasks', {
                 period_id: period.id,
                 title: `New ${type} Task`,
                 task_type: type,
@@ -112,7 +112,7 @@ export default function AdminClassStudyPlanPage() {
     const handleUpdateTask = async (dayIdx: number, pIdx: number, tIdx: number, updates: any) => {
         const task = days[dayIdx].periods[pIdx].tasks[tIdx]
         try {
-            await api.patch(`/admin/study-plans/tasks/${task.id}`, updates)
+            await api.patch(`/admin/classroom-study-plans/tasks/${task.id}`, updates)
             const newDays = [...days]
             newDays[dayIdx].periods[pIdx].tasks[tIdx] = { ...task, ...updates }
             setDays(newDays)
@@ -122,7 +122,7 @@ export default function AdminClassStudyPlanPage() {
     const handleDeleteTask = async (dayIdx: number, pIdx: number, tIdx: number) => {
     const task = days[dayIdx].periods[pIdx].tasks[tIdx]
         try {
-            await api.delete(`/admin/study-plans/tasks/${task.id}`)
+            await api.delete(`/admin/classroom-study-plans/tasks/${task.id}`)
             const newDays = [...days]
             newDays[dayIdx].periods[pIdx].tasks.splice(tIdx, 1)
             setDays(newDays)
@@ -133,7 +133,7 @@ export default function AdminClassStudyPlanPage() {
     const handleUpdateDayDate = async (dayIdx: number, dateStr: string) => {
         const day = days[dayIdx]
         try {
-            await api.patch(`/admin/study-plans/days/${day.id}`, { scheduled_date: dateStr })
+            await api.patch(`/admin/classroom-study-plans/days/${day.id}`, { scheduled_date: dateStr })
             const newDays = [...days]
             newDays[dayIdx].scheduled_date = dateStr
             setDays(newDays)

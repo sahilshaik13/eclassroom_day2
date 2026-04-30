@@ -29,6 +29,7 @@ import StudentDoubtsPage from '@/pages/student/StudentDoubtsPage'
 import StudentProfilePage from '@/pages/student/StudentProfilePage'
 import StudentCompetitionsPage from '@/pages/student/StudentCompetitionsPage'
 import StudentExamPage from '@/pages/student/StudentExamPage'
+import StudentTodayPlanPage from '@/pages/student/StudentTodayPlanPage'
 
 // Teacher pages
 import TeacherDashboard from './pages/teacher/TeacherDashboard'
@@ -207,6 +208,7 @@ export default function App() {
           <Route index element={<StudentDashboard />} />
           <Route path="study-plan" element={<StudyPlanPage />} />
           <Route path="classes" element={<StudentClassesPage />} />
+          <Route path="today" element={<StudentTodayPlanPage />} />
           <Route path="doubts" element={<StudentDoubtsPage />} />
           <Route path="competitions" element={<StudentCompetitionsPage />} />
           <Route path="competitions/:id/exam" element={<StudentExamPage />} />
@@ -252,7 +254,7 @@ export default function App() {
         {/* ── Super Admin portal ──────────────── */}
         <Route
           path="/super-admin"
-          element={<RequireRole role="super_admin"><PortalLayout /></RequireRole>}
+          element={<RequireRole role={['super_admin', 'platform_admin']}><PortalLayout /></RequireRole>}
         >
           <Route index element={<SuperAdminDashboard />} />
           <Route path="tenants" element={<TenantsPage />} />

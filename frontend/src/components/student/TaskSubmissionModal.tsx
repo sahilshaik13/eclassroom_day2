@@ -77,7 +77,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
     }
 
     if (task.task_type === 'mcq') {
-      const config = task.mcq_config || { questions: [] };
+      const config = task.config || { questions: [] };
       return (
         <div className="space-y-8 py-4">
           {config.questions.map((q: any, idx: number) => (

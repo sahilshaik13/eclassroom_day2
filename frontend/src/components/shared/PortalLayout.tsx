@@ -3,7 +3,7 @@ import { NavLink, useNavigate, Outlet } from 'react-router-dom'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import {
-  BookOpen, LayoutDashboard, GraduationCap, MessageCircle,
+  BookOpen, LayoutDashboard, GraduationCap, MessageCircle, Calendar, UserCircle,
   Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, CheckCircle2,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
@@ -18,11 +18,12 @@ interface NavItem {
 
 const NAV_ITEMS: Record<UserRole, NavItem[]> = {
   student: [
-    { label: 'Home', href: '/student', icon: LayoutDashboard },
-    { label: 'Classes', href: '/student/classes', icon: GraduationCap },
-    { label: 'Ask Teacher', href: '/student/doubts', icon: MessageCircle },
+    { label: 'Dashboard', href: '/student', icon: LayoutDashboard },
+    { label: "Today's Goal", href: '/student/today', icon: Calendar },
+    { label: 'My Classes', href: '/student/classes', icon: BookOpen },
     { label: 'Competitions', href: '/student/competitions', icon: Trophy },
-    { label: 'Profile', href: '/student/profile', icon: Settings },
+    { label: 'Doubts', href: '/student/doubts', icon: MessageCircle },
+    { label: 'My Profile', href: '/student/profile', icon: UserCircle },
   ],
   teacher: [
     { label: 'Home', href: '/teacher', icon: LayoutDashboard },
@@ -46,6 +47,10 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
     { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
   ],
+  platform_admin: [
+    { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
+    { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
+  ],
 }
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -53,16 +58,17 @@ const ROLE_LABEL: Record<UserRole, string> = {
   teacher: "Teacher's Portal",
   admin: 'Admin Portal',
   super_admin: 'Platform Admin',
+  platform_admin: 'Platform Admin',
 }
 
 // Only show these in the mobile bottom bar (max 5 items)
 const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
   student: [
     { label: 'Home', href: '/student', icon: LayoutDashboard },
-    { label: 'Classes', href: '/student/classes', icon: GraduationCap },
-    { label: 'Ask Teacher', href: '/student/doubts', icon: MessageCircle },
-    { label: 'Compete', href: '/student/competitions', icon: Trophy },
-    { label: 'Profile', href: '/student/profile', icon: Settings },
+    { label: 'Goal', href: '/student/today', icon: Calendar },
+    { label: 'Classes', href: '/student/classes', icon: BookOpen },
+    { label: 'Doubts', href: '/student/doubts', icon: MessageCircle },
+    { label: 'Profile', href: '/student/profile', icon: UserCircle },
   ],
   teacher: [
     { label: 'Home', href: '/teacher', icon: LayoutDashboard },
@@ -80,7 +86,111 @@ const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
     { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
   ],
+  platform_admin: [
+    { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
+    { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
+  ],
 }
+
+
+
+// Logo block
+const LogoBlock = ({ role }: { role: UserRole }) => (
+  <div className="flex flex-col items-center gap-3 text-center">
+    <div className="w-14 h-14 rounded-2xl bg-white shadow-lg border border-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
+      <div className="grid grid-cols-2 gap-1 p-2.5">
+        <div className="w-2.5 h-2.5 bg-[#4E7DFF] rounded-sm" />
+        <div className="w-2.5 h-2.5 bg-[#20C997] rounded-sm" />
+        <div className="w-2.5 h-2.5 bg-[#FF922B] rounded-sm" />
+        <div className="w-2.5 h-2.5 bg-[#A855F7] rounded-sm" />
+      </div>
+    </div>
+    <div>
+      <p className="text-lg font-black text-slate-900 leading-tight tracking-tight">E-classroom</p>
+      <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400 mt-0.5">
+        {ROLE_LABEL[role]}
+      </p>
+    </div>
+  </div>
+)
+
+const SidebarContent = ({ 
+  role, 
+  navItems, 
+  onNavItemClick, 
+  onLogout 
+}: { 
+  role: UserRole, 
+  navItems: NavItem[], 
+  onNavItemClick: () => void, 
+  onLogout: () => void 
+}) => (
+  <div className="flex flex-col h-full">
+    {/* Brand */}
+    <div className="px-6 pt-8 pb-8 border-b border-slate-50">
+      <LogoBlock role={role} />
+    </div>
+
+    {/* Nav */}
+    <nav className="flex-1 px-3 py-6 space-y-0.5 overflow-y-auto">
+      {navItems.map((item) => (
+        <NavLink
+          key={item.href}
+          to={item.href}
+          end={item.href === `/${role}`}
+          onClick={onNavItemClick}
+          className={({ isActive }) =>
+            clsx(
+              'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200',
+              isActive
+                ? 'bg-blue-50 text-blue-700'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+            )
+          }
+        >
+          {({ isActive }) => (
+            <>
+              <item.icon
+                className={clsx('w-5 h-5 shrink-0', isActive ? 'text-blue-600' : 'text-slate-400')}
+                strokeWidth={isActive ? 2.5 : 2}
+              />
+              <span>{item.label}</span>
+              {isActive && (
+                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
+              )}
+            </>
+          )}
+        </NavLink>
+      ))}
+    </nav>
+
+    {/* Level badge for student */}
+    {role === 'student' && (
+      <div className="px-4 pb-2">
+        <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="w-3 h-3 rounded-full bg-indigo-500" />
+            <span className="text-xs font-bold text-indigo-700">Level 3: Advanced</span>
+          </div>
+          <div className="w-full bg-indigo-100 h-1.5 rounded-full overflow-hidden">
+            <div className="bg-indigo-500 h-full w-[70%] rounded-full transition-all duration-700" />
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Footer */}
+    <div className="px-3 pb-6 pt-2 border-t border-slate-50">
+      <button
+        onClick={onLogout}
+        className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all w-full"
+      >
+        <LogOut className="w-5 h-5 shrink-0" strokeWidth={2} />
+        Sign Out
+      </button>
+    </div>
+  </div>
+)
 
 export default function PortalLayout() {
   const { user, clearSession } = useAuthStore()
@@ -99,105 +209,22 @@ export default function PortalLayout() {
     navigate(role === 'student' ? '/auth/student-login' : '/auth/login')
   }
 
-  // Logo block
-  const LogoBlock = () => (
-    <div className="flex flex-col items-center gap-3 text-center">
-      <div className="w-14 h-14 rounded-2xl bg-white shadow-lg border border-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
-        <div className="grid grid-cols-2 gap-1 p-2.5">
-          <div className="w-2.5 h-2.5 bg-[#4E7DFF] rounded-sm" />
-          <div className="w-2.5 h-2.5 bg-[#20C997] rounded-sm" />
-          <div className="w-2.5 h-2.5 bg-[#FF922B] rounded-sm" />
-          <div className="w-2.5 h-2.5 bg-[#A855F7] rounded-sm" />
-        </div>
-      </div>
-      <div>
-        <p className="text-lg font-black text-slate-900 leading-tight tracking-tight">E-classroom</p>
-        <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400 mt-0.5">
-          {ROLE_LABEL[role]}
-        </p>
-      </div>
-    </div>
-  )
-
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full">
-      {/* Brand */}
-      <div className="px-6 pt-8 pb-8 border-b border-slate-50">
-        <LogoBlock />
-      </div>
-
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-6 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.href}
-            to={item.href}
-            end={item.href === `/${role}`}
-            onClick={() => setMobileOpen(false)}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200',
-                isActive
-                  ? 'bg-blue-50 text-blue-700'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <item.icon
-                  className={clsx('w-5 h-5 shrink-0', isActive ? 'text-blue-600' : 'text-slate-400')}
-                  strokeWidth={isActive ? 2.5 : 2}
-                />
-                <span>{item.label}</span>
-                {isActive && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
-                )}
-              </>
-            )}
-          </NavLink>
-        ))}
-      </nav>
-
-      {/* Level badge for student */}
-      {role === 'student' && (
-        <div className="px-4 pb-2">
-          <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100">
-            <div className="flex items-center gap-2 mb-1.5">
-              <div className="w-3 h-3 rounded-full bg-indigo-500" />
-              <span className="text-xs font-bold text-indigo-700">Level 3: Advanced</span>
-            </div>
-            <div className="w-full bg-indigo-100 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-indigo-500 h-full w-[70%] rounded-full transition-all duration-700" />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <div className="px-3 pb-6 pt-2 border-t border-slate-50">
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all w-full"
-        >
-          <LogOut className="w-5 h-5 shrink-0" strokeWidth={2} />
-          Sign Out
-        </button>
-      </div>
-    </div>
-  )
-
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-slate-50 overflow-hidden relative">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-56 bg-white border-r border-slate-200 shrink-0">
-        <SidebarContent />
+      <aside className="hidden md:flex flex-col w-56 bg-white border-r border-slate-200 shrink-0 relative z-10">
+        <SidebarContent 
+          role={role} 
+          navItems={navItems} 
+          onNavItemClick={() => {}} 
+          onLogout={handleLogout} 
+        />
       </aside>
 
       {/* Mobile sidebar overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 md:hidden"
+          className="fixed inset-0 z-[60] md:hidden"
           onClick={() => setMobileOpen(false)}
         >
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -205,18 +232,23 @@ export default function PortalLayout() {
       )}
       <aside
         className={clsx(
-          'fixed left-0 top-0 bottom-0 z-50 w-56 bg-white border-r border-slate-200',
+          'fixed left-0 top-0 bottom-0 z-[70] w-56 bg-white border-r border-slate-200',
           'transform transition-transform duration-250 ease-out md:hidden',
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         <button
           onClick={() => setMobileOpen(false)}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"
+          className="absolute top-4 right-4 z-10 text-slate-400 hover:text-slate-700 p-2"
         >
           <X className="w-5 h-5" />
         </button>
-        <SidebarContent />
+        <SidebarContent 
+          role={role} 
+          navItems={navItems} 
+          onNavItemClick={() => setMobileOpen(false)} 
+          onLogout={handleLogout} 
+        />
       </aside>
 
       {/* Main content */}

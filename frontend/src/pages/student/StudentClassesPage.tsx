@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BookOpen, User, Video, Calendar, ChevronRight, Loader2, Search, Layers, Clock, CheckCircle2, Circle } from 'lucide-react'
+import { BookOpen, User, Video, Calendar, ChevronRight, Loader2, Search, Layers, Clock, CheckCircle2, Circle, Lock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { clsx } from 'clsx'
+import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
 
 interface Teacher {
   name: string
@@ -26,6 +27,7 @@ export default function StudentClassesPage() {
   const [loading, setLoading] = useState(true)
   const [loadingPlan, setLoadingPlan] = useState(false)
   const [openDay, setOpenDay] = useState<string | null>(null)
+  const [selectedTask, setSelectedTask] = useState<any | null>(null)
 
   useEffect(() => {
     api.get('/student/classes/my')
@@ -198,26 +200,31 @@ export default function StudentClassesPage() {
                         <div className="flex items-center gap-4">
                            <div className={clsx(
                              "h-10 w-10 rounded-xl flex items-center justify-center font-black text-sm",
-                             progress === 100 ? "bg-emerald-500 text-white" : isOpen ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400"
+                             day.is_locked ? "bg-slate-100 text-slate-300" : (progress === 100 ? "bg-emerald-500 text-white" : isOpen ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400")
                            )}>
-                              {day.day_number}
+                              {day.is_locked ? <Lock className="h-4 w-4" /> : day.day_number}
                            </div>
                            <div>
                               <div className="flex items-center gap-2">
-                                <h4 className="font-black text-slate-900">Day {day.day_number}</h4>
+                                <h4 className={clsx("font-black", day.is_locked ? "text-slate-400" : "text-slate-900")}>Day {day.day_number}</h4>
                                 {day.scheduled_date && (
                                   <Badge className="bg-slate-50 text-slate-400 border-slate-100 font-bold text-[10px] uppercase">
                                     {new Date(day.scheduled_date).toLocaleDateString()}
                                   </Badge>
                                 )}
+                                {day.is_locked && (
+                                  <Badge className="bg-amber-50 text-amber-600 border-amber-100 font-black text-[9px] uppercase tracking-tighter">
+                                    Locked
+                                  </Badge>
+                                )}
                               </div>
                               <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5">
-                                {taskCount} Tasks • {progress}% Completed
+                                {day.is_locked ? day.lock_reason : `${taskCount} Tasks • ${progress}% Completed`}
                               </p>
                            </div>
                         </div>
                         <div className="flex items-center gap-4">
-                           {progress > 0 && (
+                           {!day.is_locked && progress > 0 && (
                              <div className="hidden md:block w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                 <div 
                                   className={clsx("h-full transition-all duration-1000", progress === 100 ? "bg-emerald-500" : "bg-blue-600")}
@@ -227,14 +234,14 @@ export default function StudentClassesPage() {
                            )}
                            <div className={clsx(
                              "h-8 w-8 rounded-lg flex items-center justify-center transition-all",
-                             isOpen ? "bg-blue-50 text-blue-600 rotate-180" : "bg-slate-50 text-slate-400"
+                             day.is_locked ? "bg-slate-50 text-slate-200" : (isOpen ? "bg-blue-50 text-blue-600 rotate-180" : "bg-slate-50 text-slate-400")
                            )}>
                               <ChevronRight className="h-4 w-4 rotate-90" />
                            </div>
                         </div>
                       </div>
 
-                      {isOpen && (
+                      {isOpen && !day.is_locked && (
                         <div className="px-6 pb-6 space-y-6 bg-slate-50/50 border-t border-slate-50">
                            {day.periods.map((period: any) => (
                              <div key={period.id} className="space-y-3 pt-5">
@@ -248,11 +255,14 @@ export default function StudentClassesPage() {
                                    {period.tasks.map((task: any) => {
                                      const isDone = task.study_plan_submissions?.length > 0
                                      return (
-                                       <div 
+                                       <button
                                          key={task.id}
+                                         onClick={() => {
+                                           if (!isDone) setSelectedTask(task)
+                                         }}
                                          className={clsx(
-                                           "p-4 rounded-2xl border transition-all flex items-center gap-3",
-                                           isDone ? "bg-emerald-50/30 border-emerald-100" : "bg-white border-slate-100"
+                                           "p-4 rounded-2xl border transition-all flex items-center gap-3 w-full text-left",
+                                           isDone ? "bg-emerald-50/30 border-emerald-100 opacity-60 cursor-default" : "bg-white border-slate-100 hover:border-blue-200 cursor-pointer shadow-sm hover:shadow-md"
                                          )}
                                        >
                                           <div className={clsx(
@@ -268,7 +278,7 @@ export default function StudentClassesPage() {
                                              )}>{task.title}</p>
                                              <p className="text-[9px] text-slate-400 font-bold uppercase">{task.task_type}</p>
                                           </div>
-                                       </div>
+                                       </button>
                                      )
                                    })}
                                 </div>
@@ -284,6 +294,20 @@ export default function StudentClassesPage() {
           )}
         </div>
       </div>
+      
+      {/* Submission Modal */}
+      {selectedTask && (
+        <TaskSubmissionModal 
+          task={selectedTask}
+          isOpen={!!selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onSuccess={() => {
+            // Re-fetch plan to update checkmarks
+            if (selectedClass) handleSelectClass(selectedClass)
+            setSelectedTask(null)
+          }}
+        />
+      )}
     </DashboardPageLayout>
   )
 }

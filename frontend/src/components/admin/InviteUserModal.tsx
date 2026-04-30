@@ -21,9 +21,10 @@ interface InviteUserModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onSuccess?: () => void;
+    tenantId?: string;
 }
 
-export function InviteUserModal({ type, open, onOpenChange, onSuccess }: InviteUserModalProps) {
+export function InviteUserModal({ type, open, onOpenChange, onSuccess, tenantId }: InviteUserModalProps) {
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [phone, setPhone] = useState("");
@@ -31,7 +32,7 @@ export function InviteUserModal({ type, open, onOpenChange, onSuccess }: InviteU
     const [classes, setClasses] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const { user } = useAuthStore();
-    const isAdmin = user?.role === 'admin';
+    const isAdmin = user?.role === 'admin' || user?.role === 'platform_admin';
     const baseRoute = isAdmin ? '/admin' : '/teacher';
 
     useEffect(() => {
@@ -54,11 +55,22 @@ export function InviteUserModal({ type, open, onOpenChange, onSuccess }: InviteU
         try {
             if (type === 'teacher') {
                 if (!name || !email) return toast.error("Name and Email are required");
-                await api.post('/admin/teachers', { name, email });
+                
+                // Pass tenant_id in query params for cross-tenant support
+                await api.post(`/admin/teachers${tenantId ? `?tenant_id=${tenantId}` : ''}`, { 
+                    name, 
+                    email 
+                });
                 toast.success("Teacher invited successfully");
             } else {
                 if (!name || !phone) return toast.error("Name and Phone are required");
-                await api.post(`${baseRoute}/students`, { name, phone, class_id: classId || undefined });
+                
+                // Pass tenant_id in query params for cross-tenant support
+                await api.post(`/admin/students${tenantId ? `?tenant_id=${tenantId}` : ''}`, { 
+                    name, 
+                    phone, 
+                    class_id: classId || undefined 
+                });
                 toast.success("Student added successfully");
             }
             if (onSuccess) onSuccess();

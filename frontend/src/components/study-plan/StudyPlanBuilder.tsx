@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -31,6 +31,7 @@ export interface Day {
   id?: string;
   day_number: number;
   scheduled_date?: string;
+  is_accessible?: boolean;
   periods: Period[];
 }
 
@@ -46,6 +47,7 @@ interface StudyPlanBuilderProps {
   onUpdateTask?: (dayIdx: number, pIdx: number, tIdx: number, updates: any) => void;
   onDeleteTask?: (dayIdx: number, pIdx: number, tIdx: number) => void;
   onUpdateDayDate?: (dayIdx: number, dateStr: string) => void;
+  onUpdateDayAccessibility?: (dayIdx: number, isAccessible: boolean) => void;
 }
 
 // Helper for local-first editing (Saves ONLY on blur/when focus is lost)
@@ -89,7 +91,8 @@ export default function StudyPlanBuilder({
   onAddTask,
   onUpdateTask,
   onDeleteTask,
-  onUpdateDayDate
+  onUpdateDayDate,
+  onUpdateDayAccessibility
 }: StudyPlanBuilderProps) {
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({ 1: true });
   const [activeMCQTask, setActiveMCQTask] = useState<{ dIdx: number, pIdx: number, tIdx: number } | null>(null);
@@ -197,6 +200,35 @@ export default function StudyPlanBuilder({
                   disabled={readOnly || !onUpdateDayDate}
                 />
               </div>
+
+              {!readOnly && onUpdateDayAccessibility && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateDayAccessibility(dIdx, !day.is_accessible);
+                  }}
+                  className={cn(
+                    "h-9 rounded-xl gap-2 font-bold px-4 transition-all",
+                    day.is_accessible 
+                      ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-100" 
+                      : "bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-100"
+                  )}
+                >
+                  {day.is_accessible ? (
+                    <>
+                      <Eye className="h-3.5 w-3.5" />
+                      <span className="text-[10px] uppercase tracking-widest">Accessible</span>
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="h-3.5 w-3.5" />
+                      <span className="text-[10px] uppercase tracking-widest">Locked</span>
+                    </>
+                  )}
+                </Button>
+              )}
               
               {!readOnly && !onDeletePeriod && ( // Only show remove day in admin template mode
                 <Button 

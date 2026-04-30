@@ -42,7 +42,7 @@ async def get_today_tasks(request: Request, token: TokenData = Depends(require_s
     
     if not class_ids: return success([])
 
-    plans_res = admin.table("study_plans").select("id").in_("class_id", class_ids).execute()
+    plans_res = admin.table("study_plans").select("id").in_("class_id", class_ids).eq("status", "active").execute()
     plan_ids = [r["id"] for r in (plans_res.data or [])]
 
     if not plan_ids: return success([])
@@ -58,6 +58,9 @@ async def get_today_tasks(request: Request, token: TokenData = Depends(require_s
 
     tasks = []
     for day in (days_res.data or []):
+        if not day.get("is_accessible", False):
+            continue
+            
         plan_name = day.get("study_plans", {}).get("name", "Study Plan")
         for period in (day.get("study_plan_periods") or []):
             for t in (period.get("study_plan_tasks") or []):
@@ -91,10 +94,20 @@ async def submit_task(
     if not student_res.data: return error("NOT_FOUND", "Student not found", 404)
     student_id = student_res.data["id"]
 
-    # 2. Get task details for auto-grading if MCQ
-    task_res = admin.table("study_plan_tasks").select("*").eq("id", task_id).maybe_single().execute()
+    # 2. Get task and day details
+    task_res = admin.table("study_plan_tasks").select("*, study_plan_periods(study_plan_days(*))").eq("id", task_id).maybe_single().execute()
     if not task_res.data: return error("NOT_FOUND", "Task not found", 404)
     task = task_res.data
+    
+    day = task.get("study_plan_periods", {}).get("study_plan_days", {})
+    if not day.get("is_accessible"):
+        return error("FORBIDDEN", "This day is not yet accessible", 403)
+        
+    scheduled_date_str = day.get("scheduled_date")
+    if scheduled_date_str:
+        from datetime import date
+        if date.fromisoformat(scheduled_date_str) > date.today():
+            return error("FORBIDDEN", "Cannot complete tasks for future dates", 403)
 
     # 3. Create/Upsert submission
     sub_data = {
@@ -306,12 +319,13 @@ async def get_student_classroom_study_plan(
     if not enr_check.data:
         return error("FORBIDDEN", "Not enrolled in this classroom", 403)
 
-    # Fetch active plan for this classroom
-    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    # Fetch active plan for this classroom (must be active/published for students)
+    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).eq("status", "active").maybe_single().execute()
     if not plan_res.data:
         return success(None)
 
-    plan_id = plan_res.data["id"]
+    plan = plan_res.data
+    plan_id = plan["id"]
     days_res = (
         admin.table("study_plan_days")
         .select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*, study_plan_submissions(*)))")
@@ -320,9 +334,36 @@ async def get_student_classroom_study_plan(
         .execute()
     )
     
-    plan = plan_res.data
-    plan["days"] = days_res.data or []
+    from datetime import date
+    today = date.today()
+    days = days_res.data or []
     
+    # Filter content based on accessibility and date
+    for day in days:
+        is_accessible = day.get("is_accessible", False)
+        scheduled_date_str = day.get("scheduled_date")
+        
+        # Check if date has arrived
+        date_arrived = True
+        if scheduled_date_str:
+            scheduled_date = date.fromisoformat(scheduled_date_str)
+            if scheduled_date > today:
+                date_arrived = False
+
+        # If not accessible or date not arrived, hide periods and tasks
+        if not is_accessible or not date_arrived:
+            day["periods"] = []
+            day["is_locked"] = True
+            day["lock_reason"] = "Date not arrived" if not date_arrived else "Waiting for teacher access"
+        else:
+            day["is_locked"] = False
+            # Filter submissions to only include this student's own work
+            for period in (day.get("periods") or []):
+                for task in (period.get("tasks") or []):
+                    all_subs = task.get("study_plan_submissions") or []
+                    task["study_plan_submissions"] = [s for s in all_subs if s["student_id"] == student_id]
+    
+    plan["days"] = days
     return success(plan)
 
 

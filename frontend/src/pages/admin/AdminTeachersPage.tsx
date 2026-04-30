@@ -391,6 +391,7 @@ export default function AdminTeachersPage() {
         open={inviteModalOpen}
         onOpenChange={setInviteModalOpen}
         onSuccess={load}
+        tenantId={tenant?.id}
       />
       {/* Reject Confirmation Modal */}
       <Dialog open={!!appToReject} onOpenChange={(open) => !open && setAppToReject(null)}>

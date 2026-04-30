@@ -7,6 +7,7 @@ import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import StudyPlanBuilder, { Day, TaskType } from '@/components/study-plan/StudyPlanBuilder'
+import { cn } from "@/lib/utils"
 
 interface ClassItem { id: string; name: string }
 
@@ -68,6 +69,7 @@ export default function TeacherStudyPlanPage() {
                 scheduled_date: null
             })
             setDays([...days, { ...res.data.data, periods: [] }])
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
             toast.success(`Day ${nextDay} added`)
         } catch { toast.error("Failed to add day") }
     }
@@ -85,6 +87,7 @@ export default function TeacherStudyPlanPage() {
             const newDays = [...days]
             newDays[dayIdx].periods = [...(newDays[dayIdx].periods || []), { ...res.data.data, tasks: [] }]
             setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
         } catch { toast.error("Failed to add period") }
     }
 
@@ -95,6 +98,7 @@ export default function TeacherStudyPlanPage() {
             const newDays = [...days]
             newDays[dayIdx].periods[pIdx] = { ...period, ...updates }
             setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
         } catch { toast.error("Failed to update period") }
     }
 
@@ -106,6 +110,7 @@ export default function TeacherStudyPlanPage() {
             const newDays = [...days]
             newDays[dayIdx].periods.splice(pIdx, 1)
             setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
             toast.success("Period deleted")
         } catch { toast.error("Failed to delete period") }
     }
@@ -125,6 +130,7 @@ export default function TeacherStudyPlanPage() {
             const newDays = [...days]
             newDays[dayIdx].periods[pIdx].tasks = [...(newDays[dayIdx].periods[pIdx].tasks || []), res.data.data]
             setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
         } catch { toast.error("Failed to add task") }
     }
 
@@ -135,6 +141,7 @@ export default function TeacherStudyPlanPage() {
             const newDays = [...days]
             newDays[dayIdx].periods[pIdx].tasks[tIdx] = { ...task, ...updates }
             setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
         } catch { toast.error("Failed to update task") }
     }
 
@@ -145,6 +152,7 @@ export default function TeacherStudyPlanPage() {
             const newDays = [...days]
             newDays[dayIdx].periods[pIdx].tasks.splice(tIdx, 1)
             setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
             toast.success("Task deleted")
         } catch { toast.error("Failed to delete task") }
     }
@@ -152,12 +160,29 @@ export default function TeacherStudyPlanPage() {
     const handleUpdateDayDate = async (dayIdx: number, dateStr: string) => {
         const day = days[dayIdx]
         try {
-            await api.patch(`/teacher/study-plans/days/${day.id}`, { scheduled_date: dateStr })
+            await api.patch(`/teacher/study-plans/days/${day.id}`, { 
+                scheduled_date: dateStr || null 
+            })
             const newDays = [...days]
             newDays[dayIdx].scheduled_date = dateStr
             setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
             toast.success("Date updated")
         } catch { toast.error("Failed to update date") }
+    }
+
+    const handleUpdateDayAccessibility = async (dayIdx: number, isAccessible: boolean) => {
+        const day = days[dayIdx]
+        try {
+            await api.patch(`/teacher/study-plans/days/${day.id}`, { 
+                is_accessible: isAccessible 
+            })
+            const newDays = [...days]
+            newDays[dayIdx].is_accessible = isAccessible
+            setDays(newDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
+            toast.success(isAccessible ? "Day unlocked for students" : "Day locked")
+        } catch { toast.error("Failed to update accessibility") }
     }
 
     return (
@@ -179,12 +204,41 @@ export default function TeacherStudyPlanPage() {
                         </Select>
                     )}
                     {plan && (
-                        <Button 
-                            onClick={handleAddDay}
-                            className="bg-slate-900 text-white hover:bg-slate-800 rounded-xl gap-2 h-11 px-5"
-                        >
-                            <Plus className="h-4 w-4" /> Add Day
-                        </Button>
+                        <>
+                            <Button 
+                                onClick={async () => {
+                                    try {
+                                        await api.post(`/teacher/classrooms/${selectedClassId}/publish`);
+                                        const now = new Date().toISOString();
+                                        setPlan({ ...plan, status: 'active', published_at: now, updated_at: now });
+                                        toast.success("Curriculum published to students!");
+                                    } catch {
+                                        toast.error("Failed to publish curriculum");
+                                    }
+                                }}
+                                disabled={plan.status === 'active' && plan.published_at && new Date(plan.updated_at) <= new Date(plan.published_at)}
+                                className={cn(
+                                    "rounded-xl gap-2 h-11 px-5 font-bold transition-all",
+                                    plan.status === 'active' 
+                                        ? (plan.published_at && new Date(plan.updated_at) <= new Date(plan.published_at)
+                                            ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed shadow-none"
+                                            : "bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100")
+                                        : "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-100"
+                                )}
+                            >
+                                <BookOpen className="h-4 w-4" />
+                                {plan.status === 'active' 
+                                    ? (plan.published_at && new Date(plan.updated_at) <= new Date(plan.published_at) ? 'Synced' : 'Sync Updates') 
+                                    : 'Publish to Students'}
+                            </Button>
+
+                            <Button 
+                                onClick={handleAddDay}
+                                className="bg-slate-900 text-white hover:bg-slate-800 rounded-xl gap-2 h-11 px-5 font-bold"
+                            >
+                                <Plus className="h-4 w-4" /> Add Day
+                            </Button>
+                        </>
                     )}
                 </div>
             }
@@ -236,6 +290,7 @@ export default function TeacherStudyPlanPage() {
                             onUpdateTask={handleUpdateTask}
                             onDeleteTask={handleDeleteTask}
                             onUpdateDayDate={handleUpdateDayDate}
+                            onUpdateDayAccessibility={handleUpdateDayAccessibility}
                         />
                     </div>
                 )}

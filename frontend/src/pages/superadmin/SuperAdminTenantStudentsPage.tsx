@@ -8,6 +8,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { clsx } from 'clsx'
+import { InviteUserModal } from '@/components/admin/InviteUserModal'
+import { Plus } from 'lucide-react'
 
 const STATUS_STYLES: Record<string, string> = {
     Active: 'text-emerald-700 bg-emerald-50 border-emerald-200',
@@ -19,6 +21,7 @@ export default function SuperAdminTenantStudentsPage() {
     const [students, setStudents] = useState<any[]>([])
     const [loading, setLoading] = useState(true)
     const [search, setSearch] = useState('')
+    const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
     useEffect(() => {
         if (!tenantId) return
@@ -39,12 +42,18 @@ export default function SuperAdminTenantStudentsPage() {
             title="Students"
             description="Viewing students for this organization"
             actions={
-                <Link to={`/super-admin/tenants/${tenantId}`}>
-                    <Button variant="outline" className="gap-2">
-                        <ArrowLeft className="h-4 w-4" />
-                        Back to Tenant
+                <div className="flex gap-2">
+                    <Link to={`/super-admin/tenants/${tenantId}`}>
+                        <Button variant="outline" className="gap-2">
+                            <ArrowLeft className="h-4 w-4" />
+                            Back to Tenant
+                        </Button>
+                    </Link>
+                    <Button className="gap-2" onClick={() => setInviteModalOpen(true)}>
+                        <Plus className="h-4 w-4" />
+                        Register Student
                     </Button>
-                </Link>
+                </div>
             }
         >
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -146,6 +155,17 @@ export default function SuperAdminTenantStudentsPage() {
                     </div>
                 )}
             </div>
+
+            <InviteUserModal
+                type="student"
+                open={inviteModalOpen}
+                onOpenChange={setInviteModalOpen}
+                onSuccess={() => {
+                    if (!tenantId) return
+                    superAdminApi.getTenantStudents(tenantId).then(r => setStudents(r.data.data.students))
+                }}
+                tenantId={tenantId}
+            />
         </DashboardPageLayout>
     )
 }

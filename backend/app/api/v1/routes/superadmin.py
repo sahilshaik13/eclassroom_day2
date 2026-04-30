@@ -25,6 +25,16 @@ from app.core.config import settings
 router = APIRouter(prefix="/super-admin", tags=["super-admin"])
 
 
+class TeacherInvite(BaseModel):
+    email: EmailStr
+    name: str
+
+class StudentCreate(BaseModel):
+    name: str
+    phone: str
+    class_id: Optional[str] = None
+
+
 # ── Request schemas ────────────────────────────────────────────────────────────
 
 class CreateTenantRequest(BaseModel):
@@ -56,12 +66,12 @@ async def get_platform_stats(token: TokenData = Depends(require_super_admin)):
     admin = get_admin_client()
     
     try:
-        # Count tenants
-        tenants_res = admin.table("tenants").select("id", count="exact").execute()
+        # Count tenants (excluding platform tenant)
+        tenants_res = admin.table("tenants").select("id", count="exact").eq("is_platform_tenant", False).execute()
         total_tenants = tenants_res.count if tenants_res else 0
         
-        # Count active tenants
-        active_tenants_res = admin.table("tenants").select("id", count="exact").eq("is_active", True).execute()
+        # Count active tenants (excluding platform tenant)
+        active_tenants_res = admin.table("tenants").select("id", count="exact").eq("is_active", True).eq("is_platform_tenant", False).execute()
         active_tenants = active_tenants_res.count if active_tenants_res else 0
         
         # Count all admins (role = admin in users table)
@@ -93,8 +103,8 @@ async def list_tenants(token: TokenData = Depends(require_super_admin)):
     admin = get_admin_client()
     
     try:
-        # Get all tenants
-        tenants_res = admin.table("tenants").select("*").order("created_at", desc=True).execute()
+        # Get all tenants (excluding platform management office)
+        tenants_res = admin.table("tenants").select("*").eq("is_platform_tenant", False).order("created_at", desc=True).execute()
         tenants = (tenants_res.data if tenants_res else []) or []
         
         # Enrich each tenant with counts
@@ -153,7 +163,18 @@ async def create_tenant(body: CreateTenantRequest, token: TokenData = Depends(re
         tenant_id = tenant["id"]
 
         # 4. Invite Admin
-        redirect_url = f"{settings.FRONTEND_URL}/auth/callback"
+        # Determine dynamic redirect URL
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        base_url = settings.FRONTEND_URL
+        if origin:
+            base_url = origin
+        elif referer:
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            base_url = f"{p.scheme}://{p.netloc}"
+        redirect_url = f"{base_url}/auth/callback"
+
         invite_res = await AuthService.invite_user_by_email(
             email=body.admin_email,
             name=body.admin_name,
@@ -318,7 +339,18 @@ async def create_tenant_admin(tenant_id: UUID, body: CreateAdminRequest, token: 
             return error("CONFLICT", "This tenant already has an admin. Use 'Change Manager' instead.", 409)
 
         # Send invite email (non-fatal — admin must be created even if email fails)
-        redirect_url = f"{settings.FRONTEND_URL}/auth/callback"
+        # Determine dynamic redirect URL
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        base_url = settings.FRONTEND_URL
+        if origin:
+            base_url = origin
+        elif referer:
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            base_url = f"{p.scheme}://{p.netloc}"
+        redirect_url = f"{base_url}/auth/callback"
+
         invite_result = None
         invite_warning = None
         try:
@@ -428,12 +460,12 @@ async def resend_admin_invite(admin_id: UUID, request: Request, token: TokenData
         if user.get("has_password"):
             return error("ALREADY_REGISTERED", "This admin has already set their password. No invite needed.", 400)
 
-        origin = request.headers.get("origin", "")
-        referer = request.headers.get("referer", "")
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
         base_url = settings.FRONTEND_URL
-        if origin and ("localhost" in origin or "127.0.0.1" in origin):
+        if origin:
             base_url = origin
-        elif referer and ("localhost" in referer or "127.0.0.1" in referer):
+        elif referer:
             from urllib.parse import urlparse
             p = urlparse(referer)
             base_url = f"{p.scheme}://{p.netloc}"
@@ -491,6 +523,76 @@ async def list_tenant_teachers(tenant_id: UUID, token: TokenData = Depends(requi
         return error("INTERNAL_ERROR", str(e), 500)
 
 
+@router.post("/tenants/{tenant_id}/teachers")
+async def invite_teacher_to_tenant(
+    tenant_id: UUID,
+    body: TeacherInvite,
+    request: Request,
+    token: TokenData = Depends(require_super_admin)
+):
+    """Invite a teacher to a specific tenant (platform admin view)."""
+    try:
+        # 1. Verify tenant exists
+        admin = get_admin_client()
+        tenant_res = admin.table("tenants").select("id").eq("id", str(tenant_id)).maybe_single().execute()
+        if not tenant_res.data:
+            return error("NOT_FOUND", "Tenant not found", 404)
+
+        # 2. Determine redirect URL
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        base_url = settings.FRONTEND_URL
+        if origin:
+            base_url = origin
+        elif referer:
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            base_url = f"{p.scheme}://{p.netloc}"
+        redirect_to = f"{base_url}/auth/callback"
+
+        # 3. Invite via AuthService
+        result = await AuthService.invite_user_by_email(
+            email=body.email,
+            name=body.name,
+            role="teacher",
+            tenant_id=str(tenant_id),
+            redirect_to=redirect_to,
+        )
+
+        # 4. Sync to users table
+        admin.table("users").upsert({
+            "id": result["user_id"],
+            "tenant_id": str(tenant_id),
+            "role": "teacher",
+            "email": body.email,
+            "name": body.name,
+            "is_active": True,
+        }).execute()
+
+        # 5. Update app_metadata
+        import httpx
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient() as client:
+            await client.put(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{result['user_id']}",
+                json={"app_metadata": {"role": "teacher", "tenant_id": str(tenant_id)}},
+                headers=auth_headers,
+            )
+
+        return success(result, status_code=201)
+
+    except AuthError as e:
+        if "user already exists" in e.message.lower():
+            return error("ALREADY_EXISTS", f"A user with email {body.email} is already registered.", 400)
+        return error(e.code, e.message, e.status)
+    except Exception as e:
+        return error("INTERNAL_ERROR", f"An unexpected error occurred: {str(e)}", 500)
+
+
 @router.get("/tenants/{tenant_id}/students")
 async def list_tenant_students(tenant_id: UUID, token: TokenData = Depends(require_super_admin)):
     """List all students for a specific tenant (read-only platform view)."""
@@ -527,5 +629,82 @@ async def list_tenant_students(tenant_id: UUID, token: TokenData = Depends(requi
             })
 
         return success({"students": enriched})
+    except Exception as e:
+        return error("INTERNAL_ERROR", str(e), 500)
+
+
+@router.post("/tenants/{tenant_id}/students")
+async def invite_student_to_tenant(
+    tenant_id: UUID,
+    body: StudentCreate,
+    request: Request,
+    token: TokenData = Depends(require_super_admin)
+):
+    """Register a student for a specific tenant (platform admin view)."""
+    admin = get_admin_client()
+
+    try:
+        # 1. Verify tenant exists
+        tenant_res = admin.table("tenants").select("id").eq("id", str(tenant_id)).maybe_single().execute()
+        if not tenant_res.data:
+            return error("NOT_FOUND", "Tenant not found", 404)
+
+        # 2. Create auth user (phone-based, no password)
+        import httpx
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Content-Type": "application/json",
+        }
+        
+        payload = {
+            "phone": body.phone,
+            "phone_confirm": True,
+            "app_metadata": {"role": "student", "tenant_id": str(tenant_id)},
+            "user_metadata": {"name": body.name},
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+                json=payload,
+                headers=auth_headers
+            )
+
+        if resp.status_code >= 400:
+            error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+            return error("CREATE_ERROR", error_msg, 400)
+
+        auth_res = resp.json()
+        user_id = auth_res.get("id")
+
+        # 3. Insert user row
+        admin.table("users").insert({
+            "id": user_id,
+            "tenant_id": str(tenant_id),
+            "role": "student",
+            "phone": body.phone,
+            "name": body.name,
+        }).execute()
+
+        # 4. Insert student row
+        stu_res = admin.table("students").insert({
+            "user_id": user_id,
+            "tenant_id": str(tenant_id),
+            "name": body.name,
+            "phone": body.phone,
+        }).execute()
+
+        student = stu_res.data[0] if stu_res.data else {}
+
+        # 5. Enroll in class if provided
+        if body.class_id and student.get("id"):
+            admin.table("class_enrollments").insert({
+                "student_id": student["id"],
+                "class_id": body.class_id,
+                "tenant_id": str(tenant_id),
+            }).execute()
+
+        return success(student, status_code=201)
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)

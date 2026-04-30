@@ -670,6 +670,7 @@ class AuthService:
 
         async with httpx.AsyncClient() as client:
             resp = await client.post(invite_url, json=payload, headers=auth_headers)
+            print(f"DEBUG Supabase Invite Response: {resp.status_code} - {resp.text}")
 
         if resp.status_code >= 400:
             error_msg = (
@@ -677,6 +678,7 @@ class AuthService:
                 if "application/json" in resp.headers.get("Content-Type", "")
                 else resp.text
             )
+            print(f"DEBUG: raising AuthError INVITE_ERROR: {error_msg}")
             raise AuthError("INVITE_ERROR", error_msg, resp.status_code)
 
         data = resp.json()
@@ -840,5 +842,25 @@ class AuthService:
             "access_token":  session.access_token,
             "refresh_token": session.refresh_token,
             "token_type":    "bearer",
+            "expires_in":    session.expires_in,
             "user":          user_data,
         }
+
+    # ── Admin Deletion ───────────────────────────────────────
+
+    @staticmethod
+    async def delete_auth_user(user_id: str):
+        """Permanently delete a user from Supabase Auth."""
+        auth_headers = {
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(
+                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+                headers=auth_headers
+            )
+            if resp.status_code >= 400:
+                print(f"DEBUG: Failed to delete auth user {user_id}: {resp.text}")
+                # We don't necessarily want to crash the whole request if auth deletion fails
+                # but we should log it.

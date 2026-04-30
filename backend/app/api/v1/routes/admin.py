@@ -51,9 +51,15 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # ── Stats ─────────────────────────────────────────────────────
 
 @router.get("/stats")
-async def get_stats(request: Request, token: TokenData = Depends(require_admin)):
+async def get_stats(
+    request: Request, 
+    tenant_id: Optional[str] = None,
+    token: TokenData = Depends(require_admin)
+):
     admin = get_admin_client()
-    tid = token.tenant_id
+    
+    # Use provided tenant_id if platform_admin, otherwise token's tid
+    tid = tenant_id if (tenant_id and token.role == "platform_admin") else token.tenant_id
 
     students_res = admin.table("students").select("id", count="exact").eq("tenant_id", tid).is_("deactivated_at", None).execute()
     classes_res  = admin.table("classes").select("id", count="exact").eq("tenant_id", tid).eq("is_active", True).execute()
@@ -135,13 +141,18 @@ async def list_students(
     class_id: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
+    tenant_id: Optional[str] = None,
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
+    
+    # Use provided tenant_id if platform_admin, otherwise token's tid
+    tid = tenant_id if (tenant_id and token.role == "platform_admin") else token.tenant_id
+
     q = (
         admin.table("students")
         .select("*, class_enrollments(class_id, classes(name, users!classes_teacher_id_fkey(name)))", count="exact")
-        .eq("tenant_id", token.tenant_id)
+        .eq("tenant_id", tid)
         .order("created_at", desc=True)
         .range((page - 1) * limit, page * limit - 1)
     )
@@ -170,7 +181,7 @@ async def list_students(
     return paginated(students_data, page, limit, res.count or 0)
 
 
-class StudentCreate(BaseModel):
+class AdminStudentCreateRequest(BaseModel):
     name: str
     phone: str
     class_id: Optional[str] = None
@@ -178,8 +189,9 @@ class StudentCreate(BaseModel):
 
 @router.post("/students")
 async def create_student(
-    body: StudentCreate,
+    body: AdminStudentCreateRequest,
     request: Request,
+    tenant_id: Optional[str] = None,
     token: TokenData = Depends(require_admin),
 ):
     admin = get_admin_client()
@@ -193,10 +205,16 @@ async def create_student(
         "Content-Type": "application/json",
     }
     
+    # Use tenant_id from query if provided (for platform_admins), otherwise from token
+    tid = tenant_id or token.tenant_id
+    
+    if not tid:
+        return error("BAD_REQUEST", "Tenant ID is required. Please select a school first.", 400)
+
     payload = {
         "phone": body.phone,
         "phone_confirm": True,
-        "app_metadata": {"role": "student", "tenant_id": token.tenant_id},
+        "app_metadata": {"role": "student", "tenant_id": tid},
         "user_metadata": {"name": body.name},
     }
 
@@ -217,7 +235,7 @@ async def create_student(
     # Insert user row
     admin.table("users").insert({
         "id": user_id,
-        "tenant_id": token.tenant_id,
+        "tenant_id": tid,
         "role": "student",
         "phone": body.phone,
         "name": body.name,
@@ -226,7 +244,7 @@ async def create_student(
     # Insert student row
     stu_res = admin.table("students").insert({
         "user_id": user_id,
-        "tenant_id": token.tenant_id,
+        "tenant_id": tid,
         "name": body.name,
         "phone": body.phone,
     }).execute()
@@ -238,7 +256,7 @@ async def create_student(
         admin.table("class_enrollments").insert({
             "student_id": student["id"],
             "class_id": body.class_id,
-            "tenant_id": token.tenant_id,
+            "tenant_id": tid,
         }).execute()
 
     return success(student, status_code=201)
@@ -361,32 +379,32 @@ async def delete_student(
     # 3. Delete student row
     admin.table("students").delete().eq("id", student_id).eq("tenant_id", token.tenant_id).execute()
     
-    # 4. Delete user row
+    # 4. Delete user row (base table)
     admin.table("users").delete().eq("id", user_id).eq("tenant_id", token.tenant_id).execute()
-    
-    # 5. Delete auth user via Supabase Admin API
-    auth_headers = {
-        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-    }
-    async with httpx.AsyncClient() as client:
-        await client.delete(
-            f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
-            headers=auth_headers,
-        )
-    
-    return success({"deleted": True})
+
+    # 5. Delete auth user via AuthService
+    await AuthService.delete_auth_user(user_id)
+
+    return success({"message": "Student and auth user deleted successfully"})
 
 
 # ── Teachers ──────────────────────────────────────────────────
 
 @router.get("/teachers")
-async def list_teachers(request: Request, token: TokenData = Depends(require_admin)):
+async def list_teachers(
+    request: Request, 
+    tenant_id: Optional[str] = None,
+    token: TokenData = Depends(require_admin)
+):
     admin = get_admin_client()
+    
+    # Use provided tenant_id if platform_admin, otherwise token's tid
+    tid = tenant_id if (tenant_id and token.role == "platform_admin") else token.tenant_id
+
     res = (
         admin.table("users")
         .select("id, name, email, deactivated_at, classes(id, class_enrollments(count))")
-        .eq("tenant_id", token.tenant_id)
+        .eq("tenant_id", tid)
         .eq("role", "teacher")
         .order("created_at", desc=True)
         .execute()
@@ -411,77 +429,77 @@ async def list_teachers(request: Request, token: TokenData = Depends(require_adm
     return success(teachers)
 
 
-class TeacherInvite(BaseModel):
-    email: EmailStr
+class AdminTeacherInviteRequest(BaseModel):
+    email: str
     name: str
 
 
 @router.post("/teachers")
 async def invite_teacher(
-    body: TeacherInvite,
+    body: AdminTeacherInviteRequest,
     request: Request,
+    tenant_id: Optional[str] = None,
     token: TokenData = Depends(require_admin),
 ):
+    tid = tenant_id or token.tenant_id
+    
+    if not tid:
+        return error("BAD_REQUEST", "Tenant ID is required. Please select a school first.", 400)
+
+    # Determine dynamic redirect URL based on admin's environment (Local vs Prod)
+    # We prioritize Origin, then Referer, then the configured FRONTEND_URL.
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+    base_url = settings.FRONTEND_URL # Final fallback
+    
+    print(f"DEBUG REDIRECT: origin={origin}, referer={referer}, fallback={settings.FRONTEND_URL}")
+
+    if origin:
+        base_url = origin
+    elif referer:
+        from urllib.parse import urlparse
+        p = urlparse(referer)
+        base_url = f"{p.scheme}://{p.netloc}"
+        
+    redirect_to = f"{base_url}/auth/callback"
+    print(f"DEBUG REDIRECT: resolved base_url={base_url}, redirect_to={redirect_to}")
+
     try:
-        # Determine dynamic redirect URL based on admin's origin (Local vs Prod)
-        origin = request.headers.get("origin")
-        referer = request.headers.get("referer")
-        
-        base_url = settings.FRONTEND_URL # Fallback
-        
-        # If admin is on localhost, we want the invite to point to localhost
-        if origin and ("localhost" in origin or "127.0.0.1" in origin):
-            base_url = origin
-        elif referer and ("localhost" in referer or "127.0.0.1" in referer):
-            from urllib.parse import urlparse
-            p = urlparse(referer)
-            base_url = f"{p.scheme}://{p.netloc}"
-            
-        redirect_to = f"{base_url}/auth/callback"
+        # Step 1: Attempt to invite via Auth Service
+        try:
+            result = await AuthService.invite_user_by_email(
+                email=body.email,
+                name=body.name,
+                role="teacher",
+                tenant_id=tid,
+                redirect_to=redirect_to,
+            )
+            user_id = result["user_id"]
+        except AuthError as e:
+            # If user already exists in Supabase Auth, return a clear error
+            if "already" in e.message.lower() or e.status == 422:
+                return error("ALREADY_EXISTS", f"A user with email {body.email} is already registered in the system.", 400)
+            raise e
 
-        result = await AuthService.invite_user_by_email(
-            email=body.email,
-            name=body.name,
-            role="teacher",
-            tenant_id=token.tenant_id,
-            redirect_to=redirect_to,
-        )
-
-        # Only sync to users table if invitation actually succeeded
+        # Sync to users table
         admin = get_admin_client()
         admin.table("users").upsert({
-            "id": result["user_id"],
-            "tenant_id": token.tenant_id,
+            "id": user_id,
+            "tenant_id": tid,
             "role": "teacher",
             "email": body.email,
             "name": body.name,
-            "is_active": True, # Ensure active upon invite
+            "is_active": True,
         }).execute()
 
-        # Update Supabase auth user's app_metadata so the JWT contains
-        # the correct role and tenant_id claims.  The /invite endpoint
-        # puts data into user_metadata only, NOT app_metadata.
-        import httpx
-        auth_headers = {
-            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-            "Content-Type": "application/json",
-        }
-        async with httpx.AsyncClient() as client:
-            await client.put(
-                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{result['user_id']}",
-                json={"app_metadata": {"role": "teacher", "tenant_id": token.tenant_id}},
-                headers=auth_headers,
-            )
-
-        return success(result, status_code=201)
+        return success({"user_id": user_id, "message": "Teacher invited successfully"}, status_code=201)
 
     except AuthError as e:
-        # Check for specific "user already exists" from Supabase
-        if "user already exists" in e.message.lower():
-            return error("ALREADY_EXISTS", f"A user with email {body.email} is already registered.", 400)
         return error(e.code, e.message, e.status)
     except Exception as e:
+        import traceback
+        print(f"ERROR in invite_teacher: {str(e)}")
+        print(traceback.format_exc())
         return error("INTERNAL_ERROR", f"An unexpected error occurred: {str(e)}", 500)
 
 
@@ -511,15 +529,16 @@ async def resend_teacher_invite(
             return error("ALREADY_REGISTERED", "This teacher has already set their password. No invite needed.", 400)
 
         # Determine redirect URL (localhost vs production)
-        origin = request.headers.get("origin", "")
-        referer = request.headers.get("referer", "")
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
         base_url = settings.FRONTEND_URL
-        if origin and ("localhost" in origin or "127.0.0.1" in origin):
+        if origin:
             base_url = origin
-        elif referer and ("localhost" in referer or "127.0.0.1" in referer):
+        elif referer:
             from urllib.parse import urlparse
             p = urlparse(referer)
             base_url = f"{p.scheme}://{p.netloc}"
+            
         redirect_to = f"{base_url}/auth/callback"
 
         result = await AuthService.resend_invite_or_reset(
@@ -534,6 +553,9 @@ async def resend_teacher_invite(
     except AuthError as e:
         return error(e.code, e.message, e.status)
     except Exception as e:
+        import traceback
+        print(f"DEBUG ERROR in invite_teacher: {str(e)}")
+        print(traceback.format_exc())
         return error("INTERNAL_ERROR", str(e), 500)
 
 
@@ -626,7 +648,6 @@ async def delete_teacher(
     token: TokenData = Depends(require_admin),
 ):
     """Permanently delete a teacher — removes user record and auth user."""
-    import httpx
     admin = get_admin_client()
     
     # 1. Verify teacher exists and belongs to tenant
@@ -634,7 +655,7 @@ async def delete_teacher(
     if not user.data:
         return error("NOT_FOUND", "Teacher not found", 404)
     
-    # 2. Unassign teacher from related records (classes, doubts, attendance, grades)
+    # 2. Unassign teacher from related records
     admin.table("classes").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
     admin.table("doubt_responses").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
     admin.table("attendance").update({"marked_by": None}).eq("marked_by", teacher_id).eq("tenant_id", token.tenant_id).execute()
@@ -644,18 +665,10 @@ async def delete_teacher(
     # 3. Delete user row
     admin.table("users").delete().eq("id", teacher_id).eq("tenant_id", token.tenant_id).execute()
     
-    # 4. Delete auth user via Supabase Admin API
-    auth_headers = {
-        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-    }
-    async with httpx.AsyncClient() as client:
-        await client.delete(
-            f"{settings.SUPABASE_URL}/auth/v1/admin/users/{teacher_id}",
-            headers=auth_headers,
-        )
+    # 4. Delete auth user via AuthService
+    await AuthService.delete_auth_user(teacher_id)
     
-    return success({"deleted": True})
+    return success({"message": "Teacher and auth user deleted successfully"})
 
 
 @router.get("/tenant-info")
@@ -1084,6 +1097,160 @@ async def delete_template_task(
     return success({"deleted": True})
 
 
+# ── Classroom Study Plans (Actual content being delivered) ────
+
+@router.get("/classrooms/{class_id}/study-plan")
+async def get_classroom_study_plan(
+    class_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    """Fetch the actual study plan being delivered in a classroom."""
+    admin = get_admin_client()
+    try:
+        # 1. Verify class belongs to tenant
+        class_res = admin.table("classes").select("id").eq("id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+        if not class_res.data:
+            return error("NOT_FOUND", "Class not found", 404)
+
+        # 2. Fetch plan
+        plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).maybe_single().execute()
+        if not plan_res.data:
+            return success(None) # No plan yet
+        
+        plan = plan_res.data
+        plan_id = plan["id"]
+        
+        # 3. Fetch days, periods, tasks
+        days_res = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))").eq("plan_id", plan_id).order("day_number").execute()
+        
+        days = days_res.data or []
+        # Sort manually
+        for day in days:
+            if "periods" in day and day["periods"]:
+                day["periods"].sort(key=lambda x: x.get("order_index", 0))
+                for period in day["periods"]:
+                    if "tasks" in period and period["tasks"]:
+                        period["tasks"].sort(key=lambda x: x.get("order_index", 0))
+        
+        plan["days"] = days
+        return success(plan)
+    except Exception as e:
+        return error("QUERY_ERROR", str(e), 500)
+
+@router.post("/classroom-study-plans/days")
+async def admin_create_classroom_day(
+    body: TeacherDayCreate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    # Mark plan as dirty
+    admin.table("study_plans").update({"updated_at": "now()"}).eq("id", body.plan_id).execute()
+    res = admin.table("study_plan_days").insert({
+        "plan_id": str(body.plan_id),
+        "day_number": body.day_number,
+        "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+@router.patch("/classroom-study-plans/days/{day_id}")
+async def admin_update_classroom_day(
+    day_id: str,
+    body: TeacherDayUpdate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    update_data = {}
+    if body.day_number is not None: update_data["day_number"] = body.day_number
+    if body.scheduled_date is not None: update_data["scheduled_date"] = body.scheduled_date.isoformat()
+    if body.is_accessible is not None: update_data["is_accessible"] = body.is_accessible
+    
+    res = admin.table("study_plan_days").update(update_data).eq("id", day_id).execute()
+    return success(res.data[0] if res.data else {})
+
+@router.delete("/classroom-study-plans/days/{day_id}")
+async def admin_delete_classroom_day(
+    day_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_days").delete().eq("id", day_id).execute()
+    return success({"deleted": True})
+
+@router.post("/classroom-study-plans/periods")
+async def admin_create_classroom_period(
+    body: TeacherPeriodCreate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_periods").insert({
+        "day_id": str(body.day_id),
+        "title": body.title,
+        "duration_minutes": body.duration_minutes,
+        "order_index": body.order_index
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+@router.patch("/classroom-study-plans/periods/{period_id}")
+async def admin_update_classroom_period(
+    period_id: str,
+    body: TeacherPeriodUpdate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    update_data = {k: v for k, v in body.dict().items() if v is not None}
+    res = admin.table("study_plan_periods").update(update_data).eq("id", period_id).execute()
+    return success(res.data[0] if res.data else {})
+
+@router.delete("/classroom-study-plans/periods/{period_id}")
+async def admin_delete_classroom_period(
+    period_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_periods").delete().eq("id", period_id).execute()
+    return success({"deleted": True})
+
+@router.post("/classroom-study-plans/tasks")
+async def admin_create_classroom_task(
+    body: TeacherTaskCreate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_tasks").insert({
+        "period_id": str(body.period_id),
+        "tenant_id": str(token.tenant_id),
+        "title": body.title,
+        "description": body.description,
+        "task_type": body.task_type.value,
+        "required": body.required,
+        "order_index": body.order_index,
+        "config": body.config
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+@router.patch("/classroom-study-plans/tasks/{task_id}")
+async def admin_update_classroom_task(
+    task_id: str,
+    body: TeacherTaskUpdate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    update_data = {k: v for k, v in body.dict().items() if v is not None}
+    if "task_type" in update_data and update_data["task_type"]:
+        update_data["task_type"] = update_data["task_type"].value
+    res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
+    return success(res.data[0] if res.data else {})
+
+@router.delete("/classroom-study-plans/tasks/{task_id}")
+async def admin_delete_classroom_task(
+    task_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_tasks").delete().eq("id", task_id).execute()
+    return success({"deleted": True})
+
+
 @router.post("/study-plans/{template_id}/apply")
 async def apply_study_plan(
     template_id: str,
@@ -1157,73 +1324,3 @@ async def apply_study_plan(
                 admin.table("study_plan_tasks").insert(task_rows).execute()
 
     return success({"plan_id": new_plan_id})
-
-
-@router.get("/classrooms/{classroom_id}/study-plan")
-async def get_classroom_study_plan(
-    classroom_id: str,
-    token: TokenData = Depends(require_admin)
-):
-    admin = get_admin_client()
-    res = (
-        admin.table("study_plans")
-        .select("*, days:study_plan_days(*, periods:study_plan_periods(*, tasks:study_plan_tasks(*)))")
-        .eq("class_id", classroom_id)
-        .eq("tenant_id", token.tenant_id)
-        .order("day_number", foreign_table="study_plan_days")
-        .order("order_index", foreign_table="study_plan_days.study_plan_periods")
-        .order("order_index", foreign_table="study_plan_days.study_plan_periods.study_plan_tasks")
-        .maybe_single()
-        .execute()
-    )
-    return success(res.data)
-
-
-# ── Classroom-Specific Plan Editing (Admin Access) ──────────
-
-@router.post("/study-plans/days")
-async def create_classroom_day_admin(
-    body: TeacherDayCreate,
-    token: TokenData = Depends(require_admin)
-):
-    admin = get_admin_client()
-    res = admin.table("study_plan_days").insert({
-        "plan_id": body.plan_id,
-        "day_number": body.day_number,
-        "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
-    }).execute()
-    return success(res.data[0] if res.data else {}, status_code=201)
-
-
-@router.post("/study-plans/periods")
-async def create_classroom_period_admin(
-    body: TeacherPeriodCreate,
-    token: TokenData = Depends(require_admin)
-):
-    admin = get_admin_client()
-    res = admin.table("study_plan_periods").insert({
-        "day_id": body.day_id,
-        "title": body.title,
-        "duration_minutes": body.duration_minutes,
-        "order_index": body.order_index
-    }).execute()
-    return success(res.data[0] if res.data else {}, status_code=201)
-
-
-@router.post("/study-plans/tasks")
-async def create_classroom_task_admin(
-    body: TeacherTaskCreate,
-    token: TokenData = Depends(require_admin)
-):
-    admin = get_admin_client()
-    res = admin.table("study_plan_tasks").insert({
-        "period_id": body.period_id,
-        "tenant_id": token.tenant_id,
-        "title": body.title,
-        "description": body.description,
-        "task_type": body.task_type.value,
-        "required": body.required,
-        "order_index": body.order_index,
-        "config": body.config
-    }).execute()
-    return success(res.data[0] if res.data else {}, status_code=201)

@@ -174,12 +174,22 @@ async def teacher_stats(request: Request, token: TokenData = Depends(require_tea
 @router.get("/classes")
 async def get_my_classes(request: Request, token: TokenData = Depends(require_teacher)):
     client = get_user_client(request.state.jwt_token)
-    res = (
-        client.table("classes")
-        .select("*, class_enrollments(count)")
-        .eq("teacher_id", token.user_id)
-        .execute()
-    )
+    if token.role in ("admin", "platform_admin"):
+        res = (
+            client.table("classes")
+            .select("*, class_enrollments(count)")
+            .eq("tenant_id", token.tenant_id)
+            .order("name")
+            .execute()
+        )
+    else:
+        res = (
+            client.table("classes")
+            .select("*, class_enrollments(count)")
+            .eq("teacher_id", token.user_id)
+            .order("name")
+            .execute()
+        )
     return success(res.data or [])
 
 
@@ -253,12 +263,15 @@ async def get_students(
 ):
     client = get_user_client(request.state.jwt_token)
 
-    classes_res = (
-        client.table("classes").select("id")
-        .eq("teacher_id", token.user_id).execute()
-    )
+    q = client.table("classes").select("id")
+    if token.role not in ("admin", "platform_admin"):
+        q = q.eq("teacher_id", token.user_id)
+    else:
+        q = q.eq("tenant_id", token.tenant_id)
+        
+    classes_res = q.execute()
     teacher_class_ids = [c["id"] for c in (classes_res.data or [])]
-    filter_ids = [class_id] if class_id and class_id in teacher_class_ids else teacher_class_ids
+    filter_ids = [class_id] if class_id and (class_id in teacher_class_ids or token.role in ("admin", "platform_admin")) else teacher_class_ids
 
     enr_res = (
         client.table("class_enrollments")
@@ -311,15 +324,15 @@ async def get_study_plan(
     client = get_user_client(request.state.jwt_token)
 
     # 1. Verify access (Teacher must own the class or be admin)
-    class_res = (
-        client.table("classes")
-        .select("id, name")
-        .eq("id", class_id)
-        .eq("teacher_id", token.user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not class_res.data and token.role != "admin":
+    q = client.table("classes").select("id, name, tenant_id")
+    if token.role not in ("admin", "platform_admin"):
+        q = q.eq("teacher_id", token.user_id)
+    else:
+        q = q.eq("tenant_id", token.tenant_id)
+        
+    class_res = q.eq("id", class_id).maybe_single().execute()
+
+    if not class_res.data:
         return error("UNAUTHORIZED", "Class not found or access denied", 403)
 
     # 2. Get students in this class
@@ -756,40 +769,110 @@ async def get_classroom_study_plan(
 ):
     admin = get_admin_client()
     
-    # Verify class belongs to teacher
-    class_res = admin.table("classes").select("id").eq("id", class_id).eq("teacher_id", token.user_id).maybe_single().execute()
+    # Verify class belongs to teacher (or admin)
+    q = admin.table("classes").select("id")
+    if token.role not in ("admin", "platform_admin"):
+        q = q.eq("teacher_id", token.user_id)
+    else:
+        q = q.eq("tenant_id", token.tenant_id)
+        
+    class_res = q.eq("id", class_id).maybe_single().execute()
     if not class_res.data:
-        return error("FORBIDDEN", "Not assigned to this classroom", 403)
+        return error("FORBIDDEN", "Class not found or access denied", 403)
 
-    # Fetch active plan for this classroom with all relations
-    res = (
-        admin.table("study_plans")
-        .select("*, days:study_plan_days(*, periods:study_plan_periods(*, tasks:study_plan_tasks(*)))")
-        .eq("class_id", class_id)
-        .eq("tenant_id", token.tenant_id)
-        .order("day_number", foreign_table="study_plan_days")
-        .order("order_index", foreign_table="study_plan_days.study_plan_periods")
-        .order("order_index", foreign_table="study_plan_days.study_plan_periods.study_plan_tasks")
-        .maybe_single()
-        .execute()
-    )
+    # Fetch active plan for this classroom
+    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not plan_res.data:
+        return success(None)
+
+    plan = plan_res.data
     
-    return success(res.data)
+    # Fetch days with nested periods and tasks
+    try:
+        days_res = (
+            admin.table("study_plan_days")
+            .select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
+            .eq("plan_id", plan["id"])
+            .order("day_number")
+            .execute()
+        )
+        
+        days = days_res.data or []
+        # Sort periods and tasks manually
+        for day in days:
+            if "periods" in day and day["periods"]:
+                day["periods"].sort(key=lambda x: x.get("order_index", 0))
+                for period in day["periods"]:
+                    if "tasks" in period and period["tasks"]:
+                        period["tasks"].sort(key=lambda x: x.get("order_index", 0))
+        
+        plan["days"] = days
+        return success(plan)
+    except Exception as e:
+        return error("QUERY_ERROR", str(e), 500)
 
 
-@router.patch("/study-plans/days/{day_id}")
-async def update_study_plan_day(
-    day_id: str,
-    body: sp.DayBase,
+async def touch_plan(plan_id: str):
+    """Sets updated_at = now() for a study plan to mark it as dirty."""
+    from datetime import datetime
+    admin = get_admin_client()
+    now = datetime.utcnow().isoformat()
+    admin.table("study_plans").update({"updated_at": now}).eq("id", plan_id).execute()
+
+async def touch_plan_by_day(day_id: str):
+    admin = get_admin_client()
+    res = admin.table("study_plan_days").select("plan_id").eq("id", day_id).maybe_single().execute()
+    if res.data: await touch_plan(res.data["plan_id"])
+
+async def touch_plan_by_period(period_id: str):
+    admin = get_admin_client()
+    res = admin.table("study_plan_periods").select("day_id").eq("id", period_id).maybe_single().execute()
+    if res.data: await touch_plan_by_day(res.data["day_id"])
+
+async def touch_plan_by_task(task_id: str):
+    admin = get_admin_client()
+    res = admin.table("study_plan_tasks").select("period_id").eq("id", task_id).maybe_single().execute()
+    if res.data: await touch_plan_by_period(res.data["period_id"])
+
+
+@router.post("/classrooms/{class_id}/publish")
+async def publish_study_plan(
+    class_id: str,
     token: TokenData = Depends(require_teacher)
 ):
+    """
+    Sets the classroom study plan to 'active' status, 
+    making it visible to students.
+    """
     admin = get_admin_client()
-    # In a real app, we'd verify the teacher owns the plan this day belongs to
-    res = admin.table("study_plan_days").update({
-        "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
-    }).eq("id", day_id).execute()
     
-    return success(res.data[0] if res.data else {})
+    # Verify ownership/assignment (or admin)
+    q = admin.table("classes").select("id")
+    if token.role not in ("admin", "platform_admin"):
+        q = q.eq("teacher_id", token.user_id)
+    else:
+        q = q.eq("tenant_id", token.tenant_id)
+        
+    class_res = q.eq("id", class_id).maybe_single().execute()
+    if not class_res.data:
+        return error("FORBIDDEN", "Class not found or access denied", 403)
+
+    # Update status AND record publication time
+    from datetime import datetime
+    now = datetime.utcnow().isoformat()
+    
+    res = admin.table("study_plans").update({
+        "status": "active",
+        "published_at": now,
+        "updated_at": now # Reset updated_at to match published_at on success
+    }).eq("class_id", class_id).execute()
+    
+    if not res.data:
+        return error("NOT_FOUND", "No study plan found for this classroom", 404)
+        
+    return success({"status": "active", "message": "Study plan published to students"})
+
+
 
 
 @router.get("/study-plans/{plan_id}/submissions")
@@ -894,8 +977,12 @@ async def create_classroom_day(
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
+    
+    # Touch parent plan to mark as dirty
+    admin.table("study_plans").update({"updated_at": "now()"}).eq("id", body.plan_id).execute()
+
     res = admin.table("study_plan_days").insert({
-        "plan_id": body.plan_id,
+        "plan_id": str(body.plan_id),
         "day_number": body.day_number,
         "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
     }).execute()
@@ -910,8 +997,15 @@ async def update_classroom_day(
     admin = get_admin_client()
     update_data = {}
     if body.day_number is not None: update_data["day_number"] = body.day_number
-    if body.scheduled_date is not None: update_data["scheduled_date"] = body.scheduled_date.isoformat()
     
+    # Handle date conversion carefully to avoid 422
+    if "scheduled_date" in body.dict(exclude_unset=True):
+        update_data["scheduled_date"] = body.scheduled_date.isoformat() if body.scheduled_date else None
+    
+    if body.is_accessible is not None:
+        update_data["is_accessible"] = body.is_accessible
+    
+    await touch_plan_by_day(day_id)
     res = admin.table("study_plan_days").update(update_data).eq("id", day_id).execute()
     return success(res.data[0] if res.data else {})
 
@@ -920,7 +1014,7 @@ async def delete_classroom_day(
     day_id: str,
     token: TokenData = Depends(require_teacher)
 ):
-    admin = get_admin_client()
+    await touch_plan_by_day(day_id)
     admin.table("study_plan_days").delete().eq("id", day_id).execute()
     return success({"deleted": True})
 
@@ -930,8 +1024,13 @@ async def create_classroom_period(
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
+    # Touch parent plan
+    day_res = admin.table("study_plan_days").select("plan_id").eq("id", body.day_id).maybe_single().execute()
+    if day_res.data:
+        admin.table("study_plans").update({"updated_at": "now()"}).eq("id", day_res.data["plan_id"]).execute()
+
     res = admin.table("study_plan_periods").insert({
-        "day_id": body.day_id,
+        "day_id": str(body.day_id),
         "title": body.title,
         "duration_minutes": body.duration_minutes,
         "order_index": body.order_index
@@ -946,6 +1045,7 @@ async def update_classroom_period(
 ):
     admin = get_admin_client()
     update_data = {k: v for k, v in body.dict().items() if v is not None}
+    await touch_plan_by_period(period_id)
     res = admin.table("study_plan_periods").update(update_data).eq("id", period_id).execute()
     return success(res.data[0] if res.data else {})
 
@@ -954,7 +1054,7 @@ async def delete_classroom_period(
     period_id: str,
     token: TokenData = Depends(require_teacher)
 ):
-    admin = get_admin_client()
+    await touch_plan_by_period(period_id)
     admin.table("study_plan_periods").delete().eq("id", period_id).execute()
     return success({"deleted": True})
 
@@ -963,10 +1063,10 @@ async def create_classroom_task(
     body: TeacherTaskCreate,
     token: TokenData = Depends(require_teacher)
 ):
-    admin = get_admin_client()
+    await touch_plan_by_period(str(body.period_id))
     res = admin.table("study_plan_tasks").insert({
-        "period_id": body.period_id,
-        "tenant_id": token.tenant_id,
+        "period_id": str(body.period_id),
+        "tenant_id": str(token.tenant_id),
         "title": body.title,
         "description": body.description,
         "task_type": body.task_type.value,
@@ -987,6 +1087,7 @@ async def update_classroom_task(
     if "task_type" in update_data and update_data["task_type"]:
         update_data["task_type"] = update_data["task_type"].value
     
+    await touch_plan_by_task(task_id)
     res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
     return success(res.data[0] if res.data else {})
 
@@ -995,6 +1096,6 @@ async def delete_classroom_task(
     task_id: str,
     token: TokenData = Depends(require_teacher)
 ):
-    admin = get_admin_client()
+    await touch_plan_by_task(task_id)
     admin.table("study_plan_tasks").delete().eq("id", task_id).execute()
     return success({"deleted": True})

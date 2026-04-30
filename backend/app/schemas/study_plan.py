@@ -101,6 +101,7 @@ class StudyPlan(StudyPlanBase):
     days: List[Day] = []
     created_at: datetime
     updated_at: datetime
+    published_at: Optional[datetime] = None
 
 # ── Submissions ───────────────────────────────────────────────
 
@@ -136,6 +137,7 @@ class TeacherDayCreate(DayCreate):
 class TeacherDayUpdate(BaseModel):
     day_number: Optional[int] = None
     scheduled_date: Optional[date] = None
+    is_accessible: Optional[bool] = None
 
 class TeacherPeriodCreate(PeriodCreate):
     day_id: UUID
