@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { BookOpen, Layers, Loader2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
@@ -12,7 +11,6 @@ import { cn } from "@/lib/utils"
 interface ClassItem { id: string; name: string }
 
 export default function TeacherStudyPlanPage() {
-    const navigate = useNavigate()
     const [classes, setClasses] = useState<ClassItem[]>([])
     const [selectedClassId, setSelectedClassId] = useState('')
     const [plan, setPlan] = useState<any>(null)

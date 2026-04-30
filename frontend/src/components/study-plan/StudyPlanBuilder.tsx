@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

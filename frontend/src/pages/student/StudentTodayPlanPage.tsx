@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { 
   Loader2, 
   CheckCircle2, 
-  Circle, 
   Calendar, 
   Clock, 
   ArrowRight,
@@ -15,7 +14,6 @@ import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { clsx } from 'clsx'
 import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
 

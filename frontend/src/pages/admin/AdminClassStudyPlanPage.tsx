@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { BookOpen, Layers, ChevronRight, Loader2, Plus, ChevronLeft } from 'lucide-react'
+import { BookOpen, Loader2, Plus, ChevronLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
