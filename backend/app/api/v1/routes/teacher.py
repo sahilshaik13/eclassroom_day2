@@ -787,16 +787,19 @@ async def get_classroom_study_plan(
 
     plan = plan_res.data
     
-    # Fetch days with nested periods and tasks
+    # 2. Fetch days with nested periods and tasks
     try:
+        # If the plan is linked to a template, fetch the template's days
+        target_field = "template_id" if plan.get("template_id") else "plan_id"
+        target_id = plan.get("template_id") if plan.get("template_id") else plan["id"]
+
         days_res = (
             admin.table("study_plan_days")
             .select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
-            .eq("plan_id", plan["id"])
+            .eq(target_field, target_id)
             .order("day_number")
             .execute()
         )
-        
         days = days_res.data or []
         # Sort periods and tasks manually
         for day in days:
@@ -981,8 +984,17 @@ async def create_classroom_day(
     # Touch parent plan to mark as dirty
     admin.table("study_plans").update({"updated_at": "now()"}).eq("id", body.plan_id).execute()
 
+    # 1. Fetch the plan to see if it's template-linked
+    plan_res = admin.table("study_plans").select("template_id").eq("id", body.plan_id).maybe_single().execute()
+    plan_data = plan_res.data if plan_res.data else {}
+    
+    # 2. Determine target (template vs instance)
+    # If linked to a template, we add the day to the template to keep them in sync
+    target_field = "template_id" if plan_data.get("template_id") else "plan_id"
+    target_id = plan_data.get("template_id") if plan_data.get("template_id") else str(body.plan_id)
+
     res = admin.table("study_plan_days").insert({
-        "plan_id": str(body.plan_id),
+        target_field: target_id,
         "day_number": body.day_number,
         "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
     }).execute()
@@ -1015,6 +1027,7 @@ async def delete_classroom_day(
     token: TokenData = Depends(require_teacher)
 ):
     await touch_plan_by_day(day_id)
+    admin = get_admin_client()
     admin.table("study_plan_days").delete().eq("id", day_id).execute()
     return success({"deleted": True})
 
@@ -1029,6 +1042,7 @@ async def create_classroom_period(
     if day_res.data:
         admin.table("study_plans").update({"updated_at": "now()"}).eq("id", day_res.data["plan_id"]).execute()
 
+    admin = get_admin_client()
     res = admin.table("study_plan_periods").insert({
         "day_id": str(body.day_id),
         "title": body.title,
@@ -1055,6 +1069,7 @@ async def delete_classroom_period(
     token: TokenData = Depends(require_teacher)
 ):
     await touch_plan_by_period(period_id)
+    admin = get_admin_client()
     admin.table("study_plan_periods").delete().eq("id", period_id).execute()
     return success({"deleted": True})
 
@@ -1064,6 +1079,7 @@ async def create_classroom_task(
     token: TokenData = Depends(require_teacher)
 ):
     await touch_plan_by_period(str(body.period_id))
+    admin = get_admin_client()
     res = admin.table("study_plan_tasks").insert({
         "period_id": str(body.period_id),
         "tenant_id": str(token.tenant_id),
@@ -1097,5 +1113,6 @@ async def delete_classroom_task(
     token: TokenData = Depends(require_teacher)
 ):
     await touch_plan_by_task(task_id)
+    admin = get_admin_client()
     admin.table("study_plan_tasks").delete().eq("id", task_id).execute()
     return success({"deleted": True})

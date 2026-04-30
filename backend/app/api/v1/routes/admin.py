@@ -1121,7 +1121,12 @@ async def get_classroom_study_plan(
         plan_id = plan["id"]
         
         # 3. Fetch days, periods, tasks
-        days_res = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))").eq("plan_id", plan_id).order("day_number").execute()
+        # If the plan is linked to a template, we fetch the template's days/tasks
+        # to ensure the admin and teacher are seeing the EXACT same data.
+        target_field = "template_id" if plan.get("template_id") else "plan_id"
+        target_id = plan.get("template_id") if plan.get("template_id") else plan_id
+        
+        days_res = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))").eq(target_field, target_id).order("day_number").execute()
         
         days = days_res.data or []
         # Sort manually
@@ -1145,8 +1150,16 @@ async def admin_create_classroom_day(
     admin = get_admin_client()
     # Mark plan as dirty
     admin.table("study_plans").update({"updated_at": "now()"}).eq("id", body.plan_id).execute()
+    # 1. Fetch the plan to see if it's template-linked
+    plan_res = admin.table("study_plans").select("template_id").eq("id", body.plan_id).maybe_single().execute()
+    plan_data = plan_res.data if plan_res.data else {}
+    
+    # 2. Determine target
+    target_field = "template_id" if plan_data.get("template_id") else "plan_id"
+    target_id = plan_data.get("template_id") if plan_data.get("template_id") else str(body.plan_id)
+
     res = admin.table("study_plan_days").insert({
-        "plan_id": str(body.plan_id),
+        target_field: target_id,
         "day_number": body.day_number,
         "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
     }).execute()
@@ -1280,47 +1293,10 @@ async def apply_study_plan(
     
     new_plan_id = plan_res.data[0]["id"]
 
-    # 2. Fork Days, Periods, and Tasks
-    # We'll do this in a few steps since deep cloning is manual in this setup
-    days = admin.table("study_plan_days").select("*").eq("template_id", template_id).execute()
-    for day in (days.data or []):
-        old_day_id = day["id"]
-        new_day = admin.table("study_plan_days").insert({
-            "plan_id": new_plan_id,
-            "day_number": day["day_number"]
-        }).execute()
-        
-        if not new_day.data: continue
-        new_day_id = new_day.data[0]["id"]
-        
-        periods = admin.table("study_plan_periods").select("*").eq("day_id", old_day_id).execute()
-        for period in (periods.data or []):
-            old_period_id = period["id"]
-            new_period = admin.table("study_plan_periods").insert({
-                "day_id": new_day_id,
-                "title": period["title"],
-                "duration_minutes": period["duration_minutes"],
-                "order_index": period["order_index"]
-            }).execute()
-            
-            if not new_period.data: continue
-            new_period_id = new_period.data[0]["id"]
-            
-            tasks = admin.table("study_plan_tasks").select("*").eq("period_id", old_period_id).execute()
-            task_rows = []
-            for task in (tasks.data or []):
-                task_rows.append({
-                    "period_id": new_period_id,
-                    "tenant_id": token.tenant_id,
-                    "title": task["title"],
-                    "description": task["description"],
-                    "task_type": task["task_type"],
-                    "required": task["required"],
-                    "order_index": task["order_index"],
-                    "config": task["config"]
-                })
-            
-            if task_rows:
-                admin.table("study_plan_tasks").insert(task_rows).execute()
-
+    # 2. Link to template (NO CLONING)
+    # By not cloning, we ensure that the classroom study plan and the template 
+    # stay in perfect sync. Any changes made by the teacher or admin will 
+    # be reflected in both places because they will share the same template_id 
+    # for their days, periods, and tasks.
+    
     return success({"plan_id": new_plan_id})
