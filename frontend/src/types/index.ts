@@ -1,6 +1,6 @@
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'student' | 'teacher' | 'admin' | 'super_admin'
+export type UserRole = 'student' | 'teacher' | 'admin' | 'super_admin' | 'platform_admin'
 
 export interface AuthUser {
   id: string
