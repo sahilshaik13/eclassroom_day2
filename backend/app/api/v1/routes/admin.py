@@ -37,31 +37,12 @@ from app.db.supabase import get_admin_client
 from app.services.auth_service import AuthService, AuthError
 from app.core.config import settings
 
-class TeacherDayCreate(sp.DayCreate):
-    plan_id: str
-
-class TeacherDayUpdate(BaseModel):
-    day_number: Optional[int] = None
-    scheduled_date: Optional[date] = None
-
-class TeacherPeriodCreate(sp.PeriodCreate):
-    day_id: str
-
-class TeacherPeriodUpdate(BaseModel):
-    title: Optional[str] = None
-    duration_minutes: Optional[int] = None
-    order_index: Optional[int] = None
-
-class TeacherTaskCreate(sp.TaskCreate):
-    period_id: str
-
-class TeacherTaskUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    task_type: Optional[sp.TaskType] = None
-    required: Optional[bool] = None
-    order_index: Optional[int] = None
-    config: Optional[dict] = None
+class TeacherDayCreate(sp.TeacherDayCreate): pass
+class TeacherDayUpdate(sp.TeacherDayUpdate): pass
+class TeacherPeriodCreate(sp.TeacherPeriodCreate): pass
+class TeacherPeriodUpdate(sp.TeacherPeriodUpdate): pass
+class TeacherTaskCreate(sp.TeacherTaskCreate): pass
+class TeacherTaskUpdate(sp.TeacherTaskUpdate): pass
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])

@@ -761,26 +761,20 @@ async def get_classroom_study_plan(
     if not class_res.data:
         return error("FORBIDDEN", "Not assigned to this classroom", 403)
 
-    # Fetch active plan for this classroom
-    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
-    if not plan_res.data:
-        return success(None) # No plan assigned yet
-
-    plan_id = plan_res.data["id"]
-    days_res = (
-        admin.table("study_plan_days")
-        .select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
-        .eq("plan_id", plan_id)
-        .order("day_number")
-        .order("order_index", foreign_table="study_plan_periods")
-        .order("order_index", foreign_table="study_plan_periods.study_plan_tasks")
+    # Fetch active plan for this classroom with all relations
+    res = (
+        admin.table("study_plans")
+        .select("*, days:study_plan_days(*, periods:study_plan_periods(*, tasks:study_plan_tasks(*)))")
+        .eq("class_id", class_id)
+        .eq("tenant_id", token.tenant_id)
+        .order("day_number", foreign_table="study_plan_days")
+        .order("order_index", foreign_table="study_plan_days.study_plan_periods")
+        .order("order_index", foreign_table="study_plan_days.study_plan_periods.study_plan_tasks")
+        .maybe_single()
         .execute()
     )
     
-    plan = plan_res.data
-    plan["days"] = days_res.data or []
-    
-    return success(plan)
+    return success(res.data)
 
 
 @router.patch("/study-plans/days/{day_id}")
@@ -884,31 +878,12 @@ async def complete_teacher_profile(
     return success({"message": "Profile completed successfully"})
 
 
-class TeacherDayCreate(sp.DayCreate):
-    plan_id: str
-
-class TeacherDayUpdate(BaseModel):
-    day_number: Optional[int] = None
-    scheduled_date: Optional[date] = None
-
-class TeacherPeriodCreate(sp.PeriodCreate):
-    day_id: str
-
-class TeacherPeriodUpdate(BaseModel):
-    title: Optional[str] = None
-    duration_minutes: Optional[int] = None
-    order_index: Optional[int] = None
-
-class TeacherTaskCreate(sp.TaskCreate):
-    period_id: str
-
-class TeacherTaskUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    task_type: Optional[sp.TaskType] = None
-    required: Optional[bool] = None
-    order_index: Optional[int] = None
-    config: Optional[dict] = None
+class TeacherDayCreate(sp.TeacherDayCreate): pass
+class TeacherDayUpdate(sp.TeacherDayUpdate): pass
+class TeacherPeriodCreate(sp.TeacherPeriodCreate): pass
+class TeacherPeriodUpdate(sp.TeacherPeriodUpdate): pass
+class TeacherTaskCreate(sp.TeacherTaskCreate): pass
+class TeacherTaskUpdate(sp.TeacherTaskUpdate): pass
 
 
 # ── Teacher Plan Editing ──────────────────────────────────────

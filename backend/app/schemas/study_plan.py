@@ -127,3 +127,31 @@ class Submission(BaseModel):
     reviewed_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
+
+# ── Teacher/Admin Management Extensions ──────────────────────────
+
+class TeacherDayCreate(DayCreate):
+    plan_id: UUID
+
+class TeacherDayUpdate(BaseModel):
+    day_number: Optional[int] = None
+    scheduled_date: Optional[date] = None
+
+class TeacherPeriodCreate(PeriodCreate):
+    day_id: UUID
+
+class TeacherPeriodUpdate(BaseModel):
+    title: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    order_index: Optional[int] = None
+
+class TeacherTaskCreate(TaskCreate):
+    period_id: UUID
+
+class TeacherTaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    task_type: Optional[TaskType] = None
+    required: Optional[bool] = None
+    order_index: Optional[int] = None
+    config: Optional[dict] = None
