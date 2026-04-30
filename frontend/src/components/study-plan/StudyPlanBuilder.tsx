@@ -48,40 +48,24 @@ interface StudyPlanBuilderProps {
   onUpdateDayDate?: (dayIdx: number, dateStr: string) => void;
 }
 
-// Helper for local-first editing with 3s debounce save
+// Helper for local-first editing (Saves ONLY on blur/when focus is lost)
 function EditableField({ value, onBlur, placeholder, className, readOnly, type = "text" }: any) {
   const [local, setLocal] = useState(value);
   const [isFocused, setIsFocused] = useState(false);
-  const timerRef = useRef<any>(null);
 
   useEffect(() => { 
     if (!isFocused) setLocal(value); 
   }, [value, isFocused]);
-
-  const triggerSave = (val: any) => {
-    if (val !== value) onBlur(val);
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setLocal(val);
-    
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      triggerSave(val);
-    }, 3000);
-  };
   
   return (
     <Input 
       type={type}
       value={local}
-      onChange={handleChange}
+      onChange={(e) => setLocal(e.target.value)}
       onFocus={() => setIsFocused(true)}
       onBlur={() => { 
         setIsFocused(false);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        triggerSave(local);
+        if (local !== value) onBlur(local); 
       }}
       placeholder={placeholder}
       readOnly={readOnly}
