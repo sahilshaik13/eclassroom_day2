@@ -18,7 +18,7 @@ import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
 
 async function fetchTodayTasks(): Promise<Task[]> {
   try {
-    const res = await api.get('/classroom/tasks/today')
+    const res = await api.get('/student/tasks/today')
     return res.data.data
   } catch {
     return [
@@ -55,7 +55,7 @@ export default function StudentDashboard() {
       .then(t => setTasks(t))
       .finally(() => setLoadingTasks(false))
 
-    api.get('/classroom/doubts').then(r => {
+    api.get('/student/doubts').then(r => {
       const d = r.data?.data
       if (Array.isArray(d)) setPendingDoubts(d.filter((x: any) => x.status === 'pending').length)
     }).catch(() => { })
@@ -75,7 +75,7 @@ export default function StudentDashboard() {
     setTasks((prev) => prev.map((t) => t.id === id ? { ...t, completed: !t.completed } : t))
     setCompletingId(id)
     try {
-      await api.patch(`/classroom/tasks/${id}/toggle`)
+      await api.patch(`/student/tasks/${id}/toggle`)
       if (!task.completed) toast.success('MashaAllah! Progress saved.')
     } catch {
       setTasks((prev) => prev.map((t) => t.id === id ? { ...t, completed: task.completed } : t))

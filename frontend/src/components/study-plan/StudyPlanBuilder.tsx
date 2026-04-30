@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,6 +45,24 @@ interface StudyPlanBuilderProps {
   onUpdateTask?: (dayIdx: number, pIdx: number, tIdx: number, updates: any) => void;
   onDeleteTask?: (dayIdx: number, pIdx: number, tIdx: number) => void;
   onUpdateDayDate?: (dayIdx: number, dateStr: string) => void;
+}
+
+// Helper for local-first editing to prevent cursor jumps/placeholder resets
+function EditableField({ value, onBlur, placeholder, className, readOnly, type = "text" }: any) {
+  const [local, setLocal] = useState(value);
+  useEffect(() => { setLocal(value); }, [value]);
+  
+  return (
+    <Input 
+      type={type}
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => { if (local !== value) onBlur(local); }}
+      placeholder={placeholder}
+      className={className}
+      readOnly={readOnly}
+    />
+  );
 }
 
 export default function StudyPlanBuilder({ 
@@ -188,19 +206,19 @@ export default function StudyPlanBuilder({
                   <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                     <div className="flex items-center gap-4 flex-1">
                       <GripVertical className="h-4 w-4 text-slate-300 cursor-move" />
-                      <Input 
+                      <EditableField 
                         value={period.title} 
-                        onChange={(e) => handleUpdatePeriod(dIdx, pIdx, { title: e.target.value })}
+                        onBlur={(val: string) => handleUpdatePeriod(dIdx, pIdx, { title: val })}
                         placeholder="Period Title"
                         className="h-8 bg-transparent border-none font-bold text-slate-700 focus-visible:ring-0 px-0 w-48"
                         readOnly={readOnly}
                       />
                       <div className="flex items-center gap-2 text-slate-400 ml-4">
                         <Clock className="h-3.5 w-3.5" />
-                        <Input 
+                        <EditableField 
                           type="number"
                           value={period.duration_minutes}
-                          onChange={(e) => handleUpdatePeriod(dIdx, pIdx, { duration_minutes: parseInt(e.target.value) })}
+                          onBlur={(val: any) => handleUpdatePeriod(dIdx, pIdx, { duration_minutes: parseInt(val) })}
                           className="h-8 w-16 bg-transparent border-none text-xs font-bold focus-visible:ring-0 p-0"
                           readOnly={readOnly}
                         />
@@ -228,9 +246,9 @@ export default function StudyPlanBuilder({
                         </div>
                         <div className="flex-1 space-y-2">
                           <div className="flex items-center justify-between">
-                            <Input 
+                            <EditableField 
                               value={task.title}
-                              onChange={(e) => handleUpdateTask(dIdx, pIdx, tIdx, { title: e.target.value })}
+                              onBlur={(val: string) => handleUpdateTask(dIdx, pIdx, tIdx, { title: val })}
                               className="h-7 bg-transparent border-none font-bold text-sm text-slate-800 p-0 focus-visible:ring-0"
                               placeholder="Task Title"
                               readOnly={readOnly}
@@ -264,9 +282,9 @@ export default function StudyPlanBuilder({
                               )}
                             </div>
                           </div>
-                          <Input 
+                          <EditableField 
                             value={task.description || ''}
-                            onChange={(e) => handleUpdateTask(dIdx, pIdx, tIdx, { description: e.target.value })}
+                            onBlur={(val: string) => handleUpdateTask(dIdx, pIdx, tIdx, { description: val })}
                             className="h-6 bg-transparent border-none text-xs text-slate-500 p-0 focus-visible:ring-0"
                             placeholder="Add instructions or description..."
                             readOnly={readOnly}

@@ -25,8 +25,8 @@ POST   /api/v1/admin/study-plans/{id}/tasks
 DELETE /api/v1/admin/study-plans/{id}/tasks/{task_id}
 POST   /api/v1/admin/study-plans/{id}/apply
 """
-from datetime import date, timedelta
-from typing import Optional
+from datetime import date, timedelta, datetime
+from typing import Optional, List, Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr
 from app.schemas import study_plan as sp
@@ -36,6 +36,19 @@ from app.core.response import success, error, paginated
 from app.db.supabase import get_admin_client
 from app.services.auth_service import AuthService, AuthError
 from app.core.config import settings
+
+class TeacherDayCreate(sp.DayCreate):
+    plan_id: str
+
+class TeacherDayUpdate(BaseModel):
+    day_number: Optional[int] = None
+    scheduled_date: Optional[date] = None
+
+class TeacherPeriodCreate(sp.PeriodCreate):
+    day_id: str
+
+class TeacherTaskCreate(sp.TaskCreate):
+    period_id: str
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -963,6 +976,28 @@ async def add_template_day(
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
 
+@router.patch("/study-plans/days/{day_id}")
+async def update_template_day(
+    day_id: str,
+    body: TeacherDayUpdate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    update_data = {}
+    if body.day_number is not None: update_data["day_number"] = body.day_number
+    
+    res = admin.table("study_plan_days").update(update_data).eq("id", day_id).execute()
+    return success(res.data[0] if res.data else {})
+
+@router.delete("/study-plans/days/{day_id}")
+async def delete_template_day(
+    day_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_days").delete().eq("id", day_id).execute()
+    return success({"deleted": True})
+
 
 @router.post("/study-plans/days/{day_id}/periods")
 async def add_template_period(
@@ -978,6 +1013,31 @@ async def add_template_period(
         "order_index": body.order_index,
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
+
+
+@router.patch("/study-plans/periods/{period_id}")
+async def update_template_period(
+    period_id: str,
+    body: sp.PeriodBase,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_periods").update({
+        "title": body.title,
+        "duration_minutes": body.duration_minutes,
+        "order_index": body.order_index,
+    }).eq("id", period_id).execute()
+    return success(res.data[0] if res.data else {})
+
+
+@router.delete("/study-plans/periods/{period_id}")
+async def delete_template_period(
+    period_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_periods").delete().eq("id", period_id).execute()
+    return success({"deleted": True})
 
 
 @router.post("/study-plans/periods/{period_id}/tasks")
@@ -1006,6 +1066,24 @@ async def add_template_task(
         "config": body.config
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
+
+
+@router.patch("/study-plans/tasks/{task_id}")
+async def update_template_task(
+    task_id: str,
+    body: sp.TaskBase,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_tasks").update({
+        "title": body.title,
+        "description": body.description,
+        "task_type": body.task_type.value,
+        "required": body.required,
+        "order_index": body.order_index,
+        "config": body.config
+    }).eq("id", task_id).execute()
+    return success(res.data[0] if res.data else {})
 
 
 @router.delete("/study-plans/tasks/{task_id}")
@@ -1091,3 +1169,73 @@ async def apply_study_plan(
                 admin.table("study_plan_tasks").insert(task_rows).execute()
 
     return success({"plan_id": new_plan_id})
+
+
+@router.get("/classrooms/{classroom_id}/study-plan")
+async def get_classroom_study_plan(
+    classroom_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = (
+        admin.table("study_plans")
+        .select("*, days:study_plan_days(*, periods:study_plan_periods(*, tasks:study_plan_tasks(*)))")
+        .eq("class_id", classroom_id)
+        .eq("tenant_id", token.tenant_id)
+        .order("day_number", foreign_table="study_plan_days")
+        .order("order_index", foreign_table="study_plan_days.study_plan_periods")
+        .order("order_index", foreign_table="study_plan_days.study_plan_periods.study_plan_tasks")
+        .maybe_single()
+        .execute()
+    )
+    return success(res.data)
+
+
+# ── Classroom-Specific Plan Editing (Admin Access) ──────────
+
+@router.post("/study-plans/days")
+async def create_classroom_day_admin(
+    body: TeacherDayCreate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_days").insert({
+        "plan_id": body.plan_id,
+        "day_number": body.day_number,
+        "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+
+@router.post("/study-plans/periods")
+async def create_classroom_period_admin(
+    body: TeacherPeriodCreate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_periods").insert({
+        "day_id": body.day_id,
+        "title": body.title,
+        "duration_minutes": body.duration_minutes,
+        "order_index": body.order_index
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)
+
+
+@router.post("/study-plans/tasks")
+async def create_classroom_task_admin(
+    body: TeacherTaskCreate,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("study_plan_tasks").insert({
+        "period_id": body.period_id,
+        "tenant_id": token.tenant_id,
+        "title": body.title,
+        "description": body.description,
+        "task_type": body.task_type.value,
+        "required": body.required,
+        "order_index": body.order_index,
+        "config": body.config
+    }).execute()
+    return success(res.data[0] if res.data else {}, status_code=201)

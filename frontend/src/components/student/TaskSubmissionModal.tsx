@@ -39,7 +39,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
         audio_url: null // Add if voice recording is implemented later
       };
       
-      const res = await api.post(`/classroom/tasks/${task.id}/submit`, payload);
+      const res = await api.post(`/student/tasks/${task.id}/submit`, payload);
       const data = res.data.data;
       
       if (task.task_type === 'mcq') {

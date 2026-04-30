@@ -879,6 +879,10 @@ async def complete_teacher_profile(
 class TeacherDayCreate(sp.DayCreate):
     plan_id: str
 
+class TeacherDayUpdate(BaseModel):
+    day_number: Optional[int] = None
+    scheduled_date: Optional[date] = None
+
 class TeacherPeriodCreate(sp.PeriodCreate):
     day_id: str
 
@@ -900,6 +904,29 @@ async def create_classroom_day(
         "scheduled_date": body.scheduled_date.isoformat() if body.scheduled_date else None
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
+
+@router.patch("/study-plans/days/{day_id}")
+async def update_classroom_day(
+    day_id: str,
+    body: TeacherDayUpdate,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    update_data = {}
+    if body.day_number is not None: update_data["day_number"] = body.day_number
+    if body.scheduled_date is not None: update_data["scheduled_date"] = body.scheduled_date.isoformat()
+    
+    res = admin.table("study_plan_days").update(update_data).eq("id", day_id).execute()
+    return success(res.data[0] if res.data else {})
+
+@router.delete("/study-plans/days/{day_id}")
+async def delete_classroom_day(
+    day_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+    admin.table("study_plan_days").delete().eq("id", day_id).execute()
+    return success({"deleted": True})
 
 @router.post("/study-plans/periods")
 async def create_classroom_period(

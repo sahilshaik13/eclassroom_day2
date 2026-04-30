@@ -21,7 +21,7 @@ export default function StudentProfilePage() {
   const onSubmit = async (data: { name: string }) => {
     setSaving(true)
     try {
-      await api.patch('/classroom/profile', data)
+      await api.patch('/student/profile', data)
       if (user && accessToken && refreshToken) {
         setSession({ ...user, name: data.name }, accessToken, refreshToken)
       }

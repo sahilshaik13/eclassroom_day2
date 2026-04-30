@@ -24,8 +24,8 @@ export default function StudentDoubtsPage() {
 
   const load = () => {
     Promise.all([
-      api.get('/classroom/doubts'),
-      api.get('/classroom/classes/my'),
+      api.get('/student/doubts'),
+      api.get('/student/classes/my'),
     ]).then(([d, c]) => {
       setDoubts(d.data.data)
       setClasses(c.data.data)
@@ -43,7 +43,7 @@ export default function StudentDoubtsPage() {
     }
     setSubmitting(true)
     try {
-      await api.post('/classroom/doubts', form)
+      await api.post('/student/doubts', form)
       toast.success('Your doubt has been submitted. A teacher will respond soon!')
       setForm({ title: '', body: '', class_id: '' })
       setShowForm(false)

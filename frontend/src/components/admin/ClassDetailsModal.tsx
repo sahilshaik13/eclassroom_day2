@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
-import { Plus, Users, Search, X, Loader2, UserMinus } from 'lucide-react'
+import { Plus, Users, Search, X, Loader2, UserMinus, Play } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import {
@@ -35,6 +36,7 @@ interface ClassDetailsModalProps {
 }
 
 export function ClassDetailsModal({ open, onOpenChange, classData, onUpdate }: ClassDetailsModalProps) {
+  const navigate = useNavigate()
   const [students, setStudents] = useState<EnrolledStudent[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -129,11 +131,22 @@ export function ClassDetailsModal({ open, onOpenChange, classData, onUpdate }: C
               <DialogTitle className="text-xl font-bold">{classData.name}</DialogTitle>
               <p className="text-sm text-slate-500 mt-1">Teacher: {classData.teacher_name || 'Unassigned'}</p>
             </div>
-            {!showAdd && (
-              <Button onClick={() => setShowAdd(true)} className="gap-2 bg-slate-900 text-white rounded-xl">
-                <Plus className="h-4 w-4" /> Add Student
-              </Button>
-            )}
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex gap-2">
+                <Button 
+                  onClick={() => navigate(`/admin/classes/${classData.id}/study-plan`)} 
+                  variant="outline"
+                  className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 rounded-xl"
+                >
+                  <Play className="h-4 w-4" /> Manage Study Plan
+                </Button>
+                {!showAdd && (
+                  <Button onClick={() => setShowAdd(true)} className="gap-2 bg-slate-900 text-white rounded-xl">
+                    <Plus className="h-4 w-4" /> Add Student
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
         </DialogHeader>
 

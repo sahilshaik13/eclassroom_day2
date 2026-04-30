@@ -20,7 +20,7 @@ from app.core.response import success, error
 from app.db.supabase import get_user_client, get_admin_client
 
 
-router = APIRouter(prefix="/classroom", tags=["student"])
+router = APIRouter(prefix="/student", tags=["student"])
 
 # ── Today's tasks ─────────────────────────────────────────────
 

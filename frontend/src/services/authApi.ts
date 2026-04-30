@@ -36,7 +36,7 @@ export const authApi = {
 
   completeStudentProfile: (data: any) =>
     api.post<{ success: true; data: { message: string } }>(
-      '/classroom/complete-profile',
+      '/student/complete-profile',
       data
     ),
 
