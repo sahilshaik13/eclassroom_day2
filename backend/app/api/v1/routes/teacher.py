@@ -767,7 +767,15 @@ async def get_classroom_study_plan(
         return success(None) # No plan assigned yet
 
     plan_id = plan_res.data["id"]
-    days_res = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))").eq("plan_id", plan_id).order("day_number").execute()
+    days_res = (
+        admin.table("study_plan_days")
+        .select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
+        .eq("plan_id", plan_id)
+        .order("day_number")
+        .order("order_index", foreign_table="study_plan_periods")
+        .order("order_index", foreign_table="study_plan_periods.study_plan_tasks")
+        .execute()
+    )
     
     plan = plan_res.data
     plan["days"] = days_res.data or []
@@ -886,8 +894,21 @@ class TeacherDayUpdate(BaseModel):
 class TeacherPeriodCreate(sp.PeriodCreate):
     day_id: str
 
+class TeacherPeriodUpdate(BaseModel):
+    title: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    order_index: Optional[int] = None
+
 class TeacherTaskCreate(sp.TaskCreate):
     period_id: str
+
+class TeacherTaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    task_type: Optional[sp.TaskType] = None
+    required: Optional[bool] = None
+    order_index: Optional[int] = None
+    config: Optional[dict] = None
 
 
 # ── Teacher Plan Editing ──────────────────────────────────────
@@ -945,15 +966,12 @@ async def create_classroom_period(
 @router.patch("/study-plans/periods/{period_id}")
 async def update_classroom_period(
     period_id: str,
-    body: sp.PeriodBase,
+    body: TeacherPeriodUpdate,
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
-    res = admin.table("study_plan_periods").update({
-        "title": body.title,
-        "duration_minutes": body.duration_minutes,
-        "order_index": body.order_index
-    }).eq("id", period_id).execute()
+    update_data = {k: v for k, v in body.dict().items() if v is not None}
+    res = admin.table("study_plan_periods").update(update_data).eq("id", period_id).execute()
     return success(res.data[0] if res.data else {})
 
 @router.delete("/study-plans/periods/{period_id}")
@@ -986,18 +1004,15 @@ async def create_classroom_task(
 @router.patch("/study-plans/tasks/{task_id}")
 async def update_classroom_task(
     task_id: str,
-    body: sp.TaskBase,
+    body: TeacherTaskUpdate,
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
-    res = admin.table("study_plan_tasks").update({
-        "title": body.title,
-        "description": body.description,
-        "task_type": body.task_type.value,
-        "required": body.required,
-        "order_index": body.order_index,
-        "config": body.config
-    }).eq("id", task_id).execute()
+    update_data = {k: v for k, v in body.dict().items() if v is not None}
+    if "task_type" in update_data and update_data["task_type"]:
+        update_data["task_type"] = update_data["task_type"].value
+    
+    res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
     return success(res.data[0] if res.data else {})
 
 @router.delete("/study-plans/tasks/{task_id}")
