@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from "@/lib/utils";
 import MCQConfigModal from './MCQConfigModal';
 
 export type TaskType = 'memorise' | 'review' | 'recite' | 'listen' | 'read' | 'mcq' | 'written' | 'reflection';
@@ -50,17 +51,28 @@ interface StudyPlanBuilderProps {
 // Helper for local-first editing to prevent cursor jumps/placeholder resets
 function EditableField({ value, onBlur, placeholder, className, readOnly, type = "text" }: any) {
   const [local, setLocal] = useState(value);
-  useEffect(() => { setLocal(value); }, [value]);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => { 
+    if (!isFocused) setLocal(value); 
+  }, [value, isFocused]);
   
   return (
     <Input 
       type={type}
       value={local}
       onChange={(e) => setLocal(e.target.value)}
-      onBlur={() => { if (local !== value) onBlur(local); }}
+      onFocus={() => setIsFocused(true)}
+      onBlur={() => { 
+        setIsFocused(false);
+        if (local !== value) onBlur(local); 
+      }}
       placeholder={placeholder}
-      className={className}
       readOnly={readOnly}
+      className={cn(
+        "bg-transparent border-none focus-visible:ring-0 shadow-none px-2 h-auto py-1 font-medium",
+        className
+      )}
     />
   );
 }
