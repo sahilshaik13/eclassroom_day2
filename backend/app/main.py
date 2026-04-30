@@ -39,28 +39,42 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 # We use a custom middleware to ensure headers are added even for exception responses
 @app.middleware("http")
 async def add_cors_headers(request: Request, call_next):
+    # Get origin from request
+    origin = request.headers.get("origin", "*")
+    
     # Handle preflight OPTIONS requests
     if request.method == "OPTIONS":
-        response = JSONResponse(content="OK")
-    else:
-        response = await call_next(request)
-    
-    origin = request.headers.get("origin")
-    if origin:
+        response = JSONResponse(content="OK", status_code=204)
         response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, Tenant-ID"
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-    else:
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Max-Age"] = "86400"
+        return response
+    
+    # Regular request
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        # Fallback for unhandled exceptions that don't reach the exception handler
+        response = JSONResponse(
+            status_code=500,
+            content={"success": False, "error": {"message": str(e)}}
+        )
+    
+    # Add CORS headers to all responses (including errors)
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With, Tenant-ID"
     
     return response
 
-# Also keep the standard CORSMiddleware as a backup/standard
+# Standard CORSMiddleware as a backup (though custom middleware above handles most cases)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -9,15 +9,16 @@ interface AuthState {
   isAuthenticated: boolean
   _hasHydrated: boolean
 
-  loginTimestamp: number | null
+  lastActivityTimestamp: number | null
 
   setSession: (user: AuthUser, accessToken: string, refreshToken: string) => void
   storeTokenOnly: (user: AuthUser, accessToken: string, refreshToken: string) => void
   updateTokens: (accessToken: string, refreshToken: string) => void
+  touchActivity: () => void
   clearSession: () => void
   hasRole: (role: UserRole) => boolean
   setHasHydrated: (v: boolean) => void
-  getRoleExpirationMs: () => number
+  getInactivityLimitMs: () => number
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -29,43 +30,60 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       _hasHydrated: false,
 
-      loginTimestamp: null,
+      lastActivityTimestamp: null,
 
       setHasHydrated: (v) => set({ _hasHydrated: v }),
 
       setSession: (user, accessToken, refreshToken) => {
         localStorage.setItem('access_token', accessToken)
         localStorage.setItem('refresh_token', refreshToken)
-        set({ user, accessToken, refreshToken, isAuthenticated: true, loginTimestamp: Date.now() })
+        set({ 
+          user, 
+          accessToken, 
+          refreshToken, 
+          isAuthenticated: true, 
+          lastActivityTimestamp: Date.now() 
+        })
       },
 
-      // Store token for API calls but don't mark as authenticated
-      // Used during MFA flow — axios can send the Bearer token,
-      // but route guards won't redirect to the admin portal yet.
       storeTokenOnly: (user, accessToken, refreshToken) => {
         localStorage.setItem('access_token', accessToken)
         localStorage.setItem('refresh_token', refreshToken)
-        set({ user, accessToken, refreshToken, isAuthenticated: false, loginTimestamp: Date.now() })
+        set({ 
+          user, 
+          accessToken, 
+          refreshToken, 
+          isAuthenticated: false, 
+          lastActivityTimestamp: Date.now() 
+        })
       },
 
       updateTokens: (accessToken, refreshToken) => {
         localStorage.setItem('access_token', accessToken)
         localStorage.setItem('refresh_token', refreshToken)
-        set({ accessToken, refreshToken })
+        set({ accessToken, refreshToken, lastActivityTimestamp: Date.now() })
+      },
+
+      touchActivity: () => {
+        if (get().isAuthenticated) {
+          set({ lastActivityTimestamp: Date.now() })
+        }
       },
 
       clearSession: () => {
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
-        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false, loginTimestamp: null })
+        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false, lastActivityTimestamp: null })
       },
 
       hasRole: (role) => get().user?.role === role,
       
-      getRoleExpirationMs: () => {
+      getInactivityLimitMs: () => {
         const role = get().user?.role
-        if (role === 'admin') return 8 * 60 * 60 * 1000 // 8 hours
-        return 30 * 24 * 60 * 60 * 1000 // 30 days
+        // Admin: 2 hours of inactivity
+        if (role === 'admin') return 2 * 60 * 60 * 1000 
+        // Teachers/Students: 4 hours of inactivity
+        return 4 * 60 * 60 * 1000
       },
     }),
     {
@@ -75,10 +93,9 @@ export const useAuthStore = create<AuthState>()(
         accessToken: s.accessToken,
         refreshToken: s.refreshToken,
         isAuthenticated: s.isAuthenticated,
-        loginTimestamp: s.loginTimestamp,
+        lastActivityTimestamp: s.lastActivityTimestamp,
       }),
       onRehydrateStorage: () => (state) => {
-        // Called once localStorage state has been loaded into the store
         state?.setHasHydrated(true)
       },
     }

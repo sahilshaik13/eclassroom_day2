@@ -61,6 +61,8 @@ api.interceptors.response.use(
         res.status,
       ))
     }
+    // Update activity on successful request
+    useAuthStore.getState().touchActivity()
     return res
   },
   async (err: AxiosError) => {
@@ -72,8 +74,8 @@ api.interceptors.response.use(
 
       const state = useAuthStore.getState()
       
-      // Check absolute session expiration constraint.
-      if (!state.loginTimestamp || (Date.now() - state.loginTimestamp > state.getRoleExpirationMs())) {
+      // Check inactivity limit
+      if (!state.lastActivityTimestamp || (Date.now() - state.lastActivityTimestamp > state.getInactivityLimitMs())) {
         state.clearSession()
         window.dispatchEvent(new Event('eclassroom-logout'))
         return Promise.reject(err)

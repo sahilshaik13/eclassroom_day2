@@ -119,10 +119,37 @@ function HashHandler() {
   return null
 }
 
+function ActivityTracker() {
+  const { touchActivity, isAuthenticated } = useAuthStore()
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    const handleActivity = () => {
+      // Use a small debounce/throttle implicitly by just calling it
+      // Zustand handles the shallow check
+      touchActivity()
+    }
+
+    window.addEventListener('mousedown', handleActivity)
+    window.addEventListener('keydown', handleActivity)
+    window.addEventListener('touchstart', handleActivity)
+
+    return () => {
+      window.removeEventListener('mousedown', handleActivity)
+      window.removeEventListener('keydown', handleActivity)
+      window.removeEventListener('touchstart', handleActivity)
+    }
+  }, [touchActivity, isAuthenticated])
+
+  return null
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <AuthEventListener />
+      <ActivityTracker />
       <HashHandler />
       <Toaster
         position="top-right"
