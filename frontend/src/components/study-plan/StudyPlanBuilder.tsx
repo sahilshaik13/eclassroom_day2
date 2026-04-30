@@ -54,7 +54,9 @@ function EditableField({ value, onBlur, placeholder, className, readOnly, type =
   const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => { 
-    if (!isFocused) setLocal(value); 
+    if (!isFocused) {
+      setLocal(value); 
+    }
   }, [value, isFocused]);
   
   return (
