@@ -876,11 +876,21 @@ async def complete_teacher_profile(
     return success({"message": "Profile completed successfully"})
 
 
+class TeacherDayCreate(sp.DayCreate):
+    plan_id: str
+
+class TeacherPeriodCreate(sp.PeriodCreate):
+    day_id: str
+
+class TeacherTaskCreate(sp.TaskCreate):
+    period_id: str
+
+
 # ── Teacher Plan Editing ──────────────────────────────────────
 
 @router.post("/study-plans/days")
 async def create_classroom_day(
-    body: sp.DayCreate & { "plan_id": str },
+    body: TeacherDayCreate,
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
@@ -893,7 +903,7 @@ async def create_classroom_day(
 
 @router.post("/study-plans/periods")
 async def create_classroom_period(
-    body: sp.PeriodCreate & { "day_id": str },
+    body: TeacherPeriodCreate,
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
@@ -930,7 +940,7 @@ async def delete_classroom_period(
 
 @router.post("/study-plans/tasks")
 async def create_classroom_task(
-    body: sp.TaskCreate & { "period_id": str },
+    body: TeacherTaskCreate,
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
