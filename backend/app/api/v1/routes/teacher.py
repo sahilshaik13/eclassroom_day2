@@ -13,6 +13,7 @@ GET  /api/v1/teacher/doubts
 POST /api/v1/teacher/doubts/{doubt_id}/reply
 POST /api/v1/teacher/grades
 GET  /api/v1/teacher/reports/{student_id}
+GET  /api/v1/teacher/submissions/pending    ← NEW: get all submitted tasks needing review
 """
 from datetime import date, timedelta, datetime
 from typing import Optional
@@ -295,17 +296,58 @@ async def get_students(
         if sid not in students_map:
             students_map[sid] = {
                 **s,
-                "classes": []
+                "classes": [],
+                "progress": {"total": 0, "completed": 0, "reviewed": 0, "pct": 0, "average_score": 0}
             }
         
         students_map[sid]["classes"].append({
             "id": row["class_id"],
             "name": cls.get("name", "")
         })
-        # Keep legacy fields for compatibility if needed, using the first class
+        # Keep legacy fields for compatibility
         if "class_id" not in students_map[sid]:
             students_map[sid]["class_id"] = row["class_id"]
             students_map[sid]["class_name"] = cls.get("name", "")
+
+    # 3. If a specific class is selected, attach its progress metrics
+    if class_id and students_map:
+        # Get the study plan for this class to get its plan_id (Admin client for robustness)
+        admin = get_admin_client()
+        plan_res = admin.table("study_plans").select("id").eq("class_id", class_id).maybe_single().execute()
+        if plan_res and plan_res.data:
+            plan_id = plan_res.data["id"]
+            # Fetch all tasks in the plan first (Using full table names for relationships)
+            tasks_res = admin.table("study_plan_tasks").select("id, study_plan_periods!inner(study_plan_days!inner(plan_id))").eq("study_plan_periods.study_plan_days.plan_id", plan_id).execute()
+            plan_task_ids = [t["id"] for t in (tasks_res.data or [])]
+            total_tasks_in_plan = len(plan_task_ids)
+            
+            if plan_task_ids:
+                subs_res = (
+                    admin.table("study_plan_submissions")
+                    .select("student_id, status, score")
+                    .in_("task_id", plan_task_ids)
+                    .in_("student_id", list(students_map.keys()))
+                    .execute()
+                )
+                
+                # Aggregate for each student
+                for sid in students_map:
+                    s_subs = [s for s in (subs_res.data or []) if s["student_id"] == sid]
+                    completed = len([s for s in s_subs if s["status"] in ("submitted", "reviewed")])
+                    reviewed_subs = [s for s in s_subs if s["status"] == "reviewed"]
+                    reviewed_count = len(reviewed_subs)
+                    
+                    scores = [s["score"] for s in reviewed_subs if s.get("score") is not None]
+                    avg_score = round(sum(scores) / len(scores)) if scores else 0
+                    
+                    students_map[sid]["progress"] = {
+                        "total": total_tasks_in_plan,
+                        "completed": completed,
+                        "reviewed": reviewed_count,
+                        "pct": round((completed / total_tasks_in_plan) * 100) if total_tasks_in_plan > 0 else 0,
+                        "average_score": avg_score
+                    }
+
 
     return success(list(students_map.values()))
 
@@ -789,14 +831,17 @@ async def get_classroom_study_plan(
     
     # 2. Fetch days with nested periods and tasks
     try:
-        # If the plan is linked to a template, fetch the template's days
-        target_field = "template_id" if plan.get("template_id") else "plan_id"
-        target_id = plan.get("template_id") if plan.get("template_id") else plan["id"]
+        plan_id = plan["id"]
+        template_id = plan.get("template_id")
 
+        q = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
+        
+        filter_clause = f"plan_id.eq.{plan_id}"
+        if template_id:
+            filter_clause += f",template_id.eq.{template_id}"
+            
         days_res = (
-            admin.table("study_plan_days")
-            .select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
-            .eq(target_field, target_id)
+            q.or_(filter_clause)
             .order("day_number")
             .execute()
         )
@@ -900,6 +945,210 @@ async def get_plan_submissions(
 
     res = query.order("created_at", desc=True).execute()
     return success(res.data or [])
+
+async def get_student_overall_progress(admin, student_id, plan_id, template_id=None):
+    """Calculates completion % and average score across the whole plan using pre-calculated metrics."""
+    res = (
+        admin.table("student_progress_metrics")
+        .select("total_tasks, completed_tasks, reviewed_tasks, average_score")
+        .eq("student_id", student_id)
+        .eq("plan_id", plan_id)
+        .execute()
+    )
+    metrics = res.data or []
+    if not metrics:
+        return {"total": 0, "completed": 0, "reviewed": 0, "pct": 0, "average_score": 0}
+
+    total = sum([m["total_tasks"] for m in metrics])
+    completed = sum([m["completed_tasks"] for m in metrics])
+    reviewed = sum([m["reviewed_tasks"] for m in metrics])
+    
+    # Weighted average for score
+    total_score = sum([m["average_score"] * m["reviewed_tasks"] for m in metrics])
+    
+    return {
+        "total": total,
+        "completed": completed,
+        "reviewed": reviewed,
+        "pct": round((completed / total) * 100) if total > 0 else 0,
+        "average_score": round(total_score / reviewed) if reviewed > 0 else 0
+    }
+
+
+async def get_student_day_progress(admin, student_id, day_id):
+    """Calculates completion % and average score for a student for a specific day using metrics table."""
+    # First get plan_id and day_number
+    day_res = admin.table("study_plan_days").select("plan_id, day_number").eq("id", day_id).maybe_single().execute()
+    if not day_res.data:
+        return {"total": 0, "completed": 0, "reviewed": 0, "pct": 0, "average_score": 0}
+    
+    plan_id = day_res.data["plan_id"]
+    day_number = day_res.data["day_number"]
+
+    res = (
+        admin.table("student_progress_metrics")
+        .select("total_tasks, completed_tasks, reviewed_tasks, average_score")
+        .eq("student_id", student_id)
+        .eq("plan_id", plan_id)
+        .eq("day_number", day_number)
+        .maybe_single()
+        .execute()
+    )
+    m = res.data
+    if not m:
+        return {"total": 0, "completed": 0, "reviewed": 0, "pct": 0, "average_score": 0}
+    
+    return {
+        "total": m["total_tasks"],
+        "completed": m["completed_tasks"],
+        "reviewed": m["reviewed_tasks"],
+        "pct": round((m["completed_tasks"] / m["total_tasks"]) * 100) if m["total_tasks"] > 0 else 0,
+        "average_score": m["average_score"]
+    }
+
+
+@router.get("/submissions/{submission_id}")
+async def get_single_submission(
+    submission_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    """Returns full details for a single submission."""
+    admin = get_admin_client()
+    res = (
+        admin.table("study_plan_submissions")
+        .select("*, student:students(id, name, phone), task:study_plan_tasks(id, title, task_type, period:study_plan_periods(id, day:study_plan_days(id, plan_id, template_id)))")
+        .eq("id", submission_id)
+        .maybe_single()
+        .execute()
+    )
+    if not res.data:
+        return error("NOT_FOUND", "Submission not found", 404)
+    
+    submission = res.data
+    
+    # Calculate day progress
+    task = submission.get("task") or {}
+    period = task.get("period") or {}
+    day = period.get("day") or {}
+    day_id = day.get("id")
+    
+    day_progress = {"total": 0, "completed": 0, "reviewed": 0, "pct": 0}
+    if day_id:
+        day_progress = await get_student_day_progress(admin, submission["student_id"], day_id)
+    
+    submission["day_progress"] = day_progress
+    return success(submission)
+
+
+@router.get("/students/{student_id}/study-plan/period/{period_id}/submissions")
+async def get_period_submissions(
+    student_id: str,
+    period_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    """Returns all submissions by a student for all tasks in a specific period."""
+    admin = get_admin_client()
+    
+    # 1. Get period and tasks
+    period_res = admin.table("study_plan_periods").select("title").eq("id", period_id).maybe_single().execute()
+    period_title = period_res.data["title"] if period_res.data else "Period"
+
+    tasks_res = admin.table("study_plan_tasks").select("id, title, task_type").eq("period_id", period_id).execute()
+    tasks = tasks_res.data or []
+    if not tasks:
+        return success([])
+    
+    task_ids = [t["id"] for t in tasks]
+    
+    # 2. Get submissions for these tasks
+    subs_res = (
+        admin.table("study_plan_submissions")
+        .select("*, student:students(id, name, phone), task:study_plan_tasks(id, title, task_type)")
+        .eq("student_id", student_id)
+        .in_("task_id", task_ids)
+        .execute()
+    )
+    
+    submissions = subs_res.data or []
+    
+    day_progress = {"total": 0, "completed": 0, "reviewed": 0, "pct": 0}
+    if submissions:
+        # Get day_id from the first task's period
+        first_task_id = task_ids[0]
+        task_info = admin.table("study_plan_tasks").select("period:study_plan_periods(day_id)").eq("id", first_task_id).maybe_single().execute()
+        if task_info.data:
+            p = task_info.data.get("period") or {}
+            day_id = p.get("day_id")
+            if day_id:
+                day_progress = await get_student_day_progress(admin, student_id, day_id)
+
+    for sub in submissions:
+        sub["period_title"] = period_title
+        sub["day_progress"] = day_progress
+        
+    return success(submissions)
+
+
+@router.get("/submissions/pending")
+async def get_pending_submissions(
+    request: Request,
+    token: TokenData = Depends(require_teacher)
+):
+    """
+    Returns all submissions from students in teacher's classes 
+    that have status 'submitted' (Under Review).
+    """
+    client = get_user_client(request.state.jwt_token)
+    
+    # 1. Get teacher's classes
+    classes_res = (
+        client.table("classes").select("id")
+        .eq("teacher_id", token.user_id).execute()
+    )
+    class_ids = [c["id"] for c in (classes_res.data or [])]
+    if not class_ids:
+        return success([])
+
+    # 2. Get students in those classes
+    enrollments_res = (
+        client.table("class_enrollments")
+        .select("student_id")
+        .in_("class_id", class_ids)
+        .execute()
+    )
+    student_ids = list({r["student_id"] for r in (enrollments_res.data or [])})
+    if not student_ids:
+        return success([])
+
+    # 3. Fetch submissions with status 'submitted'
+    res = (
+        client.table("study_plan_submissions")
+        .select("*, student:students(name, phone), task:study_plan_tasks(title, task_type)")
+        .in_("student_id", student_ids)
+        .eq("status", "submitted")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    
+    # Flatten for frontend
+    flat_data = []
+    for sub in (res.data or []):
+        flat_data.append({
+            "id": sub["id"],
+            "student_id": sub["student_id"],
+            "student_name": sub.get("student", {}).get("name") if sub.get("student") else "Unknown",
+            "task_id": sub["task_id"],
+            "task_title": sub.get("task", {}).get("title") if sub.get("task") else "Unknown Task",
+            "task_type": sub.get("task", {}).get("task_type") if sub.get("task") else "unknown",
+            "status": sub["status"],
+            "score": sub.get("score"),
+            "feedback": sub.get("feedback"),
+            "submitted_at": sub.get("created_at"),
+            "audio_url": sub.get("audio_url"),
+            "content": sub.get("content")
+        })
+        
+    return success(flat_data)
 
 
 @router.patch("/submissions/{submission_id}/review")
@@ -1116,3 +1365,179 @@ async def delete_classroom_task(
     admin = get_admin_client()
     admin.table("study_plan_tasks").delete().eq("id", task_id).execute()
     return success({"deleted": True})
+
+
+@router.get("/students/{student_id}/study-plan/{class_id}/progress")
+async def get_student_study_plan_progress(
+    student_id: str,
+    class_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    """
+    Returns the full study plan structure for a student in a class,
+    including their submission status and scores for every task.
+    """
+    admin = get_admin_client()
+    
+    # 1. Verify class belongs to teacher/tenant
+    q = admin.table("classes").select("id")
+    if token.role not in ("admin", "platform_admin"):
+        q = q.eq("teacher_id", token.user_id)
+    else:
+        q = q.eq("tenant_id", token.tenant_id)
+    
+    class_res = q.eq("id", class_id).maybe_single().execute()
+    if not class_res.data:
+        return error("FORBIDDEN", "Class not found or access denied", 403)
+
+    # 2. Get the active plan for this classroom
+    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).maybe_single().execute()
+    if not plan_res.data:
+        return error("NOT_FOUND", "No study plan assigned to this classroom", 404)
+    
+    plan = plan_res.data
+    plan_id = plan["id"]
+    template_id = plan.get("template_id")
+
+    # 3. Fetch days, periods, tasks
+    # We fetch days that belong to EITHER the specific plan OR the template it's linked to.
+    # This ensures sync even if some days were added to the template and some to the plan.
+    q = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
+    
+    if template_id:
+        days_res = q.or_(f"plan_id.eq.{plan_id},template_id.eq.{template_id}").order("day_number").execute()
+    else:
+        days_res = q.eq("plan_id", plan_id).order("day_number").execute()
+    days = days_res.data or []
+
+    # 4. Fetch all submissions by this student for these tasks
+    # We'll get task_ids first to filter submissions
+    task_ids = []
+    for d in days:
+        for p in d.get("periods", []):
+            for t in p.get("tasks", []):
+                task_ids.append(t["id"])
+    
+    submissions = []
+    if task_ids:
+        subs_res = (
+            admin.table("study_plan_submissions")
+            .select("*")
+            .eq("student_id", student_id)
+            .in_("task_id", task_ids)
+            .execute()
+        )
+        submissions = subs_res.data or []
+
+    # 5. Map submissions to tasks
+    subs_map = {s["task_id"]: s for s in submissions}
+    
+    for d in days:
+        day_tasks_count = 0
+        day_completed_count = 0
+        day_reviewed_count = 0
+        day_total_score = 0
+        
+        for p in d.get("periods", []):
+            period_tasks_count = 0
+            period_completed_count = 0
+            period_reviewed_count = 0
+            period_total_score = 0
+            
+            p["tasks"].sort(key=lambda x: x.get("order_index", 0))
+            for t in p["tasks"]:
+                period_tasks_count += 1
+                day_tasks_count += 1
+                sub = subs_map.get(t["id"])
+                t["submission"] = sub
+                if sub:
+                    period_completed_count += 1
+                    day_completed_count += 1
+                    if sub["status"] == "reviewed":
+                        period_reviewed_count += 1
+                        day_reviewed_count += 1
+                        score = sub.get("score", 0)
+                        period_total_score += score
+                        day_total_score += score
+            
+            p["progress"] = {
+                "total": period_tasks_count,
+                "completed": period_completed_count,
+                "reviewed": period_reviewed_count,
+                "pct": round((period_completed_count / period_tasks_count) * 100) if period_tasks_count > 0 else 0,
+                "average_score": round(period_total_score / period_reviewed_count) if period_reviewed_count > 0 else 0,
+                "is_fully_corrected": period_reviewed_count == period_tasks_count and period_tasks_count > 0
+            }
+        
+        d["periods"].sort(key=lambda x: x.get("order_index", 0))
+        d["progress"] = {
+            "total": day_tasks_count,
+            "completed": day_completed_count,
+            "reviewed": day_reviewed_count,
+            "pct": round((day_completed_count / day_tasks_count) * 100) if day_tasks_count > 0 else 0,
+            "average_score": round(day_total_score / day_reviewed_count) if day_reviewed_count > 0 else 0,
+            "is_fully_corrected": day_reviewed_count == day_tasks_count and day_tasks_count > 0
+        }
+
+    # Calculate overall progress
+    overall_progress = await get_student_overall_progress(admin, student_id, plan_id, template_id)
+
+    return success({
+        "plan": plan,
+        "days": days,
+        "overall_progress": overall_progress
+    })
+
+
+@router.get("/students/{student_id}/report")
+async def get_student_report_for_teacher(
+    student_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    token: TokenData = Depends(require_teacher)
+):
+    """
+    Returns a detailed progress report for a specific student.
+    Used by teachers to view and export student performance.
+    """
+    admin = get_admin_client()
+    
+    # 1. Verify student belongs to teacher's organization
+    student_check = admin.table("students").select("id, name, tenant_id").eq("id", student_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
+    if not student_check.data:
+        return error("NOT_FOUND", "Student not found in your organization", 404)
+    
+    # 2. Fetch submissions in date range
+    query = admin.table("study_plan_submissions").select("*, task:study_plan_tasks(title, task_type)").eq("student_id", student_id).eq("status", "reviewed")
+    
+    if start_date:
+        query = query.gte("created_at", start_date)
+    if end_date:
+        query = query.lte("created_at", end_date)
+        
+    res = query.order("created_at", desc=True).execute()
+    submissions = res.data or []
+    
+    # 3. Calculate stats
+    total_tasks = len(submissions)
+    total_possible_pct = total_tasks * 100
+    total_scored_pct = sum([s.get("score", 0) for s in submissions])
+    
+    overall_pct = round((total_scored_pct / total_possible_pct) * 100) if total_possible_pct > 0 else 0
+    
+    report_items = []
+    for s in submissions:
+        report_items.append({
+            "task_title": s.get("task", {}).get("title"),
+            "task_type": s.get("task", {}).get("task_type"),
+            "score": s.get("score", 0),
+            "feedback": s.get("feedback"),
+            "date": s.get("created_at")
+        })
+        
+    return success({
+        "student_name": student_check.data["name"],
+        "overall_percentage": overall_pct,
+        "total_tasks": total_tasks,
+        "report_items": report_items
+    })

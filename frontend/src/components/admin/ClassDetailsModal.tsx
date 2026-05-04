@@ -79,7 +79,7 @@ export function ClassDetailsModal({ open, onOpenChange, classData, onUpdate }: C
         .then(res => {
           // Filter out students already in the class
           const existingIds = new Set(students.map(s => s.id))
-          const filtered = (res.data.data.items || []).filter((s: any) => !existingIds.has(s.id))
+          const filtered = (res.data.data || []).filter((s: any) => !existingIds.has(s.id))
           setSearchResults(filtered)
         })
         .catch(() => toast.error('Search failed'))

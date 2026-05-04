@@ -135,9 +135,11 @@ export default function StudentDashboard() {
           </CardContent>
         </Card>
 
-        <QuickStat label="Assignments" value="2" sub="Pending" from="from-amber-400" to="to-orange-500" />
+        <Link to="/student/report" className="block h-full">
+          <QuickStat label="My Report" value="View" sub="Full Monthly" from="from-blue-400" to="to-indigo-500" />
+        </Link>
         <QuickStat label="Attendance" value="92%" sub="This Month" from="from-emerald-400" to="to-teal-500" />
-        <QuickStat label="Doubts" value={String(pendingDoubts)} sub="Answered" from="from-blue-400" to="to-indigo-500" />
+        <QuickStat label="Doubts" value={String(pendingDoubts)} sub="Answered" from="from-violet-500" to="to-purple-600" />
       </div>
 
       {/* Today's Plan */}

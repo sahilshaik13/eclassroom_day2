@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Video, Users, MoreVertical, Settings, Trash2, BookOpen } from 'lucide-react'
+import { Plus, Video, Users, MoreVertical, Settings, Trash2, BookOpen, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../services/api'
 import type { ClassItem } from '../../types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Card,
   CardContent,
@@ -21,8 +22,16 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 
 export default function AdminClassesPage() {
   const navigate = useNavigate()
@@ -31,6 +40,12 @@ export default function AdminClassesPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [detailsModalOpen, setDetailsModalOpen] = useState(false)
   const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null)
+
+  // Rename state
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameClass, setRenameClass] = useState<ClassItem | null>(null)
+  const [renameName, setRenameName] = useState('')
+  const [renaming, setRenaming] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -62,6 +77,27 @@ export default function AdminClassesPage() {
     }
   }
 
+  const openRename = (c: ClassItem) => {
+    setRenameClass(c)
+    setRenameName(c.name)
+    setRenameOpen(true)
+  }
+
+  const handleRename = async () => {
+    if (!renameClass || !renameName.trim()) return
+    setRenaming(true)
+    try {
+      await api.patch(`/admin/classes/${renameClass.id}`, { name: renameName.trim() })
+      toast.success('Class renamed successfully')
+      setRenameOpen(false)
+      load()
+    } catch {
+      toast.error('Failed to rename class')
+    } finally {
+      setRenaming(false)
+    }
+  }
+
   return (
     <DashboardPageLayout
       title="Class Management"
@@ -90,6 +126,14 @@ export default function AdminClassesPage() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
+                      <DropdownMenuItem
+                        onClick={() => openRename(c)}
+                        className="cursor-pointer font-medium gap-2"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        Rename Class
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem 
                         onClick={() => handleDeleteClass(c.id, c.name)}
                         className="text-red-600 focus:bg-red-50 focus:text-red-600 cursor-pointer font-medium"
@@ -158,6 +202,38 @@ export default function AdminClassesPage() {
           )}
         </div>
       )}
+
+      {/* Rename Dialog */}
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-sm bg-white">
+          <DialogHeader>
+            <DialogTitle>Rename Class</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              autoFocus
+              value={renameName}
+              onChange={e => setRenameName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleRename()}
+              placeholder="Class name"
+              className="rounded-xl"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} className="rounded-xl">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRename}
+              disabled={renaming || !renameName.trim()}
+              className="rounded-xl"
+            >
+              {renaming ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ClassModal
         open={modalOpen}
         onOpenChange={setModalOpen}

@@ -77,10 +77,15 @@ const DropdownMenuItem = ({ className, children, onClick }: any) => (
     </div>
 )
 
+const DropdownMenuSeparator = () => (
+    <div className="my-1 h-px bg-slate-100" />
+)
+
 export {
     DropdownMenu,
     DropdownMenuTrigger,
     DropdownMenuContent,
     DropdownMenuCheckboxItem,
     DropdownMenuItem,
+    DropdownMenuSeparator,
 }

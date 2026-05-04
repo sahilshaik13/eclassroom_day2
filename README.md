@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────┐     HTTPS      ┌──────────────────────────┐
 │   Vite / React      │ ──────────────▶│   FastAPI (Python)       │
-│   (port 5173)       │                │   (port 8000)            │
+│   (port 5173)       │                │   (port 8080)            │
 │                     │                │                          │
 │  - Auth pages       │                │  - Business logic        │
 │  - Student portal   │                │  - JWT validation        │
@@ -48,7 +48,7 @@ cd backend
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env          # fill in your Supabase keys
-uvicorn app.main:app --reload  # http://localhost:8000/docs
+uvicorn app.main:app --reload --port 8080  # http://localhost:8080/docs
 ```
 
 ### Run migrations

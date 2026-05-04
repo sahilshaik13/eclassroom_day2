@@ -4,7 +4,7 @@ import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import {
   BookOpen, LayoutDashboard, GraduationCap, MessageCircle, Calendar, UserCircle,
-  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, CheckCircle2,
+  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, CheckCircle2, TrendingUp, FileText
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { authApi } from '@/services/authApi'
@@ -19,7 +19,9 @@ interface NavItem {
 const NAV_ITEMS: Record<UserRole, NavItem[]> = {
   student: [
     { label: 'Dashboard', href: '/student', icon: LayoutDashboard },
-    { label: "Today's Goal", href: '/student/today', icon: Calendar },
+    { label: 'Today\'s Goal', href: '/student/today', icon: Calendar },
+    { label: 'Progress', href: '/student/progress', icon: TrendingUp },
+    { label: 'Progress Report', href: '/student/report', icon: FileText },
     { label: 'My Classes', href: '/student/classes', icon: BookOpen },
     { label: 'Competitions', href: '/student/competitions', icon: Trophy },
     { label: 'Doubts', href: '/student/doubts', icon: MessageCircle },
@@ -66,6 +68,7 @@ const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
   student: [
     { label: 'Home', href: '/student', icon: LayoutDashboard },
     { label: 'Goal', href: '/student/today', icon: Calendar },
+    { label: 'Report', href: '/student/report', icon: FileText },
     { label: 'Classes', href: '/student/classes', icon: BookOpen },
     { label: 'Doubts', href: '/student/doubts', icon: MessageCircle },
     { label: 'Profile', href: '/student/profile', icon: UserCircle },

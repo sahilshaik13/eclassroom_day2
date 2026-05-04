@@ -48,6 +48,7 @@ interface StudyPlanBuilderProps {
   onDeleteTask?: (dayIdx: number, pIdx: number, tIdx: number) => void;
   onUpdateDayDate?: (dayIdx: number, dateStr: string) => void;
   onUpdateDayAccessibility?: (dayIdx: number, isAccessible: boolean) => void;
+  onDeleteDay?: (dayIdx: number) => void;
 }
 
 // Helper for local-first editing (Saves ONLY on blur/when focus is lost)
@@ -92,7 +93,8 @@ export default function StudyPlanBuilder({
   onUpdateTask,
   onDeleteTask,
   onUpdateDayDate,
-  onUpdateDayAccessibility
+  onUpdateDayAccessibility,
+  onDeleteDay
 }: StudyPlanBuilderProps) {
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({ 1: true });
   const [activeMCQTask, setActiveMCQTask] = useState<{ dIdx: number, pIdx: number, tIdx: number } | null>(null);
@@ -230,12 +232,16 @@ export default function StudyPlanBuilder({
                 </Button>
               )}
               
-              {!readOnly && !onDeletePeriod && ( // Only show remove day in admin template mode
+              {(onDeleteDay || !onDeletePeriod) && !readOnly && (
                 <Button 
                   variant="ghost" 
                   size="icon" 
                   className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl"
-                  onClick={(e) => { e.stopPropagation(); removeDay(dIdx); }}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    if (onDeleteDay) onDeleteDay(dIdx);
+                    else removeDay(dIdx); 
+                  }}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

@@ -30,6 +30,8 @@ import StudentProfilePage from '@/pages/student/StudentProfilePage'
 import StudentCompetitionsPage from '@/pages/student/StudentCompetitionsPage'
 import StudentExamPage from '@/pages/student/StudentExamPage'
 import StudentTodayPlanPage from '@/pages/student/StudentTodayPlanPage'
+import StudentProgressPage from '@/pages/student/StudentProgressPage'
+import StudentReportPage from '@/pages/student/StudentReportPage'
 
 // Teacher pages
 import TeacherDashboard from './pages/teacher/TeacherDashboard'
@@ -41,6 +43,7 @@ import ReportsPage from './pages/teacher/ReportsPage'
 import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
 import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
 import TeacherSubmissionsPage from './pages/teacher/TeacherSubmissionsPage'
+import TeacherEvaluationPage from './pages/teacher/TeacherEvaluationPage'
 import TeacherApplicantsPage from './pages/teacher/TeacherApplicantsPage'
 import TeacherApplyPage from './pages/public/TeacherApplyPage'
 import TeacherCompetitionsPage from './pages/teacher/TeacherCompetitionsPage'
@@ -208,10 +211,12 @@ export default function App() {
           <Route index element={<StudentDashboard />} />
           <Route path="study-plan" element={<StudyPlanPage />} />
           <Route path="classes" element={<StudentClassesPage />} />
+          <Route path="progress" element={<StudentProgressPage />} />
           <Route path="today" element={<StudentTodayPlanPage />} />
           <Route path="doubts" element={<StudentDoubtsPage />} />
           <Route path="competitions" element={<StudentCompetitionsPage />} />
           <Route path="competitions/:id/exam" element={<StudentExamPage />} />
+          <Route path="report" element={<StudentReportPage />} />
           <Route path="profile" element={<StudentProfilePage />} />
         </Route>
 
@@ -233,6 +238,9 @@ export default function App() {
           <Route path="competitions" element={<TeacherCompetitionsPage />} />
           <Route path="competitions/:id/setup" element={<TeacherExamSetupPage />} />
           <Route path="competitions/:competition_id/evaluate/:registration_id" element={<TeacherParticipantPortal />} />
+          <Route path="evaluate/:mode/:id" element={<TeacherEvaluationPage />} />
+          <Route path="evaluate/:mode/:id/:studentId" element={<TeacherEvaluationPage />} />
+          <Route path="report/:studentId" element={<StudentReportPage />} />
         </Route>
 
         {/* ── Admin portal ──────────────────── */}

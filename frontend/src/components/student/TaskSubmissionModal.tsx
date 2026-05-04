@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Upload, Loader2, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Upload, Loader2, Send, CheckCircle2, AlertCircle, Mic, Square, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,9 +25,59 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
   });
   const [result, setResult] = useState<any>(null);
 
+  // Audio recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        stream.getTracks().forEach(t => t.stop());
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      toast.error("Microphone access denied");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
+      let finalAudioUrl = null;
+      if (audioBlob) {
+        // Convert blob to base64 for submission (matching competition pattern)
+        const reader = new FileReader();
+        finalAudioUrl = await new Promise((resolve) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(audioBlob);
+        });
+      }
+
       const payload = {
         content: {
           submission_text: submission.submission_text,
@@ -36,7 +86,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
             : null,
           media_url: submission.media_url
         },
-        audio_url: null // Add if voice recording is implemented later
+        audio_url: finalAudioUrl
       };
       
       const res = await api.post(`/student/tasks/${task.id}/submit`, payload);
@@ -44,7 +94,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
       
       if (task.task_type === 'mcq') {
         setResult(data);
-        toast.success(`MCQ Submitted! Score: ${data.score}/${data.total_questions}`);
+        toast.success("MCQ submitted! Your teacher will review and share the results.");
       } else {
         toast.success("Submission received! Teacher will review soon.");
         onSuccess();
@@ -62,11 +112,11 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
       return (
         <div className="space-y-6 py-4">
           <div className="flex flex-col items-center justify-center p-8 bg-slate-50 rounded-3xl border border-slate-100 text-center">
-            <div className={`h-20 w-20 rounded-full flex items-center justify-center mb-4 ${result.score === result.total_questions ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
+            <div className="h-20 w-20 rounded-full flex items-center justify-center mb-4 bg-blue-100 text-blue-600">
               <CheckCircle2 className="h-10 w-10" />
             </div>
-            <h3 className="text-2xl font-black text-slate-900">Quiz Completed!</h3>
-            <p className="text-slate-500 font-bold mt-1">You scored {result.score} out of {result.total_questions}</p>
+            <h3 className="text-2xl font-black text-slate-900">Submitted for Review!</h3>
+            <p className="text-slate-500 font-bold mt-1">Your teacher will review your answers and share the results.</p>
           </div>
           
           <Button onClick={() => { onSuccess(); onClose(); }} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black">
@@ -121,6 +171,75 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
           >
             {submitting ? <Loader2 className="h-6 w-6 animate-spin" /> : "Submit Answers"}
           </Button>
+        </div>
+      );
+    }
+
+    if (task.task_type === 'recite') {
+      return (
+        <div className="space-y-8 py-4">
+          <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 flex flex-col items-center justify-center text-center">
+            <div className={`h-24 w-24 rounded-full flex items-center justify-center mb-6 transition-all ${isRecording ? 'bg-red-100 text-red-600 animate-pulse' : audioUrl ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
+              <Mic className="h-10 w-10" />
+            </div>
+            
+            {isRecording ? (
+              <div className="space-y-4">
+                <h3 className="text-xl font-black text-slate-900">Recording In Progress...</h3>
+                <p className="text-slate-500 font-medium">Recite clearly into your microphone.</p>
+                <Button 
+                  onClick={stopRecording}
+                  className="bg-red-600 hover:bg-red-700 text-white rounded-2xl px-8 h-14 font-black text-lg shadow-xl shadow-red-200"
+                >
+                  <Square className="h-5 w-5 mr-2 fill-current" /> Stop Recording
+                </Button>
+              </div>
+            ) : audioUrl ? (
+              <div className="space-y-6 w-full">
+                <h3 className="text-xl font-black text-slate-900">Recitation Recorded!</h3>
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <audio src={audioUrl} controls className="w-full h-12" />
+                </div>
+                <div className="flex gap-3 justify-center">
+                  <Button 
+                    onClick={startRecording}
+                    variant="outline"
+                    className="rounded-xl font-bold border-slate-200"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" /> Re-record
+                  </Button>
+                  <Button 
+                    onClick={handleSubmit}
+                    disabled={submitting}
+                    className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-8 font-black shadow-lg shadow-blue-200"
+                  >
+                    {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Send className="h-5 w-5 mr-2" /> Submit Recitation</>}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <h3 className="text-xl font-black text-slate-900">Ready to Record</h3>
+                <p className="text-slate-500 font-medium leading-relaxed">Click the button below and start reciting your assigned passage.</p>
+                <Button 
+                  onClick={startRecording}
+                  className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl px-10 h-16 font-black text-xl shadow-xl shadow-blue-200"
+                >
+                  <Mic className="h-6 w-6 mr-2" /> Start Recording
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Additional Notes (Optional)</Label>
+            <Textarea 
+              placeholder="Any comments for your teacher..."
+              value={submission.submission_text}
+              onChange={(e) => setSubmission({ ...submission, submission_text: e.target.value })}
+              className="rounded-2xl border-slate-200 focus:border-blue-500 focus:ring-blue-500/20 font-medium"
+            />
+          </div>
         </div>
       );
     }

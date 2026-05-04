@@ -22,7 +22,10 @@ CREATE OR REPLACE FUNCTION get_tenant_id()
 RETURNS uuid
 LANGUAGE sql STABLE
 AS $$
-  SELECT (auth.jwt() ->> 'tenant_id')::uuid;
+  SELECT (COALESCE(
+    auth.jwt() -> 'app_metadata' ->> 'tenant_id',
+    auth.jwt() ->> 'tenant_id'
+  ))::uuid;
 $$;
 
 -- ── Helper: extract role from JWT ────────────────────────────
@@ -30,7 +33,10 @@ CREATE OR REPLACE FUNCTION get_user_role()
 RETURNS text
 LANGUAGE sql STABLE
 AS $$
-  SELECT auth.jwt() ->> 'role';
+  SELECT COALESCE(
+    auth.jwt() -> 'app_metadata' ->> 'role',
+    auth.jwt() ->> 'role'
+  );
 $$;
 
 

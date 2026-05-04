@@ -183,6 +183,21 @@ export default function TeacherStudyPlanPage() {
         } catch { toast.error("Failed to update accessibility") }
     }
 
+    const handleDeleteDay = async (dayIdx: number) => {
+        const day = days[dayIdx]
+        if (!confirm(`Delete Day ${day.day_number} and all its periods/tasks?`)) return
+        try {
+            await api.delete(`/teacher/study-plans/days/${day.id}`)
+            const newDays = [...days]
+            newDays.splice(dayIdx, 1)
+            // Re-order day numbers
+            const updatedDays = newDays.map((d, i) => ({ ...d, day_number: i + 1 }))
+            setDays(updatedDays)
+            setPlan({ ...plan, updated_at: new Date().toISOString() })
+            toast.success("Day deleted")
+        } catch { toast.error("Failed to delete day") }
+    }
+
     return (
         <DashboardPageLayout
             title="Classroom Curriculum"
@@ -281,6 +296,7 @@ export default function TeacherStudyPlanPage() {
                         <StudyPlanBuilder 
                             days={days}
                             onChange={setDays}
+                            onDeleteDay={handleDeleteDay}
                             onAddPeriod={handleAddPeriod}
                             onUpdatePeriod={handleUpdatePeriod}
                             onDeletePeriod={handleDeletePeriod}
