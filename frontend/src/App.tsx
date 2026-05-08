@@ -42,7 +42,6 @@ import GradesPage from './pages/teacher/GradesPage'
 import ReportsPage from './pages/teacher/ReportsPage'
 import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
 import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
-import TeacherSubmissionsPage from './pages/teacher/TeacherSubmissionsPage'
 import TeacherEvaluationPage from './pages/teacher/TeacherEvaluationPage'
 import TeacherApplicantsPage from './pages/teacher/TeacherApplicantsPage'
 import TeacherApplyPage from './pages/public/TeacherApplyPage'
@@ -228,7 +227,7 @@ export default function App() {
           <Route index element={<TeacherDashboard />} />
           <Route path="students" element={<TeacherStudentsPage />} />
           <Route path="study-plan" element={<TeacherStudyPlanPage />} />
-          <Route path="submissions" element={<TeacherSubmissionsPage />} />
+          <Route path="submissions" element={<Navigate to="/teacher" replace />} />
           <Route path="applicants" element={<TeacherApplicantsPage />} />  {/* ← was missing */}
           <Route path="attendance" element={<AttendancePage />} />
           <Route path="doubts" element={<TeacherDoubtsPage />} />

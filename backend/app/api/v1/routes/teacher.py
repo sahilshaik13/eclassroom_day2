@@ -860,17 +860,51 @@ async def get_classroom_study_plan(
         return error("QUERY_ERROR", str(e), 500)
 
 
-async def touch_plan(plan_id: str):
+def _is_present_uuid(val) -> bool:
+    """PostgREST may receive Python None as the literal 'None' for uuid filters — avoid that."""
+    if val is None:
+        return False
+    s = str(val).strip()
+    if not s or s.lower() in ("none", "null"):
+        return False
+    return True
+
+
+async def touch_plan(plan_id: Optional[str]):
     """Sets updated_at = now() for a study plan to mark it as dirty."""
-    from datetime import datetime
+    if not _is_present_uuid(plan_id):
+        return
     admin = get_admin_client()
     now = datetime.utcnow().isoformat()
-    admin.table("study_plans").update({"updated_at": now}).eq("id", plan_id).execute()
+    admin.table("study_plans").update({"updated_at": now}).eq("id", str(plan_id)).execute()
+
+
+async def touch_plans_for_template(template_id: Optional[str]):
+    """Days keyed by template_id are shared; bump all classroom plans using that template."""
+    if not _is_present_uuid(template_id):
+        return
+    admin = get_admin_client()
+    now = datetime.utcnow().isoformat()
+    admin.table("study_plans").update({"updated_at": now}).eq("template_id", str(template_id)).execute()
+
 
 async def touch_plan_by_day(day_id: str):
     admin = get_admin_client()
-    res = admin.table("study_plan_days").select("plan_id").eq("id", day_id).maybe_single().execute()
-    if res.data: await touch_plan(res.data["plan_id"])
+    res = (
+        admin.table("study_plan_days")
+        .select("plan_id, template_id")
+        .eq("id", day_id)
+        .maybe_single()
+        .execute()
+    )
+    if not res.data:
+        return
+    row = res.data
+    pid, tid = row.get("plan_id"), row.get("template_id")
+    if _is_present_uuid(pid):
+        await touch_plan(pid)
+    elif _is_present_uuid(tid):
+        await touch_plans_for_template(tid)
 
 async def touch_plan_by_period(period_id: str):
     admin = get_admin_client()
@@ -1285,11 +1319,7 @@ async def create_classroom_period(
     body: TeacherPeriodCreate,
     token: TokenData = Depends(require_teacher)
 ):
-    admin = get_admin_client()
-    # Touch parent plan
-    day_res = admin.table("study_plan_days").select("plan_id").eq("id", body.day_id).maybe_single().execute()
-    if day_res.data:
-        admin.table("study_plans").update({"updated_at": "now()"}).eq("id", day_res.data["plan_id"]).execute()
+    await touch_plan_by_day(str(body.day_id))
 
     admin = get_admin_client()
     res = admin.table("study_plan_periods").insert({

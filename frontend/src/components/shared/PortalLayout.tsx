@@ -4,7 +4,7 @@ import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import {
   BookOpen, LayoutDashboard, GraduationCap, MessageCircle, Calendar, UserCircle,
-  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, CheckCircle2, TrendingUp, FileText
+  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, TrendingUp, FileText
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { authApi } from '@/services/authApi'
@@ -31,7 +31,6 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Home', href: '/teacher', icon: LayoutDashboard },
     { label: 'Study Plan', href: '/teacher/study-plan', icon: BookOpen },
     { label: 'Students', href: '/teacher/students', icon: Users },
-    { label: 'Submissions', href: '/teacher/submissions', icon: CheckCircle2 },
     { label: 'New Applicants', href: '/teacher/applicants', icon: GraduationCap },
     { label: 'Competitions', href: '/teacher/competitions', icon: Trophy },
     { label: 'Profile', href: '/teacher/profile', icon: Settings },

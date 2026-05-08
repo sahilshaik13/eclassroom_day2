@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 import { clsx } from 'clsx'
+import { TeacherSubmissionsWorkspace } from '@/components/teacher/TeacherSubmissionsWorkspace'
 
 interface StudentQuestion { id: string; student: string; initials: string; question: string; time: string; subject?: string }
 interface PulseStudent { student_id: string; name: string; completion_pct: number; pending_doubts: number }
@@ -131,6 +132,8 @@ export default function TeacherDashboard() {
         <StatCard value={pendingDoubts !== null ? String(pendingDoubts) : '…'} label="Student Questions" icon={MessageCircle} from="from-[#FF922B]" to="to-[#F76707]" shadow="shadow-orange-500/20" />
         <StatCard value={avgAttendance !== null ? `${avgAttendance}%` : '…'} label="Avg. Attendance" icon={CheckCircle2} from="from-[#20C997]" to="to-[#12B886]" shadow="shadow-emerald-500/20" />
       </div>
+
+      <TeacherSubmissionsWorkspace layout="embedded" />
 
       {/* Today's Schedule — real classes from API */}
       <section className="space-y-4">
