@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, Outlet } from 'react-router-dom'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
+import { useMediaQuery } from 'react-responsive'
 import {
-  BookOpen, LayoutDashboard, GraduationCap, MessageCircle, Calendar, UserCircle,
+  BookOpen, LayoutDashboard, GraduationCap, MessageCircle, UserCircle,
   Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, TrendingUp, FileText
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
@@ -19,7 +20,6 @@ interface NavItem {
 const NAV_ITEMS: Record<UserRole, NavItem[]> = {
   student: [
     { label: 'Dashboard', href: '/student', icon: LayoutDashboard },
-    { label: 'Today\'s Goal', href: '/student/today', icon: Calendar },
     { label: 'Progress', href: '/student/progress', icon: TrendingUp },
     { label: 'Progress Report', href: '/student/report', icon: FileText },
     { label: 'My Classes', href: '/student/classes', icon: BookOpen },
@@ -31,7 +31,6 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Home', href: '/teacher', icon: LayoutDashboard },
     { label: 'Study Plan', href: '/teacher/study-plan', icon: BookOpen },
     { label: 'Students', href: '/teacher/students', icon: Users },
-    { label: 'New Applicants', href: '/teacher/applicants', icon: GraduationCap },
     { label: 'Competitions', href: '/teacher/competitions', icon: Trophy },
     { label: 'Profile', href: '/teacher/profile', icon: Settings },
   ],
@@ -39,6 +38,7 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Students', href: '/admin/students', icon: GraduationCap },
     { label: 'Teachers', href: '/admin/teachers', icon: Users },
+    { label: 'New Applicants', href: '/admin/applicants', icon: GraduationCap },
     { label: 'Classes', href: '/admin/classes', icon: Library },
     { label: 'Study Plans', href: '/admin/study-plans', icon: BookOpen },
     { label: 'Competitions', href: '/admin/competitions', icon: Trophy },
@@ -66,7 +66,6 @@ const ROLE_LABEL: Record<UserRole, string> = {
 const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
   student: [
     { label: 'Home', href: '/student', icon: LayoutDashboard },
-    { label: 'Goal', href: '/student/today', icon: Calendar },
     { label: 'Report', href: '/student/report', icon: FileText },
     { label: 'Classes', href: '/student/classes', icon: BookOpen },
     { label: 'Doubts', href: '/student/doubts', icon: MessageCircle },
@@ -81,6 +80,7 @@ const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
   admin: [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Students', href: '/admin/students', icon: GraduationCap },
+    { label: 'Applicants', href: '/admin/applicants', icon: Users },
     { label: 'Teachers', href: '/admin/teachers', icon: Users },
     { label: 'Settings', href: '/admin/settings', icon: Settings },
   ],
@@ -198,11 +198,18 @@ export default function PortalLayout() {
   const { user, clearSession } = useAuthStore()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const isDesktop = useMediaQuery({ minWidth: 768 })
 
   if (!user) return null
   const role = user.role as UserRole
   const navItems = NAV_ITEMS[role]
   const bottomNavItems = BOTTOM_NAV_ITEMS[role]
+
+  useEffect(() => {
+    if (isDesktop && mobileOpen) {
+      setMobileOpen(false)
+    }
+  }, [isDesktop, mobileOpen])
 
   const handleLogout = async () => {
     try { await authApi.logout() } catch { /* ignore */ }
@@ -212,9 +219,9 @@ export default function PortalLayout() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden relative">
+    <div className="app-shell flex h-dvh min-h-screen bg-slate-50 overflow-hidden relative">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-56 bg-white border-r border-slate-200 shrink-0 relative z-10">
+      <aside className="hidden md:flex flex-col w-56 lg:w-60 bg-white border-r border-slate-200 shrink-0 relative z-10">
         <SidebarContent 
           role={role} 
           navItems={navItems} 
@@ -234,7 +241,7 @@ export default function PortalLayout() {
       )}
       <aside
         className={clsx(
-          'fixed left-0 top-0 bottom-0 z-[70] w-56 bg-white border-r border-slate-200',
+          'fixed left-0 top-0 bottom-0 z-[70] w-[86vw] max-w-72 bg-white border-r border-slate-200',
           'transform transition-transform duration-250 ease-out md:hidden',
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         )}
@@ -256,18 +263,18 @@ export default function PortalLayout() {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar (mobile only) */}
-        <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shrink-0 shadow-sm">
+        <header className="md:hidden flex items-center justify-between px-3.5 py-2.5 bg-white border-b border-slate-200 shrink-0 shadow-sm">
           <button
             onClick={() => setMobileOpen(true)}
             className="text-slate-500 hover:text-slate-900 p-1"
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-[#4E7DFF] flex items-center justify-center">
-              <BookOpen className="w-3.5 h-3.5 text-white" />
+          <div className="hidden min-w-0 items-center gap-2 md:flex">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#4E7DFF]">
+              <BookOpen className="h-3.5 w-3.5 text-white" />
             </div>
-            <span className="text-sm font-black text-slate-900">E-classroom</span>
+            <span className="truncate text-sm font-black text-slate-900">E-classroom</span>
           </div>
           <button className="text-slate-500 hover:text-slate-900 p-1">
             <Bell className="w-5 h-5" />
@@ -275,8 +282,8 @@ export default function PortalLayout() {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto pb-20 md:pb-0">
-          <div className="max-w-6xl mx-auto px-4 py-6 md:px-8">
+        <main className="flex-1 overflow-y-auto overflow-x-clip pb-20 md:pb-0">
+          <div className="mx-auto w-full max-w-7xl px-3 py-3 sm:px-5 sm:py-4 md:px-6 md:py-5 lg:px-8">
             <Outlet />
           </div>
         </main>

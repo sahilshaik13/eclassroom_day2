@@ -1,4 +1,5 @@
 import api from './api'
+import type { AuditLogEntry, PaginationMeta } from '@/types'
 
 export interface Tenant {
     admin_count: number
@@ -35,6 +36,12 @@ export interface PlatformStats {
 export const superAdminApi = {
     getStats: () =>
         api.get<{ success: true; data: PlatformStats }>('/super-admin/stats'),
+
+    getAuditLogs: (params?: { page?: number; limit?: number; tenant_id?: string }) =>
+        api.get<{ success: true; data: AuditLogEntry[]; meta: PaginationMeta }>(
+            '/super-admin/audit-logs',
+            { params },
+        ),
 
     getTenants: () =>
         api.get<{ success: true; data: { tenants: Tenant[] } }>('/super-admin/tenants'),

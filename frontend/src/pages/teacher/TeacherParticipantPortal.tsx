@@ -8,12 +8,14 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { competitionApi } from '@/services/competitionApi'
-import type { Competition, CompetitionRegistration } from '@/types'
+import type { Competition, CompetitionRegistration, CompetitionRegistrationsMeta } from '@/types'
 import clsx from 'clsx'
+import { useAuthStore } from '@/stores/authStore'
 
 export default function TeacherParticipantPortal() {
   const { competition_id, registration_id } = useParams<{ competition_id: string; registration_id: string }>()
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
 
   const [loading, setLoading] = useState(true)
   const [competition, setCompetition] = useState<Competition | null>(null)
@@ -24,10 +26,11 @@ export default function TeacherParticipantPortal() {
   const [remarks, setRemarks] = useState<string>('')
   const [responses, setResponses] = useState<any[]>([])
   const [isSaving, setIsSaving] = useState(false)
+  const [evalMeta, setEvalMeta] = useState<CompetitionRegistrationsMeta | null>(null)
 
   useEffect(() => {
     fetchData()
-  }, [competition_id, registration_id])
+  }, [competition_id, registration_id, user?.id])
 
   const fetchData = async () => {
     if (!competition_id || !registration_id) return
@@ -41,17 +44,24 @@ export default function TeacherParticipantPortal() {
       if (compRes.success) setCompetition(compRes.data)
 
       if (regsRes.success) {
-        const reg = regsRes.data.find(r => r.id === registration_id)
+        const { registrations: regList, meta } = regsRes.data
+        setEvalMeta(meta)
+        const reg = regList.find(r => r.id === registration_id)
         if (reg) {
           setRegistration(reg)
           setResponses(reg.responses || [])
 
-          if (reg.competition_results && reg.competition_results.length > 0) {
+          const gs = reg.competition_grader_scores || []
+          const mine = user?.id ? gs.find((s) => s.grader_user_id === user.id) : undefined
+          if (mine) {
+            setScore(mine.score)
+            setRemarks(mine.remarks || '')
+          } else if (gs.length === 0 && reg.competition_results?.length) {
             setScore(reg.competition_results[0].score)
-            setRemarks(reg.competition_results[0].remarks || '')
+            setRemarks('')
           } else {
-            // For MCQ, we could auto-calculate if it hasn't been saved yet, but we rely on the backend auto-eval
             setScore(0)
+            setRemarks('')
           }
         } else {
           toast.error("Participant not found")
@@ -77,6 +87,8 @@ export default function TeacherParticipantPortal() {
 
   const handleSave = async (releaseResults: boolean) => {
     if (!competition_id || !registration_id) return
+    const collaborative = evalMeta?.collaborative_grading ?? false
+    const effectiveRelease = collaborative ? false : releaseResults
     setIsSaving(true)
     try {
       await competitionApi.evaluateParticipant(
@@ -85,9 +97,13 @@ export default function TeacherParticipantPortal() {
         score,
         remarks,
         responses,
-        releaseResults
+        effectiveRelease
       )
-      toast.success(releaseResults ? 'Results Published to Student!' : 'Evaluation Draft Saved!')
+      if (collaborative) {
+        toast.success('Your score was saved. Once every grader submits, the admin can publish the results to students.')
+      } else {
+        toast.success(releaseResults ? 'Results Published to Student!' : 'Evaluation Draft Saved!')
+      }
       await fetchData()
     } catch (err) {
       toast.error('Failed to save evaluation')
@@ -105,70 +121,219 @@ export default function TeacherParticipantPortal() {
 
   if (!competition || !registration) return null
 
+  if (user?.role === 'teacher' && evalMeta && !evalMeta.my_can_grade) {
+    return (
+      <div className="max-w-lg mx-auto py-20 px-6 text-center space-y-4">
+        <p className="text-lg font-bold text-slate-800">Grading not assigned</p>
+        <p className="text-sm text-slate-600">
+          You can configure this exam if you have setup access, but you are not on the grading roster for this competition.
+        </p>
+        <Button variant="outline" onClick={() => navigate('/teacher/competitions')}>Back to competitions</Button>
+      </div>
+    )
+  }
+
   const isMcq = competition.category === 'mcq'
   const isReleased = registration.results_released
+  const graderScores = registration.competition_grader_scores || []
+  const official = registration.competition_results?.[0]
+  const collaborative = evalMeta?.collaborative_grading ?? false
+  const expectedN = evalMeta?.expected_grader_count ?? 0
+  const submittedN = new Set(graderScores.map((s) => s.grader_user_id)).size
+  const allGradersSubmitted = collaborative && expectedN > 0 && submittedN >= expectedN
+
+  const statusBadge = isReleased ? (
+    <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 sm:text-xs">
+      <CheckCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> Released
+    </div>
+  ) : allGradersSubmitted ? (
+    <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-800 sm:text-xs">
+      <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> Admin publish
+    </div>
+  ) : collaborative ? (
+    <div className="inline-flex w-fit max-w-full flex-wrap items-center gap-1 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 sm:text-xs">
+      <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
+      <span>Graders {submittedN}/{expectedN}</span>
+    </div>
+  ) : (
+    <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 sm:text-xs">
+      <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> Draft
+    </div>
+  )
 
   return (
-    <div className="max-w-5xl mx-auto pb-20">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <Button variant="ghost" onClick={() => navigate(-1)} className="mb-2 -ml-2 text-slate-500 hover:text-slate-900 border-none shadow-none">
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Participants
-          </Button>
-          <div className="flex items-center gap-4">
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Participant Review</h1>
-            {isReleased ? (
-              <div className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1 border border-emerald-100">
-                <CheckCircle className="w-3.5 h-3.5" /> Published
-              </div>
-            ) : (
-              <div className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1 border border-amber-100">
-                <AlertCircle className="w-3.5 h-3.5" /> Draft / Under Review
-              </div>
-            )}
+    <div className="mx-auto max-w-5xl pb-28 md:pb-20">
+      {/* Header — stack on mobile so title and badge never overlap */}
+      <header className="mb-4 space-y-3 md:mb-6">
+        <Button
+          variant="ghost"
+          onClick={() => navigate(-1)}
+          className="-ml-2 h-9 px-2 text-slate-500 hover:text-slate-900"
+        >
+          <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
+        </Button>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0 space-y-2">
+            <h1 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl lg:text-3xl">
+              Participant review
+            </h1>
+            {statusBadge}
           </div>
+
+          {!isReleased && (
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:shrink-0">
+              <Button
+                variant="outline"
+                onClick={() => handleSave(false)}
+                disabled={isSaving}
+                size="sm"
+                className="h-10 min-h-10 w-full gap-1.5 font-semibold sm:w-auto sm:min-w-[8.5rem]"
+              >
+                <Save className="h-4 w-4 shrink-0" />
+                <span className="truncate">{collaborative ? 'Save' : 'Save draft'}</span>
+              </Button>
+              {!collaborative && (
+                <Button
+                  onClick={() => handleSave(true)}
+                  disabled={isSaving}
+                  size="sm"
+                  className="h-10 min-h-10 w-full gap-1.5 font-semibold sm:w-auto sm:min-w-[8.5rem] bg-blue-600 hover:bg-blue-700"
+                >
+                  <SaveAll className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Publish</span>
+                </Button>
+              )}
+            </div>
+          )}
         </div>
-        {!isReleased && (
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              onClick={() => handleSave(false)}
-              disabled={isSaving}
-              className="rounded-xl font-bold bg-white"
-            >
-              <Save className="w-4 h-4 mr-2" /> Save Draft
-            </Button>
-            <Button
-              onClick={() => handleSave(true)}
-              disabled={isSaving}
-              className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/30"
-            >
-              <SaveAll className="w-4 h-4 mr-2" /> Publish Results
-            </Button>
-          </div>
-        )}
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Participant summary first on mobile — then questions; sidebar on lg */}
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-6">
+        {/* Grading sidebar — order-1 on mobile, order-2 on lg stays right via grid placement */}
+        <div className="order-1 space-y-4 lg:order-2 lg:space-y-6">
+          <Card className="relative overflow-hidden rounded-xl border-0 bg-gradient-to-br from-indigo-600 to-blue-700 text-white shadow-lg shadow-blue-900/10 lg:sticky lg:top-4">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-10"
+              style={{
+                backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)',
+                backgroundSize: '16px 16px',
+              }}
+            />
+            <CardHeader className="relative z-10 border-b border-white/10 p-4 pb-4 lg:p-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/15 backdrop-blur-sm lg:h-12 lg:w-12 lg:rounded-2xl">
+                  <BadgeCheck className="h-5 w-5 text-white lg:h-6 lg:w-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-blue-100">Participant</p>
+                  <CardTitle className="truncate text-lg font-black lg:text-xl">{registration.name}</CardTitle>
+                  <p className="mt-1 truncate text-xs text-blue-100/90">
+                    <span className="opacity-70">Phone</span> {registration.phone}
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="relative z-10 space-y-4 p-4 pt-4 lg:p-6 lg:pt-6">
+              {official && graderScores.length > 0 && (
+                <div className="space-y-1 rounded-lg border border-white/20 bg-white/10 p-3 text-xs text-blue-50">
+                  <p className="font-bold text-white/90">
+                    {allGradersSubmitted && !isReleased
+                      ? 'All grader scores in — awaiting admin publish'
+                      : collaborative && !isReleased
+                        ? 'Provisional average (hidden from students)'
+                        : graderScores.length > 1
+                          ? 'Official average'
+                          : 'Official score'}
+                  </p>
+                  <p className="text-2xl font-black text-white">{official.score}/100</p>
+                  {collaborative && expectedN > 0 && (
+                    <p className="pt-1 text-[10px] opacity-90">
+                      {allGradersSubmitted
+                        ? `Submitted ${submittedN} / ${expectedN} — admin can publish`
+                        : `Submitted ${submittedN} / ${expectedN}`}
+                    </p>
+                  )}
+                  <ul className="mt-2 space-y-0.5 text-[11px] opacity-90">
+                    {graderScores.map((s) => (
+                      <li key={s.id} className="flex justify-between gap-2">
+                        <span className="truncate">{s.grader_name || 'Evaluator'}</span>
+                        <span className="shrink-0 font-semibold tabular-nums">{s.score}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div>
+                <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-blue-100 lg:text-xs">
+                  {collaborative
+                    ? 'Your score (0–100), averaged when all graders save'
+                    : 'Final score (0–100)'}
+                </Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  disabled={!registration.is_submitted || isReleased}
+                  className="h-14 rounded-xl border-white/20 bg-white/10 text-center text-2xl font-black text-white placeholder:text-blue-200/50 focus-visible:ring-white/30 disabled:opacity-50 lg:h-16 lg:text-3xl"
+                  value={score}
+                  onChange={(e) => setScore(Number(e.target.value))}
+                />
+              </div>
 
-        {/* Left Column: Content Review */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="rounded-[2rem] border-0 shadow-xl shadow-slate-200/50 overflow-hidden">
-            <CardHeader className="bg-slate-50 border-b border-slate-100 p-6">
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-indigo-500" />
-                Submission Details
+              <div>
+                <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-blue-100 lg:text-xs">
+                  General remarks
+                </Label>
+                <Textarea
+                  placeholder="Overall feedback…"
+                  disabled={!registration.is_submitted || isReleased}
+                  className="min-h-[100px] resize-none rounded-xl border-white/20 bg-white/10 text-sm text-white placeholder:text-blue-200/50 focus-visible:ring-white/30 disabled:opacity-50 lg:min-h-[120px]"
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                />
+              </div>
+
+              {!isReleased && !collaborative && (
+                <Button
+                  className="h-11 w-full rounded-xl bg-white font-black text-blue-700 hover:bg-blue-50"
+                  onClick={() => handleSave(true)}
+                  disabled={!registration.is_submitted || isSaving}
+                >
+                  {isSaving ? 'Processing…' : 'Publish results'}
+                </Button>
+              )}
+              {!isReleased && collaborative && (
+                <Button
+                  className="h-11 w-full rounded-xl bg-white font-black text-blue-700 hover:bg-blue-50"
+                  onClick={() => handleSave(false)}
+                  disabled={!registration.is_submitted || isSaving}
+                >
+                  {isSaving ? 'Saving…' : 'Save your score'}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Questions / submission */}
+        <div className="order-2 min-w-0 space-y-4 lg:order-1 lg:col-span-2 lg:space-y-6">
+          <Card className="overflow-hidden rounded-xl border border-slate-100 shadow-md">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/80 p-4">
+              <CardTitle className="flex items-center gap-2 text-base font-bold sm:text-lg">
+                <FileText className="h-4 w-4 shrink-0 text-indigo-500 sm:h-5 sm:w-5" />
+                Submission details
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-6">
+            <CardContent className="p-4 sm:p-5">
               {!registration.is_submitted ? (
-                <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                  <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                  <p className="text-slate-500 font-medium">Participant has not submitted the exam yet.</p>
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center">
+                  <AlertCircle className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+                  <p className="font-medium text-slate-500">Participant has not submitted the exam yet.</p>
                 </div>
               ) : (
-                <div className="space-y-8">
+                <div className="space-y-6 sm:space-y-8">
                   {(competition.content || []).map((item, index) => {
                     const response = responses.find(r => r.index === index)
 
@@ -180,18 +345,20 @@ export default function TeacherParticipantPortal() {
 
 
                       return (
-                        <div key={index} className="p-6 rounded-2xl border border-slate-100 bg-white shadow-sm">
-                          <div className="flex justify-between items-start gap-4 mb-4">
-                            <h4 className="font-bold text-slate-800 text-lg">Q{index + 1}. {item.question}</h4>
+                        <div key={index} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+                          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                            <h4 className="min-w-0 flex-1 text-sm font-bold leading-snug text-slate-900 sm:text-base">
+                              Q{index + 1}. {item.question}
+                            </h4>
                             <div className={clsx(
-                              "px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider shrink-0",
-                              finalIsCorrect ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                              'inline-flex w-fit shrink-0 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide sm:text-xs',
+                              finalIsCorrect ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-red-50 text-red-700 ring-1 ring-red-100'
                             )}>
                               {finalIsCorrect ? 'Correct' : 'Incorrect'}
                             </div>
                           </div>
 
-                          <div className="space-y-3 mb-6">
+                          <div className="mb-4 space-y-2">
                             {item.options.map((opt: string, optIdx: number) => {
                               const isSelected = response?.answer === optIdx
                               const isCorrectOpt = item.correct_option === optIdx
@@ -200,52 +367,66 @@ export default function TeacherParticipantPortal() {
                                 <div
                                   key={optIdx}
                                   className={clsx(
-                                    "p-3 rounded-xl border flex items-center justify-between text-sm font-medium transition-all",
-                                    isSelected && isCorrectOpt ? "bg-emerald-50 border-emerald-200 text-emerald-800" :
-                                      isSelected && !isCorrectOpt ? "bg-red-50 border-red-200 text-red-800" :
-                                        !isSelected && isCorrectOpt ? "bg-emerald-50/50 border-emerald-100 text-emerald-700 border-dashed" :
-                                          "bg-slate-50 border-slate-100 text-slate-600"
+                                    'rounded-lg border px-3 py-2.5 text-sm transition-colors',
+                                    isSelected && isCorrectOpt ? 'border-emerald-200 bg-emerald-50 text-emerald-900' :
+                                      isSelected && !isCorrectOpt ? 'border-red-200 bg-red-50 text-red-900' :
+                                        !isSelected && isCorrectOpt ? 'border-dashed border-emerald-200 bg-emerald-50/60 text-emerald-800' :
+                                          'border-slate-100 bg-slate-50 text-slate-700'
                                   )}
                                 >
-                                  <div className="flex items-center gap-3">
-                                    <span className="w-6 h-6 rounded-md bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-400 shadow-sm shrink-0">
-                                      {String.fromCharCode(65 + optIdx)}
-                                    </span>
-                                    {opt}
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    {isSelected && (
-                                      <span className="text-[10px] font-bold uppercase tracking-wider opacity-60">Selected</span>
-                                    )}
-                                    {isCorrectOpt && (
-                                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100/50 px-2 py-0.5 rounded-md">Correct Option</span>
-                                    )}
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-bold text-slate-500 shadow-sm">
+                                        {String.fromCharCode(65 + optIdx)}
+                                      </span>
+                                      <span className="min-w-0 flex-1 break-words font-medium leading-snug">{opt}</span>
+                                    </div>
+                                    <div className="flex shrink-0 flex-wrap items-center gap-1.5 pl-9 sm:pl-0">
+                                      {isSelected && (
+                                        <span className="rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200/80">
+                                          Selected
+                                        </span>
+                                      )}
+                                      {isCorrectOpt && (
+                                        <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200/80">
+                                          Key
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               )
                             })}
                           </div>
 
-                          <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                            <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 block">Manual Override</Label>
-                            <div className="flex gap-2">
+                          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                            <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                              Manual override
+                            </Label>
+                            <div className="flex flex-wrap gap-2">
                               <Button
                                 size="sm"
                                 variant={teacherOverride === 'correct' ? 'default' : 'outline'}
-                                className={clsx("rounded-lg", teacherOverride === 'correct' && "bg-emerald-600 hover:bg-emerald-700")}
+                                className={clsx(
+                                  'h-9 rounded-lg px-3 text-xs font-semibold',
+                                  teacherOverride === 'correct' && 'bg-emerald-600 hover:bg-emerald-700'
+                                )}
                                 onClick={() => handleUpdateResponse(index, { teacher_override: teacherOverride === 'correct' ? undefined : 'correct' })}
                                 disabled={isReleased}
                               >
-                                Mark as Correct
+                                Mark correct
                               </Button>
                               <Button
                                 size="sm"
                                 variant={teacherOverride === 'wrong' ? 'default' : 'outline'}
-                                className={clsx("rounded-lg", teacherOverride === 'wrong' && "bg-red-600 hover:bg-red-700")}
+                                className={clsx(
+                                  'h-9 rounded-lg px-3 text-xs font-semibold',
+                                  teacherOverride === 'wrong' && 'bg-red-600 hover:bg-red-700'
+                                )}
                                 onClick={() => handleUpdateResponse(index, { teacher_override: teacherOverride === 'wrong' ? undefined : 'wrong' })}
                                 disabled={isReleased}
                               >
-                                Mark as Wrong
+                                Mark wrong
                               </Button>
                             </div>
                           </div>
@@ -255,33 +436,37 @@ export default function TeacherParticipantPortal() {
 
                     // Hifz / Khirat
                     return (
-                      <div key={index} className="p-6 rounded-2xl border border-slate-100 bg-white shadow-sm">
-                        <h4 className="font-bold text-slate-800 text-lg mb-2">Passage {index + 1}</h4>
-                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 mb-6 text-slate-700 font-medium">
+                      <div key={index} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+                        <h4 className="mb-2 text-sm font-bold text-slate-800 sm:text-base">Passage {index + 1}</h4>
+                        <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm font-medium leading-relaxed text-slate-700">
                           {item.text}
                         </div>
 
-                        <div className="mb-6">
-                          <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Student Recording</Label>
+                        <div className="mb-4">
+                          <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                            Student recording
+                          </Label>
                           {response?.audio_url ? (
-                            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                                <Mic className="w-5 h-5" />
+                            <div className="flex items-center gap-3 rounded-lg border border-indigo-100 bg-indigo-50/80 p-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+                                <Mic className="h-4 w-4" />
                               </div>
-                              <audio src={response.audio_url} controls className="w-full h-10 outline-none" />
+                              <audio src={response.audio_url} controls className="h-9 min-w-0 flex-1 outline-none" />
                             </div>
                           ) : (
-                            <div className="text-sm text-slate-400 italic p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm italic text-slate-400">
                               No audio recorded for this passage.
                             </div>
                           )}
                         </div>
 
                         <div>
-                          <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Teacher Feedback</Label>
+                          <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                            Teacher feedback
+                          </Label>
                           <Textarea
-                            placeholder="Add specific comments about pronunciation, tajweed, memorization..."
-                            className="rounded-xl border-slate-200 min-h-[100px] resize-none focus:ring-indigo-500"
+                            placeholder="Pronunciation, tajweed, memorization…"
+                            className="min-h-[88px] resize-none rounded-lg border-slate-200 text-sm focus-visible:ring-indigo-500"
                             value={response?.teacher_comment || ''}
                             onChange={(e) => handleUpdateResponse(index, { teacher_comment: e.target.value })}
                             disabled={isReleased}
@@ -295,65 +480,6 @@ export default function TeacherParticipantPortal() {
             </CardContent>
           </Card>
         </div>
-
-        {/* Right Column: Final Grading */}
-        <div className="space-y-6">
-          <Card className="rounded-[2rem] border-0 shadow-xl shadow-blue-900/5 bg-gradient-to-br from-indigo-600 to-blue-700 text-white overflow-hidden sticky top-6">
-            <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '16px 16px' }} />
-            <CardHeader className="relative z-10 border-b border-white/10 pb-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/20 shadow-inner">
-                  <BadgeCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-blue-100 text-xs font-bold uppercase tracking-wider">Participant</p>
-                  <CardTitle className="text-xl font-black">{registration.name}</CardTitle>
-                </div>
-              </div>
-              <div className="mt-4 flex items-center gap-2 text-sm text-blue-100 font-medium">
-                <span className="opacity-70">Phone:</span> {registration.phone}
-              </div>
-            </CardHeader>
-            <CardContent className="relative z-10 pt-6 space-y-6">
-              <div>
-                <Label className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-2 block">Final Score (0-100)</Label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    min="0"
-                    max="100"
-                    disabled={!registration.is_submitted || isReleased}
-                    className="bg-white/10 border-white/20 text-white placeholder:text-blue-200/50 text-4xl font-black h-20 rounded-2xl text-center focus-visible:ring-white/30 disabled:opacity-50"
-                    value={score}
-                    onChange={(e) => setScore(Number(e.target.value))}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-2 block">General Remarks</Label>
-                <Textarea
-                  placeholder="Excellent performance..."
-                  disabled={!registration.is_submitted || isReleased}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-blue-200/50 min-h-[140px] rounded-2xl resize-none focus-visible:ring-white/30 disabled:opacity-50"
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                />
-              </div>
-
-              {!isReleased && (
-                <Button
-                  className="w-full h-12 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-black shadow-lg"
-                  onClick={() => handleSave(true)}
-                  disabled={!registration.is_submitted || isSaving}
-                >
-                  {isSaving ? 'Processing...' : 'Publish Results'}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar, Eye, EyeOff, Headphones, FileText, PenLine, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,6 +8,13 @@ import { cn } from "@/lib/utils";
 import MCQConfigModal from './MCQConfigModal';
 
 export type TaskType = 'memorise' | 'review' | 'recite' | 'listen' | 'read' | 'mcq' | 'written' | 'reflection';
+
+/** Legacy imports used literal "__flat_schedule__" as period title — show a proper Arabic label in the UI. */
+function displayPeriodTitle(title: string | undefined): string {
+  const t = (title ?? '').trim()
+  if (!t || t === '__flat_schedule__') return 'جدول اليوم'
+  return title ?? ''
+}
 
 export interface Task {
   id?: string;
@@ -259,9 +266,9 @@ export default function StudyPlanBuilder({
                     <div className="flex items-center gap-4 flex-1">
                       <GripVertical className="h-4 w-4 text-slate-300 cursor-move" />
                       <EditableField 
-                        value={period.title} 
+                        value={displayPeriodTitle(period.title)} 
                         onBlur={(val: string) => handleUpdatePeriod(dIdx, pIdx, { title: val })}
-                        placeholder="Period Title"
+                        placeholder="عنوان الحصة / Period"
                         className="h-8 bg-transparent border-none font-bold text-slate-700 focus-visible:ring-0 px-0 w-48"
                         readOnly={readOnly}
                       />
@@ -292,9 +299,25 @@ export default function StudyPlanBuilder({
                     {(period.tasks || []).map((task, tIdx) => (
                       <div key={tIdx} className="group flex items-start gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50/30 hover:bg-white hover:border-slate-200 hover:shadow-md hover:shadow-slate-200/40 transition-all">
                         <div className="pt-1">
-                          {task.task_type === 'mcq' ? <CheckSquare className="h-5 w-5 text-violet-500" /> : 
-                           task.task_type === 'memorise' ? <BookOpen className="h-5 w-5 text-blue-500" /> :
-                           <HelpCircle className="h-5 w-5 text-slate-400" />}
+                          {task.task_type === 'mcq' ? (
+                            <CheckSquare className="h-5 w-5 text-violet-500" />
+                          ) : task.task_type === 'memorise' ? (
+                            <BookOpen className="h-5 w-5 text-blue-500" />
+                          ) : task.task_type === 'review' ? (
+                            <RefreshCw className="h-5 w-5 text-indigo-500" />
+                          ) : task.task_type === 'recite' ? (
+                            <HelpCircle className="h-5 w-5 text-emerald-500" />
+                          ) : task.task_type === 'listen' ? (
+                            <Headphones className="h-5 w-5 text-cyan-500" />
+                          ) : task.task_type === 'read' ? (
+                            <BookOpen className="h-5 w-5 text-slate-600" />
+                          ) : task.task_type === 'written' ? (
+                            <PenLine className="h-5 w-5 text-amber-600" />
+                          ) : task.task_type === 'reflection' ? (
+                            <FileText className="h-5 w-5 text-rose-500" />
+                          ) : (
+                            <HelpCircle className="h-5 w-5 text-slate-400" />
+                          )}
                         </div>
                         <div className="flex-1 space-y-2">
                           <div className="flex items-center justify-between">
@@ -311,15 +334,18 @@ export default function StudyPlanBuilder({
                                   onValueChange={(val) => handleUpdateTask(dIdx, pIdx, tIdx, { task_type: val as TaskType })}
                                   disabled={readOnly}
                                 >
-                                <SelectTrigger className="h-6 w-24 text-[10px] uppercase font-black tracking-wider border-none bg-slate-100 rounded-lg focus:ring-0 shadow-none">
+                                <SelectTrigger className="h-6 min-w-[6.5rem] max-w-[9rem] text-[10px] uppercase font-black tracking-wider border-none bg-slate-100 rounded-lg focus:ring-0 shadow-none">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
                                   <SelectItem value="memorise">Memorise</SelectItem>
                                   <SelectItem value="review">Review</SelectItem>
                                   <SelectItem value="recite">Recite</SelectItem>
+                                  <SelectItem value="listen">Listen</SelectItem>
+                                  <SelectItem value="read">Read</SelectItem>
                                   <SelectItem value="mcq">Quiz (MCQ)</SelectItem>
                                   <SelectItem value="written">Written</SelectItem>
+                                  <SelectItem value="reflection">Reflection</SelectItem>
                                 </SelectContent>
                               </Select>
                               {!readOnly && (

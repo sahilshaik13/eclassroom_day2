@@ -54,7 +54,7 @@ export default function TeacherCompetitionsPage() {
     competitionApi.getCompetitionRegistrations(comp.id)
       .then(r => {
         if (r.success) {
-          setRegistrations(r.data)
+          setRegistrations(r.data.registrations)
         }
       })
       .catch(() => toast.error('Could not load participants'))
@@ -114,12 +114,14 @@ export default function TeacherCompetitionsPage() {
                              {c.start_date ? new Date(c.start_date).toLocaleDateString() : 'TBD'}
                            </span>
                          </div>
+                         {c.my_can_setup !== false && (
                          <button
                            onClick={(e) => { e.stopPropagation(); navigate(`/teacher/competitions/${c.id}/setup`) }}
                            className="mt-2 flex items-center gap-1 text-[10px] font-bold text-violet-600 hover:text-violet-800 transition-colors"
                          >
                            <Settings2 className="h-3 w-3" /> Setup Exam
                          </button>
+                         )}
                       </div>
                       <button 
                         onClick={(e) => copyLink(c.id, e)}
@@ -152,33 +154,19 @@ export default function TeacherCompetitionsPage() {
                     <h2 className="text-base font-bold text-slate-800">{selectedComp.title} Participants</h2>
                     <p className="text-sm text-slate-500">{registrations.length} registered</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {selectedComp.status !== 'closed' && (
-                      <Button
-                        size="sm"
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    <p className="text-xs text-slate-500 sm:text-right">
+                      Exam for students:{' '}
+                      <span
                         className={clsx(
-                          "font-bold px-4",
-                          selectedComp.is_exam_active 
-                            ? "bg-red-500 hover:bg-red-600 text-white" 
-                            : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                          'font-semibold',
+                          selectedComp.is_exam_active ? 'text-emerald-600' : 'text-slate-500',
                         )}
-                        onClick={async () => {
-                          const newStatus = !selectedComp.is_exam_active
-                          try {
-                            const res = await competitionApi.toggleExamStatus(selectedComp.id, newStatus)
-                            if (res.success) {
-                              toast.success(newStatus ? 'Exam started!' : 'Exam stopped!')
-                              setCompetitions(prev => prev.map(c => c.id === selectedComp.id ? { ...c, is_exam_active: newStatus } : c))
-                              setSelectedComp({ ...selectedComp, is_exam_active: newStatus })
-                            }
-                          } catch (e) {
-                            toast.error('Failed to update status')
-                          }
-                        }}
                       >
-                        {selectedComp.is_exam_active ? 'Stop Exam' : 'Start Exam'}
-                      </Button>
-                    )}
+                        {selectedComp.is_exam_active ? 'Open' : 'Closed'}
+                      </span>
+                      <span className="text-slate-400"> · Set by admin</span>
+                    </p>
                   </div>
                 </div>
               <div className="overflow-x-auto">
@@ -198,7 +186,18 @@ export default function TeacherCompetitionsPage() {
                       <tr><td colSpan={4} className="p-5 text-center text-slate-400 text-sm">No participants registered yet.</td></tr>
                     ) : (
                       registrations.map(reg => (
-                        <tr key={reg.id} className="hover:bg-slate-50/70 cursor-pointer" onClick={() => navigate(`/teacher/competitions/${selectedComp.id}/evaluate/${reg.id}`)}>
+                        <tr
+                          key={reg.id}
+                          className={clsx(
+                            'hover:bg-slate-50/70',
+                            selectedComp.my_can_grade !== false ? 'cursor-pointer' : 'cursor-default'
+                          )}
+                          onClick={() => {
+                            if (selectedComp.my_can_grade !== false) {
+                              navigate(`/teacher/competitions/${selectedComp.id}/evaluate/${reg.id}`)
+                            }
+                          }}
+                        >
                           <td className="px-5 py-4">
                             <p className="text-sm font-semibold text-slate-900">{reg.name}</p>
                             <span className="text-[10px] uppercase font-bold text-slate-400">
@@ -216,6 +215,7 @@ export default function TeacherCompetitionsPage() {
                              )}
                           </td>
                           <td className="px-5 py-4 text-right">
+                             {selectedComp.my_can_grade !== false ? (
                              <Button 
                               size="sm" 
                               variant="outline"
@@ -227,6 +227,9 @@ export default function TeacherCompetitionsPage() {
                              >
                                Evaluate
                              </Button>
+                             ) : (
+                               <span className="text-[10px] font-bold text-slate-400 uppercase">Grading N/A</span>
+                             )}
                           </td>
                         </tr>
                       ))

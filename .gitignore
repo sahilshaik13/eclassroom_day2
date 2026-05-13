@@ -1,7 +1,32 @@
-# Environment files
+# ─── Environment & secrets (never commit real keys) ──────────────────────────
 .env
 .env.*
 !.env.example
+!.env.sample
+!.env.template
+!.env.*.example
+
+# Tool-specific env loaders that often hold secrets
+.envrc
+.direnv/
+
+# Key material & cloud credential files
+*.pem
+*.key
+!*.pem.example
+*-private-key.json
+credentials.json
+**/credentials.json
+service-account*.json
+**/service-account*.json
+*.keystore
+*.jks
+
+# Local / backup env copies (explicit; also covered by .env.* above)
+*.env.backup
+*.env.bak
+
+rediscli.txt
 
 # Python
 __pycache__/
@@ -35,7 +60,12 @@ yarn-error.log*
 !readme.md
 !Readme.md
 
+# Local notes / exports / walkthroughs (do not commit)
+*.pdf
+*.csv
+walkthrough*
+*walkthrough*
+
 skills-lock.json
 
-walkthrough1
 envsec/

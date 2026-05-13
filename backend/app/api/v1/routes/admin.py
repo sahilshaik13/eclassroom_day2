@@ -4,6 +4,9 @@ Admin routes — require role=admin + mfa_verified JWT.
 GET    /api/v1/admin/stats
 GET    /api/v1/admin/students
 POST   /api/v1/admin/students
+GET    /api/v1/admin/students/applications
+POST   /api/v1/admin/students/applications/{id}/approve
+POST   /api/v1/admin/students/applications/{id}/reject
 PATCH  /api/v1/admin/students/{id}
 POST   /api/v1/admin/students/{id}/deactivate
 POST   /api/v1/admin/students/{id}/activate
@@ -20,12 +23,10 @@ PATCH  /api/v1/admin/classes/{id}
 POST   /api/v1/admin/classes/{id}/enroll
 GET    /api/v1/admin/study-plans
 POST   /api/v1/admin/study-plans
-GET    /api/v1/admin/study-plans/{id}/tasks
-POST   /api/v1/admin/study-plans/{id}/tasks
-DELETE /api/v1/admin/study-plans/{id}/tasks/{task_id}
 POST   /api/v1/admin/study-plans/{id}/apply
 """
 from datetime import date, timedelta, datetime
+import logging
 from typing import Optional, List, Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr
@@ -46,6 +47,7 @@ class TeacherTaskUpdate(sp.TeacherTaskUpdate): pass
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+logger = logging.getLogger(__name__)
 
 
 # ── Stats ─────────────────────────────────────────────────────
@@ -185,6 +187,10 @@ class AdminStudentCreateRequest(BaseModel):
     name: str
     phone: str
     class_id: Optional[str] = None
+
+
+class StudentApplicationApproveRequest(BaseModel):
+    class_id: str
 
 
 @router.post("/students")
@@ -798,6 +804,171 @@ async def reject_teacher_application(
     return success({"message": "Application rejected."})
 
 
+@router.get("/students/applications")
+async def list_student_applications(
+    status: Optional[str] = "pending",
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    q = admin.table("student_applications").select("*").eq("tenant_id", token.tenant_id)
+    if status:
+        q = q.eq("status", status)
+    res = q.order("created_at", desc=True).execute()
+
+    data = res.data or []
+
+    now = datetime.utcnow()
+    for app in data:
+        dt = datetime.fromisoformat(app["created_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+        diff = now - dt
+        if diff.days > 0:
+            app["applied_ago"] = f"{diff.days}d ago"
+        elif diff.seconds > 3600:
+            app["applied_ago"] = f"{diff.seconds // 3600}h ago"
+        elif diff.seconds > 60:
+            app["applied_ago"] = f"{diff.seconds // 60}m ago"
+        else:
+            app["applied_ago"] = "just now"
+
+    return success(data)
+
+
+@router.post("/students/applications/{app_id}/approve")
+async def approve_student_application(
+    app_id: str,
+    body: StudentApplicationApproveRequest,
+    token: TokenData = Depends(require_admin)
+):
+    import httpx
+
+    admin = get_admin_client()
+
+    app_res = (
+        admin.table("student_applications")
+        .select("*")
+        .eq("id", app_id)
+        .eq("tenant_id", token.tenant_id)
+        .execute()
+    )
+    if not app_res or not app_res.data:
+        return error("NOT_FOUND", "Application not found", 404)
+
+    app = app_res.data[0]
+    if app["status"] != "pending":
+        return error("BAD_REQUEST", f"Application is already {app['status']}", 400)
+
+    class_res = (
+        admin.table("classes")
+        .select("id, name, teacher_id")
+        .eq("id", body.class_id)
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    if not class_res.data:
+        return error("NOT_FOUND", "Class not found", 404)
+
+    normalized_phone = "".join(filter(lambda x: x.isdigit() or x == "+", app["phone"]))
+
+    existing_user = (
+        admin.table("users")
+        .select("id")
+        .eq("tenant_id", token.tenant_id)
+        .eq("phone", normalized_phone)
+        .execute()
+    )
+    if existing_user.data:
+        return error("ALREADY_EXISTS", "A user with this phone number already exists.", 400)
+
+    auth_headers = {
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "phone": normalized_phone,
+        "phone_confirm": True,
+        "app_metadata": {"role": "student", "tenant_id": token.tenant_id},
+        "user_metadata": {"name": app["name"]},
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{settings.SUPABASE_URL}/auth/v1/admin/users",
+            json=payload,
+            headers=auth_headers,
+        )
+
+    if resp.status_code >= 400:
+        error_msg = resp.json().get("msg", resp.text) if "application/json" in resp.headers.get("Content-Type", "") else resp.text
+        return error("CREATE_ERROR", error_msg, 400)
+
+    auth_res = resp.json()
+    user_id = auth_res.get("id")
+
+    admin.table("users").upsert(
+        {
+            "id": user_id,
+            "tenant_id": token.tenant_id,
+            "role": "student",
+            "phone": normalized_phone,
+            "name": app["name"],
+            "is_registered": False,
+            "is_active": True,
+        }
+    ).execute()
+
+    stu_res = admin.table("students").insert(
+        {
+            "user_id": user_id,
+            "tenant_id": token.tenant_id,
+            "name": app["name"],
+            "phone": normalized_phone,
+        }
+    ).execute()
+    student = stu_res.data[0] if stu_res.data else {}
+
+    if student.get("id"):
+        admin.table("class_enrollments").upsert(
+            {
+                "student_id": student["id"],
+                "class_id": body.class_id,
+                "tenant_id": token.tenant_id,
+            },
+            on_conflict="student_id,class_id",
+        ).execute()
+
+    admin.table("student_applications").update(
+        {
+            "status": "approved",
+            "assigned_class_id": body.class_id,
+            "reviewed_at": f"{datetime.utcnow().isoformat()}Z",
+        }
+    ).eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
+
+    return success(
+        {
+            "message": "Student application approved and assigned successfully.",
+            "student_id": student.get("id"),
+            "class_id": body.class_id,
+        }
+    )
+
+
+@router.post("/students/applications/{app_id}/reject")
+async def reject_student_application(
+    app_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    res = admin.table("student_applications").update(
+        {"status": "rejected", "reviewed_at": f"{datetime.utcnow().isoformat()}Z"}
+    ).eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
+    if not res.data:
+        return error("NOT_FOUND", "Application not found", 404)
+    return success({"message": "Student application rejected."})
+
+
 # ── Classes ───────────────────────────────────────────────────
 
 @router.get("/classes")
@@ -1300,3 +1471,5 @@ async def apply_study_plan(
     # for their days, periods, and tasks.
     
     return success({"plan_id": new_plan_id})
+
+

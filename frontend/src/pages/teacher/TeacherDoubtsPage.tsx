@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Send, ChevronDown, ChevronUp, Reply, Clock, AlertCircle, Inbox, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import type { Doubt } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,22 +17,30 @@ import { Textarea } from '@/components/ui/textarea'
 type Tab = 'pending' | 'resolved' | 'all'
 
 export default function TeacherDoubtsPage() {
-  const [doubts, setDoubts] = useState<Doubt[]>([])
+  const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab>('pending')
-  const [loading, setLoading] = useState(true)
   const [expandId, setExpandId] = useState<string | null>(null)
   const [replyText, setReplyText] = useState<Record<string, string>>({})
   const [sendingId, setSendingId] = useState<string | null>(null)
 
-  const load = () => {
-    setLoading(true)
-    api.get('/teacher/doubts')
-      .then(r => setDoubts(r.data.data))
-      .catch(() => toast.error('Could not load doubts'))
-      .finally(() => setLoading(false))
+  const {
+    data: doubts = [],
+    isPending: loading,
+    isError: doubtsError,
+  } = useQuery({
+    queryKey: queryKeys.teacher.doubts('all'),
+    queryFn: async () => (await api.get('/teacher/doubts')).data.data as Doubt[],
+    staleTime: 30_000,
+  })
+
+  const refreshDoubts = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.teacher.doubts('all') })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.teacher.doubts('pending') })
   }
 
-  useEffect(load, [])
+  useEffect(() => {
+    if (doubtsError) toast.error('Could not load doubts')
+  }, [doubtsError])
 
   const sendReply = async (doubtId: string) => {
     const body = (replyText[doubtId] ?? '').trim()
@@ -41,7 +51,7 @@ export default function TeacherDoubtsPage() {
       toast.success('Reply sent!')
       setReplyText(p => ({ ...p, [doubtId]: '' }))
       setExpandId(null)
-      load()
+      refreshDoubts()
     } catch { toast.error('Could not send reply') }
     finally { setSendingId(null) }
   }

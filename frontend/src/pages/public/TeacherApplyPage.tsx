@@ -17,6 +17,7 @@ import {
   ShieldCheck
 } from 'lucide-react'
 import api from '@/services/api'
+import { Button } from '@/components/ui/button'
 
 const applySchema = z.object({
   name: z.string().min(2, 'Full name is required'),
@@ -62,7 +63,7 @@ export default function TeacherApplyPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-dvh bg-slate-50 flex items-center justify-center overflow-x-clip">
         <Loader2 className="h-8 w-8 text-primary animate-spin" />
       </div>
     )
@@ -70,7 +71,7 @@ export default function TeacherApplyPage() {
 
   if (!tenant) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+      <div className="min-h-dvh bg-slate-50 flex flex-col items-center justify-center p-4 overflow-x-clip">
         <div className="bg-white p-8 rounded-2xl shadow-xl shadow-slate-200 border border-slate-100 text-center max-w-sm">
           <Globe className="h-12 w-12 text-slate-300 mx-auto mb-4" />
           <h1 className="text-xl font-bold text-slate-900 mb-2">Link Expired or Invalid</h1>
@@ -82,12 +83,12 @@ export default function TeacherApplyPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center py-12 px-4 relative overflow-hidden">
+    <div className="min-h-dvh bg-slate-50 flex flex-col items-center justify-center py-8 sm:py-12 px-3.5 sm:px-4 relative overflow-x-clip">
       {/* Background patterns */}
       <div className="absolute top-0 left-0 w-full h-64 bg-primary/5 -skew-y-3 origin-top-left -z-10" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -z-10 translate-x-1/2 translate-y-1/2" />
       
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-2xl app-section">
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-bold uppercase tracking-wider mb-4">
             <ShieldCheck className="h-3 w-3" /> Recruitment Portal
@@ -112,7 +113,7 @@ export default function TeacherApplyPage() {
               </Button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit(onSubmit)} className="p-8 sm:p-12 space-y-8">
+            <form onSubmit={handleSubmit(onSubmit)} className="p-5 sm:p-8 lg:p-12 space-y-6 sm:space-y-8">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-700 ml-1">Full Name</label>
@@ -181,17 +182,18 @@ export default function TeacherApplyPage() {
                 {errors.experience && <p className="text-xs text-red-500 ml-1 font-medium">{errors.experience.message}</p>}
               </div>
 
-              <button
+              <Button
                 type="submit"
                 disabled={submitting}
-                className="w-full h-14 bg-primary hover:bg-primary/95 text-white font-bold rounded-2xl shadow-xl shadow-primary/20 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed group"
+                size="xl"
+                className="w-full rounded-2xl shadow-xl shadow-primary/20 gap-3 group"
               >
                 {submitting ? (
                   <><Loader2 className="h-5 w-5 animate-spin" /> Submitting Application...</>
                 ) : (
                   <>Submit Application <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" /></>
                 )}
-              </button>
+              </Button>
             </form>
           )}
         </div>
@@ -201,14 +203,5 @@ export default function TeacherApplyPage() {
         </p>
       </div>
     </div>
-  )
-}
-
-function Button({ children, className, asChild, ...props }: any) {
-  const Comp = asChild ? 'span' : 'button'
-  return (
-    <Comp className={`inline-flex items-center justify-center gap-2 font-bold transition-all bg-primary text-white hover:bg-primary/95 shadow-lg shadow-primary/20 ${className}`} {...props}>
-      {children}
-    </Comp>
   )
 }

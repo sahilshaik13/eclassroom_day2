@@ -14,6 +14,12 @@ class TeacherApplicationSubmit(BaseModel):
     subject: Optional[str] = None
     experience: Optional[str] = None
 
+
+class StudentApplicationSubmit(BaseModel):
+    name: str
+    phone: str
+    notes: Optional[str] = None
+
 @router.get("/tenants/{slug}")
 async def get_tenant_public(slug: str):
     """Fetch basic tenant info for the recruitment page."""
@@ -54,3 +60,45 @@ async def apply_teacher(slug: str, body: TeacherApplicationSubmit):
     }).execute()
     
     return success({"message": "Application submitted successfully! Our team will review it and get back to you via email."})
+
+
+@router.post("/tenants/{slug}/student-apply")
+async def apply_student(slug: str, body: StudentApplicationSubmit):
+    """Submit a student application for admin review."""
+    admin = get_admin_client()
+
+    tenant_res = (
+        admin.table("tenants")
+        .select("id")
+        .eq("slug", slug)
+        .eq("is_active", True)
+        .maybe_single()
+        .execute()
+    )
+    if not tenant_res.data:
+        return error("NOT_FOUND", "Organization not found", 404)
+
+    tenant_id = tenant_res.data["id"]
+    normalized_phone = body.phone.strip()
+
+    pending_res = (
+        admin.table("student_applications")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .eq("phone", normalized_phone)
+        .eq("status", "pending")
+        .execute()
+    )
+    if pending_res and pending_res.data:
+        return error("ALREADY_EXISTS", "You already have a pending student application with this organization.", 400)
+
+    admin.table("student_applications").insert(
+        {
+            "tenant_id": tenant_id,
+            "name": body.name,
+            "phone": normalized_phone,
+            "notes": body.notes,
+        }
+    ).execute()
+
+    return success({"message": "Student application submitted successfully! The admin will review it and assign you to a class."})

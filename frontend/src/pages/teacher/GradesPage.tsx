@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Save, GraduationCap, RefreshCw, Star, AlertCircle, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,27 +14,40 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 interface GradeRow { student_id: string; name: string; score: number | ''; remarks: string }
 
 export default function GradesPage() {
-  const [classes, setClasses] = useState<{ id: string; name: string }[]>([])
   const [classId, setClassId] = useState('')
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
   const [rows, setRows] = useState<GradeRow[]>([])
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    api.get('/teacher/classes').then(r => {
-      setClasses(r.data.data)
-      if (r.data.data.length > 0) setClassId(r.data.data[0].id)
-    })
-  }, [])
+  const { data: classes = [] } = useQuery({
+    queryKey: queryKeys.teacher.classes(),
+    queryFn: async () => (await api.get('/teacher/classes')).data.data as { id: string; name: string }[],
+  })
 
   useEffect(() => {
-    if (!classId) return
-    setLoading(true)
-    api.get(`/teacher/students?class_id=${classId}`)
-      .then(r => setRows(r.data.data.map((s: { id: string; name: string }) => ({ student_id: s.id, name: s.name, score: '', remarks: '' }))))
-      .finally(() => setLoading(false))
-  }, [classId])
+    if (classes.length > 0 && !classId) setClassId(classes[0].id)
+  }, [classes, classId])
+
+  const { data: roster = [], isPending: loading } = useQuery({
+    queryKey: queryKeys.teacher.studentsByClass(classId),
+    queryFn: async () =>
+      (await api.get(`/teacher/students?class_id=${classId}`)).data.data as {
+        id: string
+        name: string
+      }[],
+    enabled: !!classId,
+  })
+
+  useEffect(() => {
+    setRows(
+      roster.map((s) => ({
+        student_id: s.id,
+        name: s.name,
+        score: '' as number | '',
+        remarks: '',
+      }))
+    )
+  }, [roster])
 
   const update = (id: string, field: 'score' | 'remarks', val: string) =>
     setRows(p => p.map(r => r.student_id === id ? { ...r, [field]: field === 'score' ? (val === '' ? '' : Number(val)) : val } : r))

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Save, CheckCircle2, XCircle, Clock, Calendar as CalendarIcon, Users, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,34 +22,42 @@ const STATUS_OPTS: { v: Status; label: string; icon: any; cls: string; activeCls
 ]
 
 export default function AttendancePage() {
-  const [classes, setClasses] = useState<ClassItem[]>([])
   const [classId, setClassId] = useState('')
   const [students, setStudents] = useState<Student[]>([])
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [statuses, setStatuses] = useState<Record<string, Status>>({})
-  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    api.get('/teacher/classes').then(r => {
-      setClasses(r.data.data)
-      if (r.data.data.length > 0) setClassId(r.data.data[0].id)
-    })
-  }, [])
+  const { data: classes = [] } = useQuery({
+    queryKey: queryKeys.teacher.classes(),
+    queryFn: async () => (await api.get('/teacher/classes')).data.data as ClassItem[],
+  })
 
   useEffect(() => {
-    if (!classId) return
-    setLoading(true)
-    api.get(`/teacher/students?class_id=${classId}`)
-      .then(r => {
-        setStudents(r.data.data)
-        const defaults: Record<string, Status> = {}
-        r.data.data.forEach((s: Student) => { defaults[s.id] = 'present' })
-        setStatuses(defaults)
+    if (classes.length > 0 && !classId) setClassId(classes[0].id)
+  }, [classes, classId])
+
+  const { data: roster = [], isPending: loading, isError: rosterError } = useQuery({
+    queryKey: queryKeys.teacher.studentsByClass(classId),
+    queryFn: async () =>
+      (await api.get(`/teacher/students?class_id=${classId}`)).data.data as Student[],
+    enabled: !!classId,
+  })
+
+  useEffect(() => {
+    setStudents(roster)
+    setStatuses((prev) => {
+      const next: Record<string, Status> = {}
+      roster.forEach((s: Student) => {
+        next[s.id] = prev[s.id] ?? 'present'
       })
-      .catch(() => toast.error('Could not load students'))
-      .finally(() => setLoading(false))
-  }, [classId])
+      return next
+    })
+  }, [roster])
+
+  useEffect(() => {
+    if (rosterError) toast.error('Could not load students')
+  }, [rosterError])
 
   const markAll = (status: Status) => {
     const next: Record<string, Status> = {}

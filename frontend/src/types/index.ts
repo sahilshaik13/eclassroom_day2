@@ -61,6 +61,22 @@ export interface PaginationMeta {
   has_more: boolean
 }
 
+/** One row from GET /super-admin/audit-logs (7-day hot table). */
+export interface AuditLogEntry {
+  id: string
+  occurred_at: string
+  actor_user_id: string | null
+  tenant_id: string | null
+  actor_role: string | null
+  http_method: string
+  path: string
+  status_code: number | null
+  duration_ms: number | null
+  client_ip: string | null
+  user_agent: string | null
+  metadata: Record<string, unknown>
+}
+
 // ── Student domain ────────────────────────────────────────────────────────────
 
 export type TaskType = 'memorise' | 'review' | 'recite' | 'listen' | 'read' | 'mcq' | 'written' | 'reflection'
@@ -70,10 +86,14 @@ export interface Task {
   title: string
   description?: string
   task_type: TaskType
-  day_number: number
+  day_number?: number
   completed: boolean
   completed_at?: string
   notes?: string
+  /** Imported timetable / Gemini columns */
+  config?: Record<string, unknown>
+  plan_name?: string
+  period_title?: string
 }
 
 export interface WeekProgress {
@@ -223,6 +243,11 @@ export type CompetitionStatus = 'draft' | 'active' | 'closed'
 export type RegistrationStatus = 'registered' | 'participated' | 'disqualified'
 export type CompetitionCategory = 'mcq' | 'hifz' | 'khirat'
 
+export interface CompetitionGraderRef {
+  teacher_id: string
+  name: string
+}
+
 export interface Competition {
   id: string
   tenant_id: string
@@ -234,10 +259,48 @@ export interface Competition {
   status: CompetitionStatus
   assigned_teacher_id?: string
   assigned_teacher?: { name: string }
+  /** Assigned grading teachers (from API); use for display and edit form. */
+  graders?: CompetitionGraderRef[]
+  grader_teacher_ids?: string[]
+  /** Teachers who may edit exam content and start/stop the exam. */
+  setup_teachers?: CompetitionGraderRef[]
+  setup_teacher_ids?: string[]
+  /** Teacher list API: current user capabilities */
+  my_can_grade?: boolean
+  my_can_setup?: boolean
   content?: any[]
   settings?: any
   is_exam_active?: boolean
+  submitted_registrations_count?: number
+  publish_ready_count?: number
+  unpublished_ready_count?: number
+  pending_publish_count?: number
+  corrected_grader_ids?: string[]
+  pending_grader_ids?: string[]
+  can_publish_results?: boolean
   created_at?: string
+}
+
+export interface CompetitionGraderScore {
+  id: string
+  competition_id: string
+  registration_id: string
+  grader_user_id: string
+  grader_name?: string
+  score: number
+  remarks?: string
+}
+
+export interface CompetitionRegistrationsMeta {
+  expected_grader_count: number
+  collaborative_grading: boolean
+  my_can_grade: boolean
+  my_can_setup: boolean
+}
+
+export interface CompetitionRegistrationsPayload {
+  registrations: CompetitionRegistration[]
+  meta: CompetitionRegistrationsMeta
 }
 
 export interface CompetitionRegistration {
@@ -254,6 +317,7 @@ export interface CompetitionRegistration {
   submitted_at?: string
   results_released?: boolean
   competition_results?: CompetitionResult[] // from join in backend
+  competition_grader_scores?: CompetitionGraderScore[]
   competitions?: Competition // from join in backend
 }
 

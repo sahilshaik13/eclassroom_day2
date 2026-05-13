@@ -75,6 +75,9 @@ export const CompetitionPortalPage: React.FC = () => {
             {registrations.map(reg => {
               const comp = reg.competitions
               const isNameMissing = reg.name === 'Competition Participant' || reg.name === 'Participant'
+              const hasReleasedResult = !!(reg.results_released && reg.competition_results && reg.competition_results.length > 0)
+              const hasHiddenResult = !!(!reg.results_released && reg.competition_results && reg.competition_results.length > 0)
+              const releasedResult = hasReleasedResult ? reg.competition_results![0] : null
               
               return (
                 <div key={reg.id} className="bg-white overflow-hidden shadow rounded-lg border border-gray-100">
@@ -115,14 +118,22 @@ export const CompetitionPortalPage: React.FC = () => {
                       </div>
                     )}
 
-                    {reg.competition_results && reg.competition_results.length > 0 && (
+                    {hasReleasedResult && (
                       <div className="mt-6 bg-green-50 rounded-md p-4 border border-green-100">
                         <h4 className="text-sm font-medium text-green-800">Your Result</h4>
                         <div className="mt-2 text-sm text-green-700">
-                          <p className="text-2xl font-bold">{reg.competition_results[0].score} / 100</p>
-                          {reg.competition_results[0].remarks && (
-                            <p className="mt-1 italic">"{reg.competition_results[0].remarks}"</p>
+                          <p className="text-2xl font-bold">{releasedResult?.score} / 100</p>
+                          {releasedResult?.remarks && (
+                            <p className="mt-1 italic">"{releasedResult.remarks}"</p>
                           )}
+                        </div>
+                      </div>
+                    )}
+                    {hasHiddenResult && (
+                      <div className="mt-6 bg-amber-50 rounded-md p-4 border border-amber-100">
+                        <h4 className="text-sm font-medium text-amber-800">Result Under Review</h4>
+                        <div className="mt-2 text-sm text-amber-700">
+                          <p>Your score has been recorded, but it will appear here only after it is officially published.</p>
                         </div>
                       </div>
                     )}

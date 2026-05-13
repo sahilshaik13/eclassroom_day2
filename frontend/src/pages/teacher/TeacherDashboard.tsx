@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Users, UserPlus, MessageCircle, CheckCircle2, Clock, Calendar, PlayCircle, BookOpen, Sparkles, Loader2, Check } from 'lucide-react'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import { useAuthStore } from '@/stores/authStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,73 +24,93 @@ const FALLBACK_QUESTIONS: StudentQuestion[] = [
 ]
 
 export default function TeacherDashboard() {
+  const queryClient = useQueryClient()
   const { user } = useAuthStore()
-  const [totalStudents, setTotalStudents] = useState<number | null>(null)
-  const [totalClasses, setTotalClasses] = useState<number | null>(null)
-  const [pendingDoubts, setPendingDoubts] = useState<number | null>(null)
-  const [avgAttendance, setAvgAttendance] = useState<number | null>(null)
-  const [questions, setQuestions] = useState<StudentQuestion[]>(FALLBACK_QUESTIONS)
-  const [classes, setClasses] = useState<any[]>([])
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [sentId, setSentId] = useState<string | null>(null)
 
-  useEffect(() => {
-    // 1. Get real student count from pulse
-    api.get('/teacher/pulse/today')
-      .then(res => {
-        const pulse: PulseStudent[] = res.data?.data || []
-        setTotalStudents(pulse.length)
-        const totalDoubts = pulse.reduce((s, p) => s + p.pending_doubts, 0)
-        setPendingDoubts(totalDoubts)
+  const avgAttendance = 95
 
-        // Map pulse to questions (deduplicated students with doubts)
-        const withDoubts = pulse.filter(p => p.pending_doubts > 0)
-        if (withDoubts.length > 0) {
-          const mapped: StudentQuestion[] = withDoubts.slice(0, 5).map(p => ({
-            id: p.student_id,
-            student: p.name,
-            initials: p.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
-            question: `${p.pending_doubts} pending question${p.pending_doubts > 1 ? 's' : ''} — tap to view`,
-            time: 'Today',
-          }))
-          setQuestions(mapped)
-        }
-      })
-      .catch(() => { setPendingDoubts(0) })
+  const { data: pulseData, isPending: pulsePending } = useQuery({
+    queryKey: queryKeys.teacher.pulseToday(),
+    queryFn: async () =>
+      ((await api.get('/teacher/pulse/today')).data?.data ?? []) as PulseStudent[],
+    staleTime: 60_000,
+  })
 
-    // 2. Get real class count + attendance
-    api.get('/teacher/classes')
-      .then(res => {
-        const data = res.data?.data || []
-        setClasses(data)
-        setTotalClasses(data.length)
-      })
-      .catch(() => { setTotalClasses(0); setClasses([]) })
+  const { data: classes = [], isPending: classesPending } = useQuery({
+    queryKey: queryKeys.teacher.classes(),
+    queryFn: async () => (await api.get('/teacher/classes')).data?.data ?? [],
+    staleTime: 60_000,
+  })
 
-    // 3. Get real doubts with full content
-    api.get('/teacher/doubts?status=pending')
-      .then(res => {
-        const data = res.data?.data || []
-        if (data.length > 0) {
-          const mapped: StudentQuestion[] = data.slice(0, 5).map((d: any) => ({
-            id: d.id,
-            student: d.students?.name || 'Student',
-            initials: (d.students?.name || 'S').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
-            question: d.body || d.title,
-            time: timeAgo(d.created_at),
-            subject: d.subject,
-          }))
-          setQuestions(mapped)
-          setPendingDoubts(data.length)
-        }
-      })
-      .catch(() => { })
+  const { data: pendingDoubtsRaw = [], isPending: doubtsPending } = useQuery({
+    queryKey: queryKeys.teacher.doubts('pending'),
+    queryFn: async () => (await api.get('/teacher/doubts?status=pending')).data?.data ?? [],
+    staleTime: 30_000,
+  })
 
-    // Avg attendance (approximate from last attendance records)
-    setAvgAttendance(95)
-  }, [])
+  const firstClassId = classes[0]?.id as string | undefined
+
+  const { data: firstClassPlan, isPending: todayCurriculumLoading } = useQuery({
+    queryKey: queryKeys.teacher.classroomStudyPlan(firstClassId ?? ''),
+    queryFn: async () => (await api.get(`/teacher/classrooms/${firstClassId}/study-plan`)).data?.data,
+    enabled: !!firstClassId,
+    staleTime: 120_000,
+  })
+
+  const { totalStudents, totalClasses, pendingDoubts, todayCurriculum, questions } = useMemo(() => {
+    const pulse: PulseStudent[] = pulseData ?? []
+    const doubtsList = pendingDoubtsRaw as any[]
+    const totalStudentsN = pulse.length
+    const totalClassesN = classes.length
+    const totalDoubtsFromPulse = pulse.reduce((s, p) => s + p.pending_doubts, 0)
+
+    let pendingCount = totalDoubtsFromPulse
+    let qList: StudentQuestion[] = FALLBACK_QUESTIONS
+
+    if (doubtsList.length > 0) {
+      pendingCount = doubtsList.length
+      qList = doubtsList.slice(0, 5).map((d: any) => ({
+        id: d.id,
+        student: d.students?.name || 'Student',
+        initials: (d.students?.name || 'S').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+        question: d.body || d.title,
+        time: timeAgo(d.created_at),
+        subject: d.subject,
+      }))
+    } else {
+      const withDoubts = pulse.filter(p => p.pending_doubts > 0)
+      if (withDoubts.length > 0) {
+        qList = withDoubts.slice(0, 5).map(p => ({
+          id: p.student_id,
+          student: p.name,
+          initials: p.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+          question: `${p.pending_doubts} pending question${p.pending_doubts > 1 ? 's' : ''} — tap to view`,
+          time: 'Today',
+        }))
+      }
+    }
+
+    let curriculum: { className: string; periods: any[] } | null = null
+    if (firstClassPlan && classes[0]) {
+      const cname = classes[0].name as string
+      const dayList = firstClassPlan?.days || []
+      const todayStr = new Date().toISOString().slice(0, 10)
+      const day = dayList.find((d: any) => d.scheduled_date?.slice(0, 10) === todayStr)
+      if (day?.periods?.length) curriculum = { className: cname, periods: day.periods }
+    }
+
+    return {
+      totalStudents: totalStudentsN,
+      totalClasses: totalClassesN,
+      pendingDoubts: pendingCount,
+      todayCurriculum: curriculum,
+      questions: qList,
+    }
+  }, [pulseData, pendingDoubtsRaw, classes, firstClassPlan])
 
   const handleSendReply = async (questionId: string) => {
     if (!replyText.trim()) return
@@ -97,12 +119,12 @@ export default function TeacherDashboard() {
       await api.post(`/teacher/doubts/${questionId}/reply`, { body: replyText })
       setSentId(questionId)
       toast.success('Reply sent!')
+      await queryClient.invalidateQueries({ queryKey: queryKeys.teacher.doubts('pending') })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.teacher.pulseToday() })
       setTimeout(() => {
         setReplyingTo(null)
         setReplyText('')
         setSentId(null)
-        setQuestions(prev => prev.filter(q => q.id !== questionId))
-        setPendingDoubts(prev => (prev !== null ? Math.max(0, prev - 1) : 0))
       }, 1500)
     } catch {
       toast.error('Could not send reply. Try again.')
@@ -120,18 +142,66 @@ export default function TeacherDashboard() {
           <Sparkles className="h-5 w-5 text-amber-400 fill-amber-400" />
         </h1>
         <p className="text-slate-500 font-medium">
-          You have <span className="text-blue-600 font-bold">{totalClasses ?? '…'} {totalClasses === 1 ? 'class' : 'classes'}</span> and{' '}
-          <span className="text-orange-500 font-bold">{pendingDoubts ?? '…'} student questions</span> today.
+          You have <span className="text-blue-600 font-bold">{classesPending ? '…' : totalClasses} {totalClasses === 1 ? 'class' : 'classes'}</span> and{' '}
+          <span className="text-orange-500 font-bold">{doubtsPending && pendingDoubtsRaw.length === 0 ? '…' : pendingDoubts} student questions</span> today.
         </p>
       </div>
 
       {/* Stats Grid — real numbers */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard value={totalStudents !== null ? String(totalStudents) : '…'} label="Total Students" icon={Users} from="from-[#4E7DFF]" to="to-[#3B66DE]" shadow="shadow-blue-500/20" />
-        <StatCard value={totalClasses !== null ? String(totalClasses) : '…'} label="Classes Today" icon={Calendar} from="from-[#A855F7]" to="to-[#8B5CF6]" shadow="shadow-purple-500/20" />
-        <StatCard value={pendingDoubts !== null ? String(pendingDoubts) : '…'} label="Student Questions" icon={MessageCircle} from="from-[#FF922B]" to="to-[#F76707]" shadow="shadow-orange-500/20" />
-        <StatCard value={avgAttendance !== null ? `${avgAttendance}%` : '…'} label="Avg. Attendance" icon={CheckCircle2} from="from-[#20C997]" to="to-[#12B886]" shadow="shadow-emerald-500/20" />
+        <StatCard value={pulsePending ? '…' : String(totalStudents)} label="Total Students" icon={Users} from="from-[#4E7DFF]" to="to-[#3B66DE]" shadow="shadow-blue-500/20" />
+        <StatCard value={classesPending ? '…' : String(totalClasses)} label="Classes Today" icon={Calendar} from="from-[#A855F7]" to="to-[#8B5CF6]" shadow="shadow-purple-500/20" />
+        <StatCard value={doubtsPending && pendingDoubtsRaw.length === 0 ? '…' : String(pendingDoubts)} label="Student Questions" icon={MessageCircle} from="from-[#FF922B]" to="to-[#F76707]" shadow="shadow-orange-500/20" />
+        <StatCard value={`${avgAttendance}%`} label="Avg. Attendance" icon={CheckCircle2} from="from-[#20C997]" to="to-[#12B886]" shadow="shadow-emerald-500/20" />
       </div>
+
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-bold text-slate-900">Today&apos;s curriculum</h2>
+          <Button variant="outline" size="sm" className="rounded-xl border-slate-200 text-xs font-semibold" asChild>
+            <Link to="/teacher/study-plan">Study plan</Link>
+          </Button>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          {todayCurriculumLoading ? (
+            <div className="flex items-center gap-3 text-sm text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+              Loading today&apos;s plan…
+            </div>
+          ) : !todayCurriculum ? (
+            <p className="text-sm text-slate-500">
+              No scheduled curriculum day for today in your first class, or no plan yet. Open Study plan for the full calendar.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{todayCurriculum.className}</p>
+              {todayCurriculum.periods.map((period: any) => (
+                <div key={period.id || period.title}>
+                  <p className="text-xs font-semibold text-indigo-700">{period.title}</p>
+                  <ul className="mt-2 space-y-1.5">
+                    {(period.tasks || []).map((task: any) => (
+                      <li
+                        key={task.id || task.title}
+                        className="flex flex-col gap-0.5 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-800 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-medium">{task.title}</span>
+                          {task.description ? (
+                            <p className="mt-0.5 text-xs text-slate-600">{task.description}</p>
+                          ) : null}
+                        </div>
+                        <Badge variant="secondary" className="w-fit shrink-0 text-[10px] font-medium capitalize">
+                          {task.task_type}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       <TeacherSubmissionsWorkspace layout="embedded" />
 

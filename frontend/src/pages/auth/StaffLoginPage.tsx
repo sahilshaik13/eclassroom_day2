@@ -56,7 +56,7 @@ export default function StaffLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5] flex flex-col items-center justify-center px-4 py-8">
+    <div className="min-h-dvh bg-[#f0f2f5] flex flex-col items-center justify-center px-3.5 sm:px-4 py-6 sm:py-8 overflow-x-clip">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
@@ -70,7 +70,7 @@ export default function StaffLoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 sm:p-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Staff Login</h1>
           <p className="text-sm text-gray-500 mb-8">Teachers &amp; Administrators</p>
 
@@ -119,7 +119,7 @@ export default function StaffLoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold py-3.5 rounded-full transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full min-h-11 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold px-4 py-3 rounded-full transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Signing in…</>

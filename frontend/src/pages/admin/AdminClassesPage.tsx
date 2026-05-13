@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Video, Users, MoreVertical, Settings, Trash2, BookOpen, Pencil } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import type { ClassItem } from '../../types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Button } from '@/components/ui/button'
@@ -35,8 +37,7 @@ import {
 
 export default function AdminClassesPage() {
   const navigate = useNavigate()
-  const [classes, setClasses] = useState<ClassItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
   const [detailsModalOpen, setDetailsModalOpen] = useState(false)
   const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null)
@@ -47,17 +48,14 @@ export default function AdminClassesPage() {
   const [renameName, setRenameName] = useState('')
   const [renaming, setRenaming] = useState(false)
 
-  const load = () => {
-    setLoading(true)
-    api.get('/admin/classes')
-      .then(c => {
-        setClasses(c.data.data)
-      })
-      .catch(() => toast.error('Could not load data'))
-      .finally(() => setLoading(false))
-  }
+  const { data: classes = [], isPending: loading } = useQuery({
+    queryKey: queryKeys.admin.classes(),
+    queryFn: async () => (await api.get('/admin/classes')).data.data as ClassItem[],
+  })
 
-  useEffect(() => { load() }, [])
+  const refreshClasses = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.classes() })
+  }
 
   const actions = (
     <Button className="gap-2" onClick={() => setModalOpen(true)}>
@@ -71,7 +69,7 @@ export default function AdminClassesPage() {
     try {
       await api.delete(`/admin/classes/${id}`);
       toast.success("Class deleted successfully");
-      load();
+      refreshClasses();
     } catch (e: any) {
       toast.error(e?.response?.data?.error?.message || "Failed to delete class");
     }
@@ -90,7 +88,7 @@ export default function AdminClassesPage() {
       await api.patch(`/admin/classes/${renameClass.id}`, { name: renameName.trim() })
       toast.success('Class renamed successfully')
       setRenameOpen(false)
-      load()
+      refreshClasses()
     } catch {
       toast.error('Failed to rename class')
     } finally {
@@ -237,13 +235,13 @@ export default function AdminClassesPage() {
       <ClassModal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        onSuccess={load}
+        onSuccess={refreshClasses}
       />
       <ClassDetailsModal
         open={detailsModalOpen}
         onOpenChange={setDetailsModalOpen}
         classData={selectedClass}
-        onUpdate={load}
+        onUpdate={refreshClasses}
       />
     </DashboardPageLayout>
   )

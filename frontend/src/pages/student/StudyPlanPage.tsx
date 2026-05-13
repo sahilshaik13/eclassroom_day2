@@ -7,6 +7,7 @@ import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
+import { StudyPlanCalendarPanel } from '@/components/study-plan/StudyPlanCalendarPanel'
 
 const TASK_ICONS: Record<string, React.ReactNode> = {
   memorise: <Target className="h-3.5 w-3.5" />,
@@ -32,7 +33,14 @@ interface Task {
   description?: string;
   task_type: string;
   completed?: boolean;
-  mcq_config?: any;
+  mcq_config?: unknown;
+  config?: Record<string, unknown>;
+  study_plan_submissions?: unknown[];
+}
+
+function isTaskCompleted(task: Task): boolean {
+  if (task.completed) return true
+  return Array.isArray(task.study_plan_submissions) && task.study_plan_submissions.length > 0
 }
 
 interface Period {
@@ -59,7 +67,8 @@ export default function StudyPlanPage() {
     setLoading(true)
     api.get('/student/study-plan')
       .then(res => {
-        const sorted = (res.data.data.days || []).sort((a: Day, b: Day) => a.day_number - b.day_number)
+        const payload = res.data.data
+        const sorted = (payload?.days || []).sort((a: Day, b: Day) => a.day_number - b.day_number)
         setDays(sorted)
         
         // Auto-open today or first day
@@ -75,7 +84,7 @@ export default function StudyPlanPage() {
   useEffect(load, [])
 
   const handleTaskAction = (task: Task) => {
-    if (task.completed && task.task_type === 'mcq') {
+    if (isTaskCompleted(task) && task.task_type === 'mcq') {
        toast.error("MCQ already completed");
        return;
     }
@@ -93,6 +102,11 @@ export default function StudyPlanPage() {
       }
     >
       <div className="max-w-4xl mx-auto pb-20 space-y-6">
+        {!loading && days.length > 0 && (
+          <div className="space-y-6">
+            <StudyPlanCalendarPanel days={days} readOnly anchorKey="student-plan" />
+          </div>
+        )}
         {loading ? (
           <div className="space-y-4">
             {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-20 w-full bg-slate-50 animate-pulse rounded-3xl border border-slate-100" />)}
@@ -114,7 +128,7 @@ export default function StudyPlanPage() {
               const todayStr = new Date().toISOString().slice(0, 10)
               const isToday = day.scheduled_date === todayStr
               const allTasks = day.periods.flatMap(p => p.tasks)
-              const completedCount = allTasks.filter(t => t.completed).length
+              const completedCount = allTasks.filter(t => isTaskCompleted(t)).length
               const totalCount = allTasks.length
               const isComplete = totalCount > 0 && completedCount === totalCount
 
@@ -175,70 +189,85 @@ export default function StudyPlanPage() {
                     <div className="px-6 pb-8 space-y-8 animate-in fade-in slide-in-from-top-4 duration-500">
                       <div className="h-px bg-slate-100 w-full" />
                       
-                      {day.periods.map(period => (
-                         <div key={period.id} className="space-y-4">
-                            <div className="flex items-center gap-2 px-2">
-                               <Clock className="h-4 w-4 text-slate-300" />
-                               <span className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{period.title} ({period.duration_minutes}m)</span>
-                            </div>
-                            
-                            <div className="grid gap-3">
-                              {period.tasks.map(task => (
+                      {day.periods.map((period) => (
+                        <div key={period.id} className="space-y-4">
+                          <div className="flex items-center gap-2 px-2">
+                            <Clock className="h-4 w-4 text-slate-300" />
+                            <span className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
+                              {period.title} ({period.duration_minutes}m)
+                            </span>
+                          </div>
+
+                          <div className="grid gap-3">
+                            {period.tasks.map((task) => {
+                              const done = isTaskCompleted(task)
+                              return (
                                 <div
                                   key={task.id}
                                   className={clsx(
-                                    'group/task w-full flex items-center gap-5 p-5 rounded-[1.5rem] border transition-all duration-300',
-                                    task.completed
-                                      ? 'bg-emerald-50/30 border-emerald-100/50'
-                                      : 'bg-white border-slate-200 hover:border-blue-400 hover:shadow-xl hover:shadow-slate-200/50 hover:-translate-y-0.5'
+                                    'group/task flex w-full items-center gap-5 rounded-[1.5rem] border p-5 transition-all duration-300',
+                                    done
+                                      ? 'border-emerald-100/50 bg-emerald-50/30'
+                                      : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-xl hover:shadow-slate-200/50'
                                   )}
                                 >
-                                  <div className={clsx(
-                                    "h-12 w-12 rounded-2xl flex items-center justify-center transition-all duration-500 shadow-sm",
-                                    task.completed ? "bg-emerald-500 text-white" : "bg-slate-50 text-slate-300 group-hover/task:bg-blue-50 group-hover/task:text-blue-600"
-                                  )}>
-                                    {task.completed ? <CheckCircle2 className="h-6 w-6" /> : (TASK_ICONS[task.task_type] || <Circle className="h-6 w-6" />)}
+                                  <div
+                                    className={clsx(
+                                      'flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm transition-all duration-500',
+                                      done ? 'bg-emerald-500 text-white' : 'bg-slate-50 text-slate-300 group-hover/task:bg-blue-50 group-hover/task:text-blue-600'
+                                    )}
+                                  >
+                                    {done ? <CheckCircle2 className="h-6 w-6" /> : TASK_ICONS[task.task_type] || <Circle className="h-6 w-6" />}
                                   </div>
 
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className={clsx(
-                                        "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border",
-                                        TASK_COLORS[task.task_type] || "bg-slate-50 text-slate-500"
-                                      )}>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="mb-1 flex items-center gap-2">
+                                      <span
+                                        className={clsx(
+                                          'rounded-lg border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider',
+                                          TASK_COLORS[task.task_type] || 'border-slate-200 bg-slate-50 text-slate-500'
+                                        )}
+                                      >
                                         {task.task_type}
                                       </span>
                                     </div>
-                                    <p className={clsx(
-                                      'text-base font-black transition-all tracking-tight',
-                                      task.completed ? 'text-slate-400' : 'text-slate-900 group-hover/task:text-blue-600'
-                                    )}>
+                                    <p
+                                      className={clsx(
+                                        'text-base font-black tracking-tight transition-all',
+                                        done ? 'text-slate-400' : 'text-slate-900 group-hover/task:text-blue-600'
+                                      )}
+                                    >
                                       {task.title}
                                     </p>
                                     {task.description && (
-                                      <p className="text-xs text-slate-400 mt-1.5 font-bold leading-relaxed">{task.description}</p>
+                                      <p className="mt-1.5 text-xs font-bold leading-relaxed text-slate-400">{task.description}</p>
                                     )}
                                   </div>
 
-                                  <Button 
+                                  <Button
                                     size="sm"
-                                    variant={task.completed ? "ghost" : "default"}
+                                    variant={done ? 'ghost' : 'default'}
                                     onClick={() => handleTaskAction(task)}
                                     className={clsx(
-                                      "rounded-xl h-10 px-5 font-black text-xs gap-2 transition-all",
-                                      task.completed ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-slate-900 hover:bg-blue-600 text-white shadow-lg"
+                                      'h-10 gap-2 rounded-xl px-5 font-black text-xs transition-all',
+                                      done ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-900 text-white shadow-lg hover:bg-blue-600'
                                     )}
                                   >
-                                    {task.completed ? (
-                                      <>Submitted <ArrowRight className="h-3 w-3" /></>
+                                    {done ? (
+                                      <>
+                                        Submitted <ArrowRight className="h-3 w-3" />
+                                      </>
                                     ) : (
-                                      <>{task.task_type === 'mcq' ? 'Start Quiz' : 'Submit Work'} <Send className="h-3 w-3" /></>
+                                      <>
+                                        {task.task_type === 'mcq' ? 'Start Quiz' : 'Submit Work'} <Send className="h-3 w-3" />
+                                      </>
                                     )}
                                   </Button>
                                 </div>
-                              ))}
-                            </div>
-                         </div>
+                              )
+                            })}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}

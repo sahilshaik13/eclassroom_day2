@@ -8,7 +8,7 @@ PATCH /api/v1/super-admin/tenants/:id
 GET  /api/v1/super-admin/tenants/:id
 GET  /api/v1/super-admin/tenants/:id/admins
 POST /api/v1/super-admin/tenants/:id/admins
-PATCH /api/v1/super-admin/admins/:id
+GET  /api/v1/super-admin/audit-logs
 """
 from uuid import UUID
 from typing import Optional
@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, EmailStr
 
 from app.core.deps import require_super_admin, TokenData
-from app.core.response import success, error
+from app.core.response import success, error, paginated
 from app.db.supabase import get_admin_client
 from app.services.auth_service import AuthService, AuthError
 from app.core.config import settings
@@ -97,6 +97,42 @@ async def get_platform_stats(token: TokenData = Depends(require_super_admin)):
         return error("INTERNAL_ERROR", str(e), 500)
 
 
+@router.get("/audit-logs")
+async def list_audit_logs(
+    page: int = 1,
+    limit: int = 100,
+    tenant_id: Optional[str] = None,
+    token: TokenData = Depends(require_super_admin),
+):
+    """
+    Paginated API audit trail from the 7-day hot table only (`audit_log_recent`).
+    Older rows are moved to `audit_log_archive` by `rotate_audit_logs()` and are not returned here.
+    """
+    admin = get_admin_client()
+    limit = max(1, min(limit, 200))
+    page = max(1, page)
+    offset = (page - 1) * limit
+
+    try:
+        q = (
+            admin.table("audit_log_recent")
+            .select(
+                "id, occurred_at, actor_user_id, tenant_id, actor_role, "
+                "http_method, path, status_code, duration_ms, client_ip, user_agent, metadata",
+                count="exact",
+            )
+            .order("occurred_at", desc=True)
+        )
+        if tenant_id:
+            q = q.eq("tenant_id", tenant_id)
+        res = q.range(offset, offset + limit - 1).execute()
+        rows = res.data or []
+        total = res.count if res.count is not None else len(rows)
+        return paginated(rows, page, limit, total)
+    except Exception as e:
+        return error("INTERNAL_ERROR", str(e), 500)
+
+
 @router.get("/tenants")
 async def list_tenants(token: TokenData = Depends(require_super_admin)):
     """List all tenants with their stats."""
@@ -134,7 +170,11 @@ async def list_tenants(token: TokenData = Depends(require_super_admin)):
 
 
 @router.post("/tenants")
-async def create_tenant(body: CreateTenantRequest, token: TokenData = Depends(require_super_admin)):
+async def create_tenant(
+    body: CreateTenantRequest,
+    request: Request,
+    token: TokenData = Depends(require_super_admin),
+):
     """Create a new tenant and its primary admin in one flow."""
     admin_client = get_admin_client()
     
@@ -237,7 +277,7 @@ async def update_tenant(tenant_id: UUID, body: UpdateTenantRequest, token: Token
 async def delete_tenant(tenant_id: UUID, token: TokenData = Depends(require_super_admin)):
     """
     Permanently delete a tenant and all associated data.
-    Order: enrollments → students → classes → teacher_applications → users → tenant
+    Order: enrollments → students → classes → applications → audit logs → users → tenant
     """
     admin = get_admin_client()
     tid = str(tenant_id)
@@ -255,8 +295,19 @@ async def delete_tenant(tenant_id: UUID, token: TokenData = Depends(require_supe
         # 3. Remove all classes
         admin.table("classes").delete().eq("tenant_id", tid).execute()
 
-        # 4. Remove teacher applications
+        # 4. Remove tenant application queues
         admin.table("teacher_applications").delete().eq("tenant_id", tid).execute()
+        admin.table("student_applications").delete().eq("tenant_id", tid).execute()
+
+        # 4b. Audit log rows for this tenant (hot + archive)
+        try:
+            admin.table("audit_log_recent").delete().eq("tenant_id", tid).execute()
+        except Exception:
+            pass
+        try:
+            admin.table("audit_log_archive").delete().eq("tenant_id", tid).execute()
+        except Exception:
+            pass
 
         # 5. Remove all users (admins + teachers)
         admin.table("users").delete().eq("tenant_id", tid).execute()

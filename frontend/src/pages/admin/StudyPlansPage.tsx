@@ -1,195 +1,114 @@
 import { useEffect, useState } from 'react'
-import { Plus, Play, Trash2, LayoutGrid, Edit2, Loader2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
+import { ArrowRight, CalendarDays, Loader2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
-import api from '../../services/api'
-import type { StudyPlanTemplate, ClassItem } from '../../types'
+import api from '@/services/api'
+import type { StudyPlanTemplate } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
+import { TemplateModal } from '@/components/admin/TemplateModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Badge } from '@/components/ui/badge'
 
 export default function StudyPlansPage() {
-  const navigate = useNavigate()
   const [templates, setTemplates] = useState<StudyPlanTemplate[]>([])
-  const [classes, setClasses] = useState<ClassItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [applyClassId, setApplyClassId] = useState('')
-  const [applying, setApplying] = useState(false)
-  const [selected, setSelected] = useState<StudyPlanTemplate | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
 
-  const load = () => {
+  const loadTemplates = async () => {
     setLoading(true)
-    Promise.all([api.get('/admin/study-plans'), api.get('/admin/classes')])
-      .then(([t, c]) => {
-        setTemplates(t.data.data)
-        setClasses(c.data.data)
-      })
-      .catch(() => toast.error('Could not load plans'))
-      .finally(() => setLoading(false))
-  }
-
-  useEffect(load, [])
-
-  const apply = async () => {
-    if (!selected || !applyClassId) return toast.error('Select a class')
-    setApplying(true)
     try {
-      await api.post(`/admin/study-plans/${selected.id}/apply`, { 
-        class_id: applyClassId,
-        name: `${selected.name} - ${classes.find(c => c.id === applyClassId)?.name}`,
-        description: selected.description
-      })
-      toast.success(`Applied! Classroom study plan created.`)
-    } catch { toast.error('Could not apply plan') }
-    finally { setApplying(false) }
+      const res = await api.get('/admin/study-plans')
+      setTemplates((res.data?.data || []) as StudyPlanTemplate[])
+    } catch {
+      toast.error('Could not load study plan templates')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const deleteTemplate = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm("Are you sure you want to delete this template?")) return
-    try {
-      await api.delete(`/admin/study-plans/templates/${id}`)
-      setTemplates(p => p.filter(t => t.id !== id))
-      toast.success("Template deleted")
-    } catch { toast.error("Failed to delete template") }
-  }
+  useEffect(() => {
+    void loadTemplates()
+  }, [])
 
   return (
     <DashboardPageLayout
-      title="Curriculum Templates"
-      description="Design structured multi-day study plans and deploy them to classrooms."
+      title="Study Plans"
+      description="Create and manage reusable study-plan templates for your classes."
       actions={
-        <Button className="gap-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl h-11 px-6 shadow-lg shadow-slate-200" onClick={() => navigate('/admin/study-plans/new')}>
-          <Plus className="h-4 w-4" /> New Template
+        <Button className="gap-2 rounded-xl" onClick={() => setCreateOpen(true)}>
+          <Plus className="h-4 w-4" />
+          New Template
         </Button>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Template List */}
-        <div className="lg:col-span-8 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {loading ? (
-              [1, 2, 3, 4].map(i => (
-                <div key={i} className="h-48 w-full bg-slate-50 animate-pulse rounded-3xl border border-slate-100" />
-              ))
-            ) : (
-              templates.map(t => (
-                <Card 
-                  key={t.id} 
-                  className={`group relative border-slate-200/60 rounded-3xl overflow-hidden hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300 cursor-pointer ${selected?.id === t.id ? 'ring-2 ring-blue-600 ring-offset-2' : ''}`}
-                  onClick={() => setSelected(t)}
+      <Card className="rounded-3xl border-slate-200/80 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-black text-slate-900">Template Library</CardTitle>
+          <p className="text-sm text-slate-500">
+            Use templates to define the day-by-day structure that admins and teachers can apply to classrooms.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center gap-3 py-8 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading templates...
+            </div>
+          ) : templates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-14 text-center">
+              <div className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
+                <CalendarDays className="h-8 w-8 text-slate-400" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">No templates yet</h3>
+              <p className="mt-2 max-w-md text-sm text-slate-500">
+                Create your first study-plan template, then open it to add days, periods, and tasks.
+              </p>
+              <Button className="mt-5 gap-2 rounded-xl" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Create Template
+              </Button>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {templates.map((template) => (
+                <Link
+                  key={template.id}
+                  to={`/admin/study-plans/${template.id}`}
+                  className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                 >
-                  <CardHeader className="bg-slate-50 p-6 flex flex-row items-start justify-between">
-                    <div>
-                      <h3 className="font-black text-lg text-slate-900 group-hover:text-blue-600 transition-colors">{t.name}</h3>
-                      <p className="text-xs text-slate-400 font-medium uppercase tracking-widest mt-1">
-                        {t.day_count || 0} Days • {t.description || 'No description'}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-bold text-slate-900">{template.name}</h3>
+                      <p className="mt-1 line-clamp-2 text-sm text-slate-500">
+                        {template.description?.trim() || 'No description yet.'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                       <Button 
-                         variant="ghost" 
-                         size="icon" 
-                         className="h-8 w-8 text-slate-300 hover:text-blue-600 rounded-lg"
-                         onClick={(e) => { e.stopPropagation(); navigate(`/admin/study-plans/${t.id}`); }}
-                       >
-                         <Edit2 className="h-4 w-4" />
-                       </Button>
-                       <Button 
-                         variant="ghost" 
-                         size="icon" 
-                         className="h-8 w-8 text-slate-300 hover:text-red-500 rounded-lg"
-                         onClick={(e) => deleteTemplate(t.id, e)}
-                       >
-                         <Trash2 className="h-4 w-4" />
-                       </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-6 pt-0">
-                    <div className="flex items-center gap-4 mt-4">
-                       <div className="flex -space-x-2">
-                          {[1,2,3].map(i => (
-                            <div key={i} className="w-8 h-8 rounded-full bg-white border-2 border-slate-50 flex items-center justify-center text-[10px] font-bold text-slate-400">
-                               D{i}
-                            </div>
-                          ))}
-                       </div>
-                       <span className="text-xs font-bold text-slate-400">Multi-period hierarchy</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-          
-          {!loading && templates.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-24 bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
-              <LayoutGrid className="h-12 w-12 text-slate-200 mb-4" />
-              <h3 className="text-lg font-bold text-slate-900">No Templates Yet</h3>
-              <p className="text-sm text-slate-500 max-w-xs text-center mt-2 leading-relaxed">
-                Start by creating a curriculum template that can be reused across multiple classrooms.
-              </p>
+                    <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-slate-500" />
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{template.day_count ?? template.total_days ?? 0} days</Badge>
+                    <Badge variant="outline">{template.task_count ?? template.total_tasks ?? 0} tasks</Badge>
+                  </div>
+
+                  <p className="mt-4 text-xs text-slate-400">
+                    Created {template.created_at ? new Date(template.created_at).toLocaleDateString() : 'recently'}
+                  </p>
+                </Link>
+              ))}
             </div>
           )}
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Deployment Panel */}
-        <div className="lg:col-span-4">
-          <Card className="border-none shadow-2xl shadow-slate-200/60 rounded-3xl overflow-hidden sticky top-8">
-            <CardHeader className="bg-slate-900 text-white p-8">
-               <div className="flex items-center gap-3 mb-2">
-                  <Play className="h-5 w-5 text-blue-400 fill-current" />
-                  <span className="text-xs font-black uppercase tracking-widest text-blue-400">Deployment</span>
-               </div>
-               <CardTitle className="text-2xl font-black">Deploy Template</CardTitle>
-               <p className="text-slate-400 text-sm mt-2">Fork a template into a specific classroom for date assignment and student tracking.</p>
-            </CardHeader>
-            <CardContent className="p-8 space-y-6">
-               <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Selected Template</label>
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 font-bold text-slate-700">
-                       {selected ? selected.name : <span className="text-slate-300">No template selected</span>}
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Target Classroom</label>
-                    <Select value={applyClassId} onValueChange={setApplyClassId}>
-                      <SelectTrigger className="h-14 rounded-2xl border-slate-200 font-bold focus:ring-blue-500/20">
-                        <SelectValue placeholder="Select Classroom" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-2xl border-slate-200">
-                        {classes.map(c => (
-                          <SelectItem key={c.id} value={c.id} className="font-medium">{c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-               </div>
-
-               <Button
-                 onClick={apply}
-                 disabled={applying || !applyClassId || !selected}
-                 className="w-full h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-lg shadow-xl shadow-blue-200 transition-transform hover:scale-[1.02] active:scale-[0.98]"
-               >
-                 {applying ? (
-                   <Loader2 className="h-6 w-6 animate-spin" />
-                 ) : (
-                   "Create Classroom Plan"
-                 )}
-               </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <TemplateModal
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onSuccess={() => {
+          void loadTemplates()
+        }}
+      />
     </DashboardPageLayout>
   )
 }

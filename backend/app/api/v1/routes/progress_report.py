@@ -7,19 +7,38 @@ from app.core.response import success, error
 
 router = APIRouter(tags=["Progress Report"])
 
-# Human-readable labels for task types
-TASK_TYPE_LABELS = {
-    "mcq": "MCQ's",
-    "recite": "Recite",
-    "review": "Review",
-    "memorise": "Memorise",
-    "read": "Read",
-    "listen": "Listen",
-    "written": "Written Work",
-    "reflection": "Reflection",
+# Human-readable labels for fixed KPI dashboard axes.
+KPI_LABELS = {
+    "hifz": "Hifz",
+    "kubra": "Kubra",
+    "sughra": "Sughra",
+    "tajweed": "Tajweed",
+}
+ALL_KPI_BUCKETS = ["hifz", "kubra", "sughra", "tajweed"]
+
+_TASK_TYPE_TO_KPI_BUCKET = {
+    "memorise": "hifz",
+    "review": "kubra",
+    "read": "kubra",
+    "reflection": "kubra",
+    "recite": "sughra",
+    "listen": "sughra",
+    "mcq": "tajweed",
+    "written": "tajweed",
 }
 
-ALL_TASK_TYPES = ["memorise", "review", "recite", "mcq"]
+
+def kpi_bucket_for_task(task: dict) -> str:
+    """
+    Resolve KPI bucket using Gemini semantic config first.
+    Fallback: infer from task_type to keep backward compatibility.
+    """
+    cfg = task.get("config") if isinstance(task.get("config"), dict) else {}
+    kb = (cfg.get("kpi_bucket") or "").strip().lower() if isinstance(cfg, dict) else ""
+    if kb in ALL_KPI_BUCKETS:
+        return kb
+    t = (task.get("task_type") or "").strip().lower()
+    return _TASK_TYPE_TO_KPI_BUCKET.get(t, "kubra")
 
 
 async def generate_detailed_report(
@@ -89,7 +108,7 @@ async def generate_detailed_report(
     #    This is exactly the same query that StudentProgressPage uses and it works.
     days_res = (
         admin.table("study_plan_days")
-        .select("id, plan_id, template_id, day_number, scheduled_date, is_accessible, study_plan_periods(id, title, study_plan_tasks(id, title, task_type, study_plan_submissions(id, score, status, student_id)))")
+        .select("id, plan_id, template_id, day_number, scheduled_date, is_accessible, study_plan_periods(id, title, study_plan_tasks(id, title, task_type, config, study_plan_submissions(id, score, status, student_id)))")
         .or_(or_filter)
         .execute()
     )
@@ -131,7 +150,7 @@ async def generate_detailed_report(
 
         for period in (day.get("study_plan_periods") or []):
             for task in (period.get("study_plan_tasks") or []):
-                ttype = task.get("task_type", "memorise")
+                kpi_ttype = kpi_bucket_for_task(task)
 
                 total_month_tasks += 1
 
@@ -156,12 +175,12 @@ async def generate_detailed_report(
                         total_reviewed_count += 1
                         total_score_sum += val
                         
-                        # Add to overall grid
-                        if ttype not in overall_grid:
-                            overall_grid[ttype] = {}
-                        if cal_day not in overall_grid[ttype]:
-                            overall_grid[ttype][cal_day] = []
-                        overall_grid[ttype][cal_day].append(val)
+                        # Add to overall grid (bucketed KPI axis, not raw DB enum)
+                        if kpi_ttype not in overall_grid:
+                            overall_grid[kpi_ttype] = {}
+                        if cal_day not in overall_grid[kpi_ttype]:
+                            overall_grid[kpi_ttype][cal_day] = []
+                        overall_grid[kpi_ttype][cal_day].append(val)
                         
                         # Add to specific class grid(s)
                         p_id = day.get("plan_id")
@@ -179,17 +198,17 @@ async def generate_detailed_report(
                         for c_id in matched_class_ids:
                             if c_id not in class_grids:
                                 class_grids[c_id] = {}
-                            if ttype not in class_grids[c_id]:
-                                class_grids[c_id][ttype] = {}
-                            if cal_day not in class_grids[c_id][ttype]:
-                                class_grids[c_id][ttype][cal_day] = []
-                            class_grids[c_id][ttype][cal_day].append(val)
+                            if kpi_ttype not in class_grids[c_id]:
+                                class_grids[c_id][kpi_ttype] = {}
+                            if cal_day not in class_grids[c_id][kpi_ttype]:
+                                class_grids[c_id][kpi_ttype][cal_day] = []
+                            class_grids[c_id][kpi_ttype][cal_day].append(val)
 
     # 6. Build the grid rows for the frontend table
     
     def process_grid(g):
         processed = []
-        for ttype in ALL_TASK_TYPES:
+        for ttype in ALL_KPI_BUCKETS:
             days_data = {}
             type_scores = []
             if ttype in g:
@@ -198,7 +217,7 @@ async def generate_detailed_report(
                     days_data[d_num] = avg
                     type_scores.append(avg)
             processed.append({
-                "task_type": TASK_TYPE_LABELS.get(ttype, ttype),
+                "task_type": KPI_LABELS.get(ttype, ttype),
                 "days": days_data,
                 "type_average": round(sum(type_scores) / len(type_scores)) if type_scores else None,
             })
@@ -252,7 +271,7 @@ def _empty_report(student, classes, sel_month, sel_year):
         "total_month_tasks": 0,
         "total_completed": 0,
         "total_reviewed": 0,
-        "grid": [{"task_type": TASK_TYPE_LABELS.get(t, t), "days": {}, "type_average": None} for t in ALL_TASK_TYPES],
+        "grid": [{"task_type": KPI_LABELS.get(t, t), "days": {}, "type_average": None} for t in ALL_KPI_BUCKETS],
         "class_reports": [],
     }
 

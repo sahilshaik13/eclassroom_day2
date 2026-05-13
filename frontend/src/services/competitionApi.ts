@@ -1,5 +1,5 @@
 import api from './api'
-import type { ApiResponse, Competition, CompetitionRegistration, CompetitionResult } from '../types'
+import type { ApiResponse, Competition, CompetitionRegistration, CompetitionResult, CompetitionRegistrationsPayload } from '../types'
 
 export const competitionApi = {
   // Public
@@ -20,7 +20,9 @@ export const competitionApi = {
 
   // Admin and Teacher
   getCompetitionRegistrations: async (competitionId: string) => {
-    const { data } = await api.get<ApiResponse<CompetitionRegistration[]>>(`/competitions/${competitionId}/registrations`)
+    const { data } = await api.get<ApiResponse<CompetitionRegistrationsPayload>>(
+      `/competitions/${competitionId}/registrations`
+    )
     return data
   },
 
@@ -74,6 +76,13 @@ export const competitionApi = {
     return data
   },
 
+  publishCompetitionResults: async (competitionId: string) => {
+    const { data } = await api.post<ApiResponse<{ published: number } & Record<string, unknown>>>(
+      `/admin/competitions/${competitionId}/publish-results`
+    )
+    return data
+  },
+
   deleteCompetition: async (competitionId: string) => {
     const { data } = await api.delete<ApiResponse<{message: string}>>(`/admin/competitions/${competitionId}`)
     return data
@@ -111,11 +120,6 @@ export const competitionApi = {
   // Student Only
   getStudentCompetitions: async () => {
     const { data } = await api.get<ApiResponse<CompetitionRegistration[]>>('/student/competitions')
-    return data
-  },
-  
-  toggleExamStatus: async (competitionId: string, isActive: boolean) => {
-    const { data } = await api.patch<ApiResponse<Competition>>(`/teacher/competitions/${competitionId}/toggle-exam`, { is_exam_active: isActive })
     return data
   },
 }

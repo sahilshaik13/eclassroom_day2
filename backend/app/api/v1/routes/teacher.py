@@ -16,7 +16,7 @@ GET  /api/v1/teacher/reports/{student_id}
 GET  /api/v1/teacher/submissions/pending    ← NEW: get all submitted tasks needing review
 """
 from datetime import date, timedelta, datetime
-from typing import Optional
+from typing import Optional, Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from app.schemas import study_plan as sp
@@ -27,6 +27,27 @@ from app.db.supabase import get_user_client, get_admin_client
 
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
+
+# PostgREST `.in_(task_id, uuids)` becomes a very long query string; large plans exceed URL limits → 400 Bad Request.
+SUBMISSION_TASK_ID_IN_CHUNK = 100
+
+
+def _fetch_submissions_for_student_tasks(admin: Any, student_id: str, task_ids: list[str]) -> list[dict]:
+    ids = list(dict.fromkeys(task_ids))
+    if not ids:
+        return []
+    rows: list[dict] = []
+    for i in range(0, len(ids), SUBMISSION_TASK_ID_IN_CHUNK):
+        chunk = ids[i : i + SUBMISSION_TASK_ID_IN_CHUNK]
+        res = (
+            admin.table("study_plan_submissions")
+            .select("*")
+            .eq("student_id", student_id)
+            .in_("task_id", chunk)
+            .execute()
+        )
+        rows.extend(res.data or [])
+    return rows
 
 
 # ── Daily Pulse ───────────────────────────────────────────────
@@ -276,7 +297,7 @@ async def get_students(
 
     enr_res = (
         client.table("class_enrollments")
-        .select("students(id, name, phone, deactivated_at), class_id, classes(name)")
+        .select("students(id, name, phone, deactivated_at, user_id), class_id, classes(name)")
         .in_("class_id", filter_ids)
         .execute()
     )
@@ -296,6 +317,7 @@ async def get_students(
         if sid not in students_map:
             students_map[sid] = {
                 **s,
+                "last_login_at": None,
                 "classes": [],
                 "progress": {"total": 0, "completed": 0, "reviewed": 0, "pct": 0, "average_score": 0}
             }
@@ -308,6 +330,26 @@ async def get_students(
         if "class_id" not in students_map[sid]:
             students_map[sid]["class_id"] = row["class_id"]
             students_map[sid]["class_name"] = cls.get("name", "")
+
+    # Attach last OTP login time from public.users (batch)
+    if students_map:
+        admin = get_admin_client()
+        user_ids = list({str(v["user_id"]) for v in students_map.values() if v.get("user_id")})
+        if user_ids:
+            try:
+                lu_res = (
+                    admin.table("users")
+                    .select("id, last_login_at")
+                    .in_("id", user_ids)
+                    .execute()
+                )
+                by_uid = {str(r["id"]): r.get("last_login_at") for r in (lu_res.data or [])}
+                for sid, row in students_map.items():
+                    uid = row.get("user_id")
+                    if uid and str(uid) in by_uid:
+                        row["last_login_at"] = by_uid[str(uid)]
+            except Exception:
+                pass
 
     # 3. If a specific class is selected, attach its progress metrics
     if class_id and students_map:
@@ -349,7 +391,210 @@ async def get_students(
                     }
 
 
-    return success(list(students_map.values()))
+    out = []
+    for v in students_map.values():
+        row = dict(v)
+        row.pop("user_id", None)
+        out.append(row)
+    return success(out)
+
+
+def _teacher_tenant_id(admin: Any, token: TokenData) -> Optional[str]:
+    """JWT app_metadata.tenant_id, else users.tenant_id for the logged-in user."""
+    if token.tenant_id:
+        return str(token.tenant_id)
+    ur = admin.table("users").select("tenant_id").eq("id", token.user_id).maybe_single().execute()
+    if ur and ur.data and ur.data.get("tenant_id"):
+        return str(ur.data["tenant_id"])
+    return None
+
+
+def _compute_presence_streak(attendance_rows: list) -> int:
+    """Consecutive calendar days with at least one present, counting back from the most recent."""
+    from datetime import date as date_cls
+
+    dates: list = []
+    for r in attendance_rows or []:
+        if r.get("status") != "present":
+            continue
+        d = r.get("session_date")
+        if not d:
+            continue
+        if isinstance(d, str):
+            d = date_cls.fromisoformat(d[:10])
+        dates.append(d)
+    dates = sorted(set(dates), reverse=True)
+    if not dates:
+        return 0
+    streak = 1
+    for i in range(1, len(dates)):
+        if (dates[i - 1] - dates[i]).days == 1:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _compute_login_streak(login_rows: list) -> int:
+    """Consecutive unique login dates counting back from most recent login date."""
+    from datetime import date as date_cls
+
+    dates: list = []
+    for r in login_rows or []:
+        d = r.get("login_date")
+        if not d:
+            continue
+        if isinstance(d, str):
+            d = date_cls.fromisoformat(d[:10])
+        dates.append(d)
+    dates = sorted(set(dates), reverse=True)
+    if not dates:
+        return 0
+    streak = 1
+    for i in range(1, len(dates)):
+        if (dates[i - 1] - dates[i]).days == 1:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+@router.get("/students/{student_id}/overview")
+async def get_student_overview_for_teacher(
+    student_id: str,
+    token: TokenData = Depends(require_teacher),
+):
+    """
+    Last login, recent attendance (teacher classes), doubts-as-notes, attendance streak.
+    """
+    admin = get_admin_client()
+    teacher_tid = _teacher_tenant_id(admin, token)
+
+    stu_res = (
+        admin.table("students")
+        .select("id, name, phone, user_id, tenant_id")
+        .eq("id", student_id)
+        .maybe_single()
+        .execute()
+    )
+    if not stu_res or not stu_res.data:
+        return error("NOT_FOUND", "Student not found", 404)
+
+    if teacher_tid and str(stu_res.data.get("tenant_id")) != str(teacher_tid):
+        return error("FORBIDDEN", "Student not in your organization", 403)
+
+    cq = admin.table("classes").select("id")
+    tid_filter = teacher_tid or (
+        str(stu_res.data["tenant_id"]) if stu_res.data.get("tenant_id") else None
+    )
+    if tid_filter:
+        cq = cq.eq("tenant_id", tid_filter)
+    if token.role not in ("admin", "platform_admin"):
+        cq = cq.eq("teacher_id", token.user_id)
+    classes_res = cq.execute()
+    teacher_class_ids = [c["id"] for c in (classes_res.data or [])]
+    if not teacher_class_ids:
+        return success(
+            {
+                "student_id": student_id,
+                "last_login_at": None,
+                "attendance_streak": 0,
+                "attendance_history": [],
+                "notes": [],
+            }
+        )
+
+    enr_check = (
+        admin.table("class_enrollments")
+        .select("id")
+        .eq("student_id", student_id)
+        .in_("class_id", teacher_class_ids)
+        .limit(1)
+        .execute()
+    )
+    if token.role not in ("admin", "platform_admin") and not (enr_check.data or []):
+        return error("FORBIDDEN", "Student is not in any of your classes", 403)
+
+    user_res = (
+        admin.table("users")
+        .select("last_login_at")
+        .eq("id", stu_res.data["user_id"])
+        .maybe_single()
+        .execute()
+    )
+    last_login = (user_res.data or {}).get("last_login_at")
+
+    login_rows = []
+    try:
+        login_att_res = (
+            admin.table("student_login_attendance")
+            .select("login_date, login_at")
+            .eq("student_id", student_id)
+            .order("login_date", desc=True)
+            .limit(60)
+            .execute()
+        )
+        login_rows = login_att_res.data or []
+    except Exception:
+        # Table might not exist yet in environments where migration was not applied.
+        login_rows = []
+
+    if not login_rows and last_login:
+        login_rows = [
+            {
+                "login_date": str(last_login)[:10],
+                "login_at": last_login,
+            }
+        ]
+    streak = _compute_login_streak(login_rows)
+
+    history = []
+    for r in login_rows[:30]:
+        login_at = r.get("login_at")
+        details = "Unique login date"
+        if isinstance(login_at, str) and login_at:
+            try:
+                dt = datetime.fromisoformat(login_at.replace("Z", "+00:00"))
+                details = f"Logged in at {dt.strftime('%I:%M %p').lstrip('0')}"
+            except Exception:
+                details = "Unique login date"
+        history.append(
+            {
+                "date": r.get("login_date"),
+                "status": "Present",
+                "details": details,
+            }
+        )
+
+    doubts_res = (
+        admin.table("doubts")
+        .select("id, title, body, created_at, status")
+        .eq("student_id", student_id)
+        .in_("class_id", teacher_class_ids)
+        .order("created_at", desc=True)
+        .limit(12)
+        .execute()
+    )
+    notes = []
+    for d in doubts_res.data or []:
+        notes.append(
+            {
+                "type": "Doubt",
+                "time": d.get("created_at"),
+                "content": d.get("body") or d.get("title") or "",
+                "variant": "amber",
+            }
+        )
+
+    return success(
+        {
+            "student_id": student_id,
+            "last_login_at": last_login,
+            "attendance_streak": streak,
+            "attendance_history": history,
+            "notes": notes,
+        }
+    )
 
 
 @router.get("/study-plan")
@@ -810,6 +1055,11 @@ async def get_classroom_study_plan(
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
+
+    def _safe_data(result):
+        if result is None:
+            return None
+        return getattr(result, "data", None)
     
     # Verify class belongs to teacher (or admin)
     q = admin.table("classes").select("id")
@@ -819,15 +1069,23 @@ async def get_classroom_study_plan(
         q = q.eq("tenant_id", token.tenant_id)
         
     class_res = q.eq("id", class_id).maybe_single().execute()
-    if not class_res.data:
+    class_data = _safe_data(class_res)
+    if not class_data:
         return error("FORBIDDEN", "Class not found or access denied", 403)
 
-    # Fetch active plan for this classroom
-    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
-    if not plan_res.data:
+    # Fetch the class-bound study plan row.
+    plan_res = (
+        admin.table("study_plans")
+        .select("*")
+        .eq("class_id", class_id)
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    plan_data = _safe_data(plan_res)
+    if not plan_data:
         return success(None)
-
-    plan = plan_res.data
+    plan = plan_data
     
     # 2. Fetch days with nested periods and tasks
     try:
@@ -835,17 +1093,22 @@ async def get_classroom_study_plan(
         template_id = plan.get("template_id")
 
         q = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
-        
-        filter_clause = f"plan_id.eq.{plan_id}"
+        # For synthetic template-only plans, avoid invalid UUID filter on plan_id.
+        filter_parts = []
+        if isinstance(plan_id, str) and not str(plan_id).startswith("template::"):
+            filter_parts.append(f"plan_id.eq.{plan_id}")
         if template_id:
-            filter_clause += f",template_id.eq.{template_id}"
+            filter_parts.append(f"template_id.eq.{template_id}")
+        if not filter_parts:
+            return success(None)
+        filter_clause = ",".join(filter_parts)
             
         days_res = (
             q.or_(filter_clause)
             .order("day_number")
             .execute()
         )
-        days = days_res.data or []
+        days = _safe_data(days_res) or []
         # Sort periods and tasks manually
         for day in days:
             if "periods" in day and day["periods"]:
@@ -1448,16 +1711,7 @@ async def get_student_study_plan_progress(
             for t in p.get("tasks", []):
                 task_ids.append(t["id"])
     
-    submissions = []
-    if task_ids:
-        subs_res = (
-            admin.table("study_plan_submissions")
-            .select("*")
-            .eq("student_id", student_id)
-            .in_("task_id", task_ids)
-            .execute()
-        )
-        submissions = subs_res.data or []
+    submissions = _fetch_submissions_for_student_tasks(admin, student_id, task_ids)
 
     # 5. Map submissions to tasks
     subs_map = {s["task_id"]: s for s in submissions}
@@ -1518,56 +1772,3 @@ async def get_student_study_plan_progress(
         "overall_progress": overall_progress
     })
 
-
-@router.get("/students/{student_id}/report")
-async def get_student_report_for_teacher(
-    student_id: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    token: TokenData = Depends(require_teacher)
-):
-    """
-    Returns a detailed progress report for a specific student.
-    Used by teachers to view and export student performance.
-    """
-    admin = get_admin_client()
-    
-    # 1. Verify student belongs to teacher's organization
-    student_check = admin.table("students").select("id, name, tenant_id").eq("id", student_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
-    if not student_check.data:
-        return error("NOT_FOUND", "Student not found in your organization", 404)
-    
-    # 2. Fetch submissions in date range
-    query = admin.table("study_plan_submissions").select("*, task:study_plan_tasks(title, task_type)").eq("student_id", student_id).eq("status", "reviewed")
-    
-    if start_date:
-        query = query.gte("created_at", start_date)
-    if end_date:
-        query = query.lte("created_at", end_date)
-        
-    res = query.order("created_at", desc=True).execute()
-    submissions = res.data or []
-    
-    # 3. Calculate stats
-    total_tasks = len(submissions)
-    total_possible_pct = total_tasks * 100
-    total_scored_pct = sum([s.get("score", 0) for s in submissions])
-    
-    overall_pct = round((total_scored_pct / total_possible_pct) * 100) if total_possible_pct > 0 else 0
-    
-    report_items = []
-    for s in submissions:
-        report_items.append({
-            "task_title": s.get("task", {}).get("title"),
-            "task_type": s.get("task", {}).get("task_type"),
-            "score": s.get("score", 0),
-            "feedback": s.get("feedback"),
-            "date": s.get("created_at")
-        })
-        
-    return success({
-        "student_name": student_check.data["name"],
-        "overall_percentage": overall_pct,
-        "total_tasks": total_tasks,
-        "report_items": report_items
-    })

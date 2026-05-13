@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Save, User, Mail, Shield, Trash2, AlertTriangle, PauseCircle, PlayCircle } from "lucide-react";
+import { Save, User, Mail, Shield, Trash2, AlertTriangle, PauseCircle, PlayCircle, BookOpen, Users } from "lucide-react";
+import { clsx } from "clsx";
 import api from "@/services/api";
 import toast from "react-hot-toast";
 
@@ -97,6 +98,8 @@ export function ParticipantModal({ item, type, onSave, open, onOpenChange }: Par
     };
 
     const isDeactivated = !!item.deactivated_at;
+    const classCount = Number(formData.class_count ?? item.class_count ?? 0);
+    const studentCount = Number(formData.student_count ?? item.student_count ?? 0);
 
     return (
         <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setShowDeleteConfirm(false); setDeleteConfirmText(""); } }}>
@@ -107,7 +110,11 @@ export function ParticipantModal({ item, type, onSave, open, onOpenChange }: Par
                             <DialogTitle className="text-xl font-bold tracking-tight">
                                 {type === 'teacher' ? 'Teacher Profile' : 'Student Profile'}
                             </DialogTitle>
-                            <p className="text-sm text-slate-500">Manage account information and status.</p>
+                            <p className="text-sm text-slate-500">
+                                {type === "teacher"
+                                    ? "Overview, teaching load, and account controls."
+                                    : "Manage account information and status."}
+                            </p>
                         </div>
                         <Badge variant="outline" className="text-[10px] font-mono">{item.id.substring(0, 8)}</Badge>
                     </div>
@@ -116,6 +123,58 @@ export function ParticipantModal({ item, type, onSave, open, onOpenChange }: Par
                 {!showDeleteConfirm ? (
                     <>
                         <div className="space-y-6 py-4">
+                            {type === "teacher" && (
+                                <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3 space-y-2.5 shadow-sm">
+                                    <div className="flex items-start gap-3">
+                                        <div className="h-10 w-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-700 font-black text-base shrink-0">
+                                            {(formData.name || item.name || "?").charAt(0).toUpperCase()}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-bold text-slate-900 truncate">{formData.name || item.name}</p>
+                                            <p className="text-xs text-slate-500 truncate">{formData.email || item.email}</p>
+                                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                                <span
+                                                    className={clsx(
+                                                        "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+                                                        isDeactivated
+                                                            ? "bg-amber-50 text-amber-800 border-amber-200"
+                                                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                                    )}
+                                                >
+                                                    {isDeactivated ? "On leave" : "Active"}
+                                                </span>
+                                                <span
+                                                    className={clsx(
+                                                        "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+                                                        item.has_password
+                                                            ? "bg-slate-100 text-slate-600 border-slate-200"
+                                                            : "bg-indigo-50 text-indigo-700 border-indigo-100"
+                                                    )}
+                                                >
+                                                    {item.has_password ? "Registered" : "Invite pending"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                                            <div className="flex items-center gap-1.5">
+                                                <BookOpen className="h-3.5 w-3.5 text-blue-500 shrink-0" strokeWidth={2} />
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Classes</span>
+                                            </div>
+                                            <p className="mt-1 text-xl font-black text-slate-900 tabular-nums leading-none">{classCount}</p>
+                                        </div>
+                                        <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                                            <div className="flex items-center gap-1.5">
+                                                <Users className="h-3.5 w-3.5 text-violet-500 shrink-0" strokeWidth={2} />
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Students</span>
+                                            </div>
+                                            <p className="mt-1 text-xl font-black text-slate-900 tabular-nums leading-none">{studentCount}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Personal Info */}
                             <div className="space-y-4">
                                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 border-b pb-2">

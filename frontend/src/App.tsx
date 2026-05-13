@@ -29,7 +29,6 @@ import StudentDoubtsPage from '@/pages/student/StudentDoubtsPage'
 import StudentProfilePage from '@/pages/student/StudentProfilePage'
 import StudentCompetitionsPage from '@/pages/student/StudentCompetitionsPage'
 import StudentExamPage from '@/pages/student/StudentExamPage'
-import StudentTodayPlanPage from '@/pages/student/StudentTodayPlanPage'
 import StudentProgressPage from '@/pages/student/StudentProgressPage'
 import StudentReportPage from '@/pages/student/StudentReportPage'
 
@@ -43,8 +42,8 @@ import ReportsPage from './pages/teacher/ReportsPage'
 import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
 import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
 import TeacherEvaluationPage from './pages/teacher/TeacherEvaluationPage'
-import TeacherApplicantsPage from './pages/teacher/TeacherApplicantsPage'
 import TeacherApplyPage from './pages/public/TeacherApplyPage'
+import StudentApplyPage from './pages/public/StudentApplyPage'
 import TeacherCompetitionsPage from './pages/teacher/TeacherCompetitionsPage'
 import TeacherExamSetupPage from './pages/teacher/TeacherExamSetupPage'
 import TeacherParticipantPortal from './pages/teacher/TeacherParticipantPortal'
@@ -150,7 +149,12 @@ function ActivityTracker() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <AuthEventListener />
       <ActivityTracker />
       <HashHandler />
@@ -170,7 +174,7 @@ export default function App() {
 
       <Routes>
         {/* ── Root ─────────────────────────── */}
-        <Route path="/" element={<Navigate to="/auth/login" replace />} />
+        <Route path="/" element={<Navigate to="/auth/student-login" replace />} />
 
         {/* ── Auth ───────────────────────────── */}
         <Route
@@ -194,6 +198,7 @@ export default function App() {
           element={<RequireRole role="teacher"><TeacherRegistrationPage /></RequireRole>}
         />
         <Route path="/apply/:slug" element={<TeacherApplyPage />} />
+        <Route path="/apply/:slug/student" element={<StudentApplyPage />} />
         <Route path="/compete/:competition_id" element={<CompetitionLandingPage />} />
         
         {/* ── Competition Portal (External Participants) ── */}
@@ -211,7 +216,7 @@ export default function App() {
           <Route path="study-plan" element={<StudyPlanPage />} />
           <Route path="classes" element={<StudentClassesPage />} />
           <Route path="progress" element={<StudentProgressPage />} />
-          <Route path="today" element={<StudentTodayPlanPage />} />
+          <Route path="today" element={<Navigate to="/student" replace />} />
           <Route path="doubts" element={<StudentDoubtsPage />} />
           <Route path="competitions" element={<StudentCompetitionsPage />} />
           <Route path="competitions/:id/exam" element={<StudentExamPage />} />
@@ -228,7 +233,7 @@ export default function App() {
           <Route path="students" element={<TeacherStudentsPage />} />
           <Route path="study-plan" element={<TeacherStudyPlanPage />} />
           <Route path="submissions" element={<Navigate to="/teacher" replace />} />
-          <Route path="applicants" element={<TeacherApplicantsPage />} />  {/* ← was missing */}
+          <Route path="applicants" element={<Navigate to="/teacher" replace />} />
           <Route path="attendance" element={<AttendancePage />} />
           <Route path="doubts" element={<TeacherDoubtsPage />} />
           <Route path="grades" element={<GradesPage />} />
@@ -250,6 +255,7 @@ export default function App() {
           <Route index element={<AdminDashboard />} />
           <Route path="students" element={<AdminStudentsPage />} />
           <Route path="teachers" element={<AdminTeachersPage />} />
+          <Route path="applicants" element={<AdminTeachersPage />} />
           <Route path="classes" element={<AdminClassesPage />} />
           <Route path="study-plans" element={<StudyPlansPage />} />
           <Route path="study-plans/:id" element={<AdminStudyPlanDetail />} />
@@ -271,7 +277,7 @@ export default function App() {
         </Route>
 
         {/* ── 404 ───────────────────────────── */}
-        <Route path="*" element={<Navigate to="/auth/login" replace />} />
+        <Route path="*" element={<Navigate to="/auth/student-login" replace />} />
       </Routes>
     </BrowserRouter>
   )

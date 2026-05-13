@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Search, ChevronRight, FileText, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,15 +12,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 
 export default function ReportsPage() {
-  const [students, setStudents] = useState<{ id: string; name: string }[]>([])
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    api.get('/teacher/students')
-      .then(r => setStudents(r.data.data))
-      .finally(() => setLoading(false))
-  }, [])
+  const { data: students = [], isPending: loading } = useQuery({
+    queryKey: queryKeys.teacher.studentsAll(),
+    queryFn: async () => (await api.get('/teacher/students')).data.data as { id: string; name: string }[],
+  })
 
   const download = async (id: string, name: string) => {
     try {

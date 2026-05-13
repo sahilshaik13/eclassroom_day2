@@ -71,17 +71,19 @@ async def get_today_tasks(request: Request, token: TokenData = Depends(require_s
     for day in (days_res.data or []):
         if not day.get("is_accessible", False):
             continue
-            
+
         plan_name = day.get("study_plans", {}).get("name", "Study Plan")
+        day_number = day.get("day_number")
         for period in (day.get("study_plan_periods") or []):
             for t in (period.get("study_plan_tasks") or []):
                 submissions = t.pop("study_plan_submissions", []) or []
                 my_sub = next((s for s in submissions if s["student_id"] == student_id), None)
-                
+
                 tasks.append({
                     **t,
                     "plan_name": plan_name,
                     "period_title": period["title"],
+                    "day_number": day_number,
                     "status": my_sub["status"] if my_sub else "pending",
                     "completed": my_sub is not None,
                     "submission": my_sub
@@ -240,37 +242,49 @@ async def get_my_classes(request: Request, token: TokenData = Depends(require_st
         classes.append({**c, "teacher": {"name": teacher.get("name", "")}})
     return success(classes)
 
-@router.get("/classes/{class_id}/study-plan")
-async def get_student_classroom_study_plan(class_id: str, token: TokenData = Depends(require_student)):
-    admin = get_admin_client()
-    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
-    if not student_res.data: return error("NOT_FOUND", "Student not found", 404)
-    student_id = student_res.data["id"]
-    
-    enr_check = admin.table("class_enrollments").select("id").eq("class_id", class_id).eq("student_id", student_id).maybe_single().execute()
-    if not enr_check.data: return error("FORBIDDEN", "Not enrolled in this classroom", 403)
 
-    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).eq("tenant_id", token.tenant_id).eq("status", "active").maybe_single().execute()
-    if not plan_res.data: return success(None)
+def _student_class_study_plan_bundle(admin, student_id: str, tenant_id: str, class_id: str) -> Optional[dict]:
+    """Shared loader for an active classroom study plan plus student-scoped submissions."""
+    def _safe_data(result):
+        if result is None:
+            return None
+        return getattr(result, "data", None)
 
-    plan = plan_res.data
+    plan_res = (
+        admin.table("study_plans")
+        .select("*")
+        .eq("class_id", class_id)
+        .eq("tenant_id", tenant_id)
+        .eq("status", "active")
+        .maybe_single()
+        .execute()
+    )
+    plan_data = _safe_data(plan_res)
+    if not plan_data:
+        return None
+
+    plan = plan_data
     plan_id = plan["id"]
     template_id = plan.get("template_id")
-    
-    q = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*, study_plan_submissions(*)))")
+
+    q = admin.table("study_plan_days").select(
+        "*, periods:study_plan_periods(*, tasks:study_plan_tasks(*, study_plan_submissions(*)))"
+    )
     filter_clause = f"plan_id.eq.{plan_id}"
-    if template_id: filter_clause += f",template_id.eq.{template_id}"
+    if template_id:
+        filter_clause += f",template_id.eq.{template_id}"
 
     days_res = q.or_(filter_clause).order("day_number").execute()
     today = date.today()
-    days = days_res.data or []
-    
+    days = _safe_data(days_res) or []
+
     for day in days:
         is_accessible = day.get("is_accessible", False)
         scheduled_date_str = day.get("scheduled_date")
         date_arrived = True
         if scheduled_date_str:
-            if date.fromisoformat(scheduled_date_str) > today: date_arrived = False
+            if date.fromisoformat(scheduled_date_str) > today:
+                date_arrived = False
 
         if not is_accessible or not date_arrived:
             day["periods"] = []
@@ -282,9 +296,51 @@ async def get_student_classroom_study_plan(class_id: str, token: TokenData = Dep
                 for task in (period.get("tasks") or []):
                     all_subs = task.get("study_plan_submissions") or []
                     task["study_plan_submissions"] = [s for s in all_subs if s["student_id"] == student_id]
-    
+
     plan["days"] = days
-    return success(plan)
+
+    return plan
+
+
+@router.get("/study-plan")
+async def get_student_aggregate_study_plan(token: TokenData = Depends(require_student)):
+    """First enrolled classroom with an active plan (StudyPlanPage uses this path)."""
+    admin = get_admin_client()
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
+    if not student_res.data:
+        return error("NOT_FOUND", "Student not found", 404)
+    student_id = student_res.data["id"]
+
+    enr = admin.table("class_enrollments").select("class_id").eq("student_id", student_id).execute()
+    class_ids = [r["class_id"] for r in (enr.data or [])]
+    for cid in class_ids:
+        bundle = _student_class_study_plan_bundle(admin, student_id, token.tenant_id, cid)
+        if bundle and (bundle.get("days") or []):
+            return success(bundle)
+    return success(None)
+
+
+@router.get("/classes/{class_id}/study-plan")
+async def get_student_classroom_study_plan(class_id: str, token: TokenData = Depends(require_student)):
+    admin = get_admin_client()
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
+    if not student_res.data:
+        return error("NOT_FOUND", "Student not found", 404)
+    student_id = student_res.data["id"]
+
+    enr_check = (
+        admin.table("class_enrollments")
+        .select("id")
+        .eq("class_id", class_id)
+        .eq("student_id", student_id)
+        .maybe_single()
+        .execute()
+    )
+    if not enr_check.data:
+        return error("FORBIDDEN", "Not enrolled in this classroom", 403)
+
+    bundle = _student_class_study_plan_bundle(admin, student_id, token.tenant_id, class_id)
+    return success(bundle)
 
 # ── Accountability partner ────────────────────────────────────
 

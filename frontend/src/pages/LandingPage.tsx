@@ -50,7 +50,7 @@ const PORTALS = [
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-slate-50 relative overflow-hidden font-sans selection:bg-blue-100 selection:text-blue-900">
+    <div className="min-h-dvh bg-slate-50 relative overflow-x-clip font-sans selection:bg-blue-100 selection:text-blue-900">
 
       {/* Background Orbs */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none -z-10">
@@ -58,11 +58,11 @@ export default function LandingPage() {
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-50 rounded-full blur-[120px] opacity-60 animate-pulse delay-700" />
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-12 lg:py-20 relative z-10 min-h-screen flex flex-col">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 sm:py-12 lg:py-20 relative z-10 min-h-dvh flex flex-col app-section">
 
         {/* Header */}
-        <header className="flex justify-center mb-16 animate-in fade-in slide-in-from-top-4 duration-1000">
-          <div className="relative w-72 h-36 md:w-96 md:h-48 flex items-center justify-center">
+        <header className="flex justify-center mb-10 sm:mb-16 animate-in fade-in slide-in-from-top-4 duration-1000">
+          <div className="relative w-64 h-32 sm:w-72 sm:h-36 md:w-96 md:h-48 flex items-center justify-center">
             {/* Standard img tag instead of Next.js Image */}
             <img
               src="/assets/logo-final-v3.png"
@@ -73,28 +73,28 @@ export default function LandingPage() {
         </header>
 
         {/* Hero Section */}
-        <div className="text-center mb-16 max-w-3xl mx-auto space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-1000 delay-200">
+        <div className="text-center mb-10 sm:mb-16 max-w-3xl mx-auto space-y-3 sm:space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-1000 delay-200">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-bold uppercase tracking-wider mb-2">
             <Sparkles className="h-3 w-3" />
             Product Demo Version
           </div>
-          <h1 className="text-4xl md:text-6xl font-black text-slate-900 tracking-tight leading-[1.1]">
+          <h1 className="text-3xl sm:text-4xl md:text-6xl font-black text-slate-900 tracking-tight leading-[1.1]">
             Experience the Future of <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-emerald-600">
               Islamic Education
             </span>
           </h1>
-          <p className="text-lg text-slate-600 font-medium leading-relaxed px-4">
+          <p className="text-base sm:text-lg text-slate-600 font-medium leading-relaxed px-1 sm:px-4">
             A comprehensive solution designed for digital transformation of Islamic institutions,
             focusing on engagement, efficiency, and premium user experience.
           </p>
         </div>
 
         {/* Bento Grid */}
-        <main className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 max-w-5xl mx-auto">
+        <main className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 max-w-5xl mx-auto w-full">
           {PORTALS.map((portal, index) => (
             <Link key={index} to={portal.href} className="group">
-              <Card className={`h-64 md:h-72 border-none shadow-lg ${portal.shadow} transition-all duration-500 hover:scale-[1.03] hover:shadow-2xl overflow-hidden cursor-pointer animate-in fade-in zoom-in-95 duration-700 ${portal.delay}`}>
+              <Card className={`h-60 sm:h-64 md:h-72 border-none shadow-lg ${portal.shadow} transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl overflow-hidden cursor-pointer animate-in fade-in zoom-in-95 duration-700`}>
                 <CardContent className="p-0 h-full flex flex-col">
                   <div className={`p-6 flex-1 bg-gradient-to-br ${portal.color} text-white relative h-full`}>
 
@@ -108,11 +108,11 @@ export default function LandingPage() {
                         <portal.icon className="h-6 w-6 text-white" />
                       </div>
 
-                      <h2 className="text-xl md:text-2xl font-black mb-2 tracking-tight">
+                      <h2 className="text-lg sm:text-xl md:text-2xl font-black mb-2 tracking-tight">
                         {portal.title}
                       </h2>
 
-                      <p className="text-white/80 font-medium leading-relaxed text-xs md:text-sm mb-4 max-w-xs">
+                      <p className="text-white/80 font-medium leading-relaxed text-xs md:text-sm mb-4 max-w-xs line-clamp-3">
                         {portal.description}
                       </p>
 

@@ -73,12 +73,23 @@
 
   * {
     box-sizing: border-box;
+    min-width: 0;
     border-color: rgb(var(--color-border));
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-height: 100%;
+    overflow-x: clip;
   }
 
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
@@ -86,10 +97,29 @@
     color: rgb(var(--color-foreground));
     background: rgb(var(--color-background));
     line-height: 1.55;
+    overflow-x: clip;
   }
 
   button {
     font-family: inherit;
+  }
+
+  img,
+  picture,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  pre,
+  code {
+    overflow-wrap: anywhere;
   }
 
   /* ── Scrollbar ── */
@@ -113,10 +143,25 @@
 }
 
 @layer components {
+  .app-shell {
+    @apply relative w-full overflow-x-clip;
+  }
+
+  .app-page {
+    @apply w-full overflow-x-clip;
+  }
+
+  .app-section {
+    @apply w-full max-w-full overflow-x-clip;
+  }
+
+  .compact-grid {
+    @apply grid gap-3 sm:gap-4;
+  }
 
   /* ── Buttons ── */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98] shadow-lg shadow-primary/20 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98] shadow-lg shadow-primary/20 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none;
   }
 
   .btn-ghost {
@@ -172,7 +217,7 @@
 
   /* ── Auth page background ── */
   .auth-bg {
-    @apply min-h-screen bg-slate-950 flex flex-col items-center justify-center px-4 relative overflow-hidden;
+    @apply min-h-dvh bg-slate-950 flex flex-col items-center justify-center px-3.5 sm:px-4 relative overflow-x-clip;
   }
 
   /* ── Auth page glow effects ── */

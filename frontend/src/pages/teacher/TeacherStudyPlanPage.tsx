@@ -1,37 +1,39 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { BookOpen, Layers, Loader2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import StudyPlanBuilder, { Day, TaskType } from '@/components/study-plan/StudyPlanBuilder'
+import { StudyPlanCalendarPanel } from '@/components/study-plan/StudyPlanCalendarPanel'
 import { cn } from "@/lib/utils"
 
 interface ClassItem { id: string; name: string }
 
 export default function TeacherStudyPlanPage() {
-    const [classes, setClasses] = useState<ClassItem[]>([])
     const [selectedClassId, setSelectedClassId] = useState('')
     const [plan, setPlan] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [days, setDays] = useState<Day[]>([])
     const [className, setClassName] = useState('')
 
-    // 1. Initial Load: Teacher's Classes
+    const { data: classes = [], isError: classesError } = useQuery({
+        queryKey: queryKeys.teacher.classes(),
+        queryFn: async () => (await api.get('/teacher/classes')).data.data || [] as ClassItem[],
+    })
+
     useEffect(() => {
-        api.get('/teacher/classes')
-            .then(r => {
-                const data = r.data.data || []
-                setClasses(data)
-                if (data.length > 0) setSelectedClassId(data[0].id)
-                else setLoading(false)
-            })
-            .catch(() => {
-                toast.error('Could not load classes')
-                setLoading(false)
-            })
-    }, [])
+        if (classesError) toast.error('Could not load classes')
+    }, [classesError])
+
+    useEffect(() => {
+        if (classes.length > 0 && !selectedClassId) setSelectedClassId(classes[0].id)
+        if (classes.length === 0) setLoading(false)
+    }, [classes, selectedClassId])
 
     // 2. Load Plan when Class changes
     useEffect(() => {
@@ -42,7 +44,7 @@ export default function TeacherStudyPlanPage() {
     const loadPlanData = async () => {
         setLoading(true)
         try {
-            const cls = classes.find(c => c.id === selectedClassId)
+            const cls = classes.find((c: ClassItem) => c.id === selectedClassId)
             if (cls) setClassName(cls.name)
 
             const res = await api.get(`/teacher/classrooms/${selectedClassId}/study-plan`)
@@ -200,8 +202,8 @@ export default function TeacherStudyPlanPage() {
 
     return (
         <DashboardPageLayout
-            title="Classroom Curriculum"
-            description="Manage the live study schedule and tasks assigned to your students."
+            title="Study plan"
+            description="Calendar view plus optional structure editing for the selected class."
             actions={
                 <div className="flex items-center gap-3">
                     {classes.length > 1 && (
@@ -210,7 +212,7 @@ export default function TeacherStudyPlanPage() {
                                 <SelectValue placeholder="Select class" />
                             </SelectTrigger>
                             <SelectContent>
-                                {classes.map(c => (
+                                {classes.map((c: ClassItem) => (
                                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                                 ))}
                             </SelectContent>
@@ -277,35 +279,50 @@ export default function TeacherStudyPlanPage() {
                 ) : (
                     <div className="space-y-6">
                         {/* Header Info Bar */}
-                        <div className="flex items-center gap-4 bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-                            <div className="h-12 w-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
+                        <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-100">
                                 <BookOpen className="h-6 w-6" />
                             </div>
-                            <div>
+                            <div className="min-w-0 flex-1">
                                 <p className="text-xl font-black text-slate-900">{className}</p>
-                                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-                                    {plan.name} • {days.length} Days Structure
+                                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                                    {plan.name} • {days.length} mapped days
                                 </p>
                             </div>
-                            <div className="ml-auto flex items-center gap-2">
-                                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Live Editor Active</span>
+                            <div className="flex items-center gap-2 sm:ml-auto">
+                                <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Synced template</span>
                             </div>
                         </div>
 
-                        <StudyPlanBuilder 
-                            days={days}
-                            onChange={setDays}
-                            onDeleteDay={handleDeleteDay}
-                            onAddPeriod={handleAddPeriod}
-                            onUpdatePeriod={handleUpdatePeriod}
-                            onDeletePeriod={handleDeletePeriod}
-                            onAddTask={handleAddTask}
-                            onUpdateTask={handleUpdateTask}
-                            onDeleteTask={handleDeleteTask}
-                            onUpdateDayDate={handleUpdateDayDate}
-                            onUpdateDayAccessibility={handleUpdateDayAccessibility}
-                        />
+                        <Tabs defaultValue="calendar" className="w-full">
+                            <TabsList className="grid w-full max-w-md grid-cols-2 rounded-xl bg-slate-100 p-1">
+                                <TabsTrigger value="calendar" className="rounded-lg text-sm font-semibold">
+                                    Calendar
+                                </TabsTrigger>
+                                <TabsTrigger value="structure" className="rounded-lg text-sm font-semibold">
+                                    Structure editor
+                                </TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="calendar" className="mt-6 space-y-6">
+                                <StudyPlanCalendarPanel days={days} anchorKey={selectedClassId} />
+                            </TabsContent>
+                            <TabsContent value="structure" className="mt-6">
+                                <StudyPlanBuilder
+                                    days={days}
+                                    onChange={setDays}
+                                    onDeleteDay={handleDeleteDay}
+                                    onAddPeriod={handleAddPeriod}
+                                    onUpdatePeriod={handleUpdatePeriod}
+                                    onDeletePeriod={handleDeletePeriod}
+                                    onAddTask={handleAddTask}
+                                    onUpdateTask={handleUpdateTask}
+                                    onDeleteTask={handleDeleteTask}
+                                    onUpdateDayDate={handleUpdateDayDate}
+                                    onUpdateDayAccessibility={handleUpdateDayAccessibility}
+                                />
+                            </TabsContent>
+                        </Tabs>
                     </div>
                 )}
             </div>

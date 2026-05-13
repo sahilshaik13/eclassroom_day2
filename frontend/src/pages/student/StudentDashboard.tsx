@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CheckCircle2, Circle, BookOpen, Headphones,
   Loader2, Calendar, PlayCircle, ArrowRight,
@@ -12,8 +13,8 @@ import type { Task, TaskType } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import { competitionApi } from '@/services/competitionApi'
-import type { CompetitionRegistration } from '@/types'
 import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
 
 async function fetchTodayTasks(): Promise<Task[]> {
@@ -42,28 +43,36 @@ const TASK_COLORS: Record<TaskType, { bg: string; text: string; tag: string }> =
 }
 
 export default function StudentDashboard() {
+  const queryClient = useQueryClient()
   const { user } = useAuthStore()
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [loadingTasks, setLoadingTasks] = useState(true)
   const [completingId, setCompletingId] = useState<string | null>(null)
-  const [pendingDoubts, setPendingDoubts] = useState(1)
-  const [competitions, setCompetitions] = useState<CompetitionRegistration[]>([])
   const [selectedTask, setSelectedTask] = useState<any>(null)
 
-  useEffect(() => {
-    fetchTodayTasks()
-      .then(t => setTasks(t))
-      .finally(() => setLoadingTasks(false))
+  const { data: tasks = [], isPending: loadingTasks } = useQuery({
+    queryKey: queryKeys.student.tasksToday(),
+    queryFn: fetchTodayTasks,
+    staleTime: 30_000,
+  })
 
-    api.get('/student/doubts').then(r => {
-      const d = r.data?.data
-      if (Array.isArray(d)) setPendingDoubts(d.filter((x: any) => x.status === 'pending').length)
-    }).catch(() => { })
+  const { data: doubtsRaw = [] } = useQuery({
+    queryKey: queryKeys.student.doubts(),
+    queryFn: async () => (await api.get('/student/doubts')).data?.data ?? [],
+    staleTime: 30_000,
+  })
 
-    competitionApi.getStudentCompetitions().then(r => {
-      if (r.success) setCompetitions(r.data)
-    }).catch(() => {})
-  }, [])
+  const pendingDoubts = useMemo(
+    () => (doubtsRaw as any[]).filter((x) => x.status === 'pending').length,
+    [doubtsRaw]
+  )
+
+  const { data: competitions = [] } = useQuery({
+    queryKey: queryKeys.competitions.studentRegistrations(),
+    queryFn: async () => {
+      const r = await competitionApi.getStudentCompetitions()
+      return r.success ? r.data : []
+    },
+    staleTime: 60_000,
+  })
 
   const completedCount = tasks.filter((t) => t.completed).length
   const totalCount = tasks.length
@@ -72,13 +81,16 @@ export default function StudentDashboard() {
   const toggleTask = async (id: string) => {
     const task = tasks.find((t) => t.id === id)
     if (!task) return
-    setTasks((prev) => prev.map((t) => t.id === id ? { ...t, completed: !t.completed } : t))
+    const key = queryKeys.student.tasksToday()
+    queryClient.setQueryData<Task[]>(key, (prev = []) =>
+      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
+    )
     setCompletingId(id)
     try {
       await api.patch(`/student/tasks/${id}/toggle`)
       if (!task.completed) toast.success('MashaAllah! Progress saved.')
     } catch {
-      setTasks((prev) => prev.map((t) => t.id === id ? { ...t, completed: task.completed } : t))
+      await queryClient.invalidateQueries({ queryKey: key })
     } finally {
       setCompletingId(null)
     }
@@ -145,11 +157,14 @@ export default function StudentDashboard() {
       {/* Today's Plan */}
       <section>
         <div className="flex items-center gap-2 text-slate-400 font-bold text-[10px] tracking-widest uppercase mb-4">
-          <Calendar className="w-3 h-3" /> Today's Plan: Day 1: Surah An-Naba
+          <Calendar className="w-3 h-3" /> Today&apos;s plan
+          {tasks[0]?.plan_name ? (
+            <span className="normal-case font-semibold text-slate-600">— {tasks[0].plan_name}</span>
+          ) : null}
         </div>
 
         {/* Plan Card */}
-        <Link to="/student/today">
+        <Link to="/student/study-plan">
           <Card className="bg-[#0f4c81] hover:bg-[#0c3d69] transition-colors cursor-pointer text-white border-0 shadow-lg mb-5 overflow-hidden relative group">
             <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform">
               <TrendingUp className="w-28 h-28" />
@@ -157,8 +172,10 @@ export default function StudentDashboard() {
             <CardContent className="p-6 relative z-10">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="text-xl font-bold mb-1">Hifz Intensive</h3>
-                  <p className="text-blue-100/70 text-sm">Juz 30 • Week 1</p>
+                  <h3 className="text-xl font-bold mb-1">{tasks[0]?.plan_name || 'Study plan'}</h3>
+                  <p className="text-blue-100/70 text-sm">
+                    {totalCount ? `${totalCount} scheduled ${totalCount === 1 ? 'item' : 'items'} today` : 'Open calendar for details'}
+                  </p>
                 </div>
                 <div className="bg-white/10 p-2 rounded-xl flex items-center gap-2">
                    <span className="text-[10px] font-black uppercase">View All</span>
@@ -180,12 +197,16 @@ export default function StudentDashboard() {
         <div className="space-y-3">
           {loadingTasks ? (
             [1, 2, 3].map(i => <div key={i} className="h-16 bg-slate-100 animate-pulse rounded-2xl" />)
+          ) : tasks.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 text-sm text-slate-500">
+              No tasks scheduled for today yet.
+            </div>
           ) : (
             tasks.map((task) => {
               const colors = TASK_COLORS[task.task_type]
               const isLoading = completingId === task.id
               const isSubmissionTask = ['mcq', 'written', 'reflection'].includes(task.task_type)
-              
+
               return (
                 <button
                   key={task.id}
@@ -214,11 +235,17 @@ export default function StudentDashboard() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={clsx(
-                      'text-sm font-semibold truncate',
+                      'text-sm font-semibold',
                       task.completed ? 'line-through text-slate-400' : 'text-slate-900'
                     )}>{task.title}</p>
+                    {task.description ? (
+                      <p className={clsx(
+                        'mt-0.5 line-clamp-2 text-xs text-slate-500',
+                        task.completed && 'line-through'
+                      )}>{task.description}</p>
+                    ) : null}
                     <div className="flex items-center gap-2 mt-1">
-                      <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full border', colors.bg, colors.text)}>
+                      <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full border max-w-[10rem] truncate', colors.bg, colors.text)}>
                         {colors.tag}
                       </span>
                       {task.task_type === 'listen' && (
@@ -244,7 +271,12 @@ export default function StudentDashboard() {
             isOpen={!!selectedTask}
             onClose={() => setSelectedTask(null)}
             onSuccess={() => {
-              setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, completed: true } : t))
+              const key = queryKeys.student.tasksToday()
+              queryClient.setQueryData<Task[]>(key, (prev = []) =>
+                prev.map((t) =>
+                  t.id === selectedTask.id ? { ...t, completed: true } : t
+                )
+              )
               setSelectedTask(null)
             }}
           />
@@ -288,26 +320,36 @@ export default function StudentDashboard() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-bold text-slate-900">My Competitions</h2>
           </div>
-          <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2.5 md:gap-3">
             {competitions.map(reg => {
               const comp = reg.competitions
               return (
-                <div key={reg.id} className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-4">
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-900">{comp?.title}</h3>
+                <div key={reg.id} className="min-w-0 bg-white rounded-xl border border-slate-200 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-2.5 sm:gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-slate-900 truncate">{comp?.title}</h3>
                     <p className="text-xs text-slate-400 mt-0.5">
                       {comp?.start_date ? new Date(comp?.start_date).toLocaleDateString() : ''} 
                     </p>
                     <div className="mt-2 inline-flex items-center">
-                       <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full uppercase">
+                       <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full uppercase">
                          {reg.status}
                        </span>
                     </div>
                   </div>
-                  {reg.competition_results && reg.competition_results.length > 0 && (
-                    <div className="bg-green-50 p-3 rounded-lg border border-green-100 text-right shrink-0">
-                      <p className="text-2xl font-bold text-green-700">{reg.competition_results[0].score}/100</p>
-                      {reg.competition_results[0].remarks && <p className="text-xs text-green-600 mt-0.5 max-w-[150px] truncate">{reg.competition_results[0].remarks}</p>}
+                  {reg.competition_results &&
+                    reg.competition_results.length > 0 &&
+                    reg.results_released && (
+                    <div className="bg-green-50 px-3 py-2 rounded-lg border border-green-100 text-right shrink-0 self-start sm:self-auto">
+                      <p className="text-3xl leading-none font-bold text-green-700">{reg.competition_results[0].score}/100</p>
+                      {reg.competition_results[0].remarks && <p className="text-[10px] text-green-600 mt-0.5 max-w-[130px] truncate">{reg.competition_results[0].remarks}</p>}
+                    </div>
+                  )}
+                  {reg.competition_results &&
+                    reg.competition_results.length > 0 &&
+                    !reg.results_released && (
+                    <div className="bg-amber-50 px-3 py-2 rounded-lg border border-amber-100 text-right shrink-0 self-start sm:self-auto">
+                      <p className="text-[11px] font-bold text-amber-700 uppercase">Under review</p>
+                      <p className="text-[10px] text-amber-600 mt-0.5 max-w-[120px]">Results appear after grading.</p>
                     </div>
                   )}
                 </div>

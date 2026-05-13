@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Download, Search, MoreVertical, User, TrendingUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import type { Student } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -10,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ParticipantModal } from '@/components/admin/ParticipantModal'
 import { InviteUserModal } from '@/components/admin/InviteUserModal'
+import { TeacherStudentProfileModal } from '@/components/teacher/TeacherStudentProfileModal'
 import { clsx } from 'clsx'
 
 interface StudentRow extends Student {
@@ -28,26 +31,35 @@ const STATUS_STYLES: Record<string, string> = {
   Disabled: 'text-slate-500  bg-slate-50  border-slate-200',
 }
 
+const STUDENT_PAGE_LIMIT = 100
+
 export default function AdminStudentsPage() {
-  const [students, setStudents] = useState<StudentRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('all')
   const [trackFilter, setTrackFilter] = useState('all')
   const [strugglingOnly, setStrugglingOnly] = useState(false)
-  const [selected, setSelected] = useState<StudentRow | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [profileStudent, setProfileStudent] = useState<StudentRow | null>(null)
+  const [manageStudent, setManageStudent] = useState<StudentRow | null>(null)
+  const [manageModalOpen, setManageModalOpen] = useState(false)
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
-  const load = () => {
-    setLoading(true)
-    api.get('/admin/students?limit=100')
-      .then(r => setStudents(r.data.data))
-      .catch(() => toast.error('Could not load students'))
-      .finally(() => setLoading(false))
+  const { data: students = [], isPending: loading, isError: studentsError } = useQuery({
+    queryKey: queryKeys.admin.students(STUDENT_PAGE_LIMIT),
+    queryFn: async () =>
+      (await api.get(`/admin/students?limit=${STUDENT_PAGE_LIMIT}`)).data
+        .data as StudentRow[],
+  })
+
+  const refreshStudents = () => {
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.admin.students(STUDENT_PAGE_LIMIT),
+    })
   }
 
-  useEffect(load, [])
+  useEffect(() => {
+    if (studentsError) toast.error('Could not load students')
+  }, [studentsError])
 
   // Unique class names for filter
   const classNames = [...new Set(students.map(s => s.class_name).filter(Boolean))] as string[]
@@ -61,6 +73,18 @@ export default function AdminStudentsPage() {
     const matchStruggling = !strugglingOnly || s.status === 'Struggling'
     return matchSearch && matchClass && matchStruggling
   })
+
+  function rowToProfileStudent(row: StudentRow) {
+    return {
+      id: row.id,
+      name: row.name,
+      phone: row.phone || undefined,
+      class_name: row.class_name,
+      class_id: row.class_id,
+      last_login_at: (row as { last_login_at?: string | null }).last_login_at ?? null,
+      status: row.status,
+    }
+  }
 
   const exportCSV = () => {
     const csv = ['Name,ID,Class,Teacher,Status,Last Check-In',
@@ -180,7 +204,7 @@ export default function AdminStudentsPage() {
                     <tr
                       key={s.id}
                       className="hover:bg-slate-50/70 transition-colors cursor-pointer group"
-                      onClick={() => { setSelected(s); setModalOpen(true) }}
+                      onClick={() => setProfileStudent(s)}
                     >
                       <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" className="rounded" />
@@ -243,13 +267,34 @@ export default function AdminStudentsPage() {
         )}
       </div>
 
-      {selected && (
+      <TeacherStudentProfileModal
+        student={profileStudent ? rowToProfileStudent(profileStudent) : null}
+        open={!!profileStudent}
+        onOpenChange={(open) => {
+          if (!open) setProfileStudent(null)
+        }}
+        onManageAccount={() => {
+          if (!profileStudent) return
+          setManageStudent(profileStudent)
+          setProfileStudent(null)
+          setManageModalOpen(true)
+        }}
+      />
+
+      {manageStudent && (
         <ParticipantModal
-          item={selected}
+          item={manageStudent}
           type="student"
-          onSave={() => { load(); setModalOpen(false) }}
-          open={modalOpen}
-          onOpenChange={setModalOpen}
+          onSave={() => {
+            refreshStudents()
+            setManageModalOpen(false)
+            setManageStudent(null)
+          }}
+          open={manageModalOpen}
+          onOpenChange={(open) => {
+            setManageModalOpen(open)
+            if (!open) setManageStudent(null)
+          }}
         />
       )}
 
@@ -257,7 +302,7 @@ export default function AdminStudentsPage() {
         type="student"
         open={inviteModalOpen}
         onOpenChange={setInviteModalOpen}
-        onSuccess={load}
+        onSuccess={refreshStudents}
       />
     </DashboardPageLayout>
   )

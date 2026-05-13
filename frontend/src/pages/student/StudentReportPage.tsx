@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  FileText, Calendar, 
+  FileText, 
   Trophy, Target, CheckCircle2, TrendingUp,
-  Star, Printer, GraduationCap, ChevronRight, ChevronLeft
+  Printer, GraduationCap, ChevronRight, ChevronLeft
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/services/api';
@@ -20,15 +20,36 @@ import {
 } from "@/components/ui/select";
 import clsx from 'clsx';
 
+/** Ring circumference for SVG dash animation (r=38 in 100×100 viewBox). */
+const GRADE_RING_C = 2 * Math.PI * 38;
+
+const REPORT_STAT_THEMES = {
+  blue: {
+    card: "border-blue-100/80 bg-blue-50/70 border-l-[3px] border-l-blue-500/45",
+    iconWrap: "border-blue-100 bg-white text-blue-600",
+    label: "text-blue-900/80",
+  },
+  emerald: {
+    card: "border-emerald-100/80 bg-emerald-50/70 border-l-[3px] border-l-emerald-500/45",
+    iconWrap: "border-emerald-100 bg-white text-emerald-600",
+    label: "text-emerald-900/80",
+  },
+  amber: {
+    card: "border-amber-100/80 bg-amber-50/70 border-l-[3px] border-l-amber-500/45",
+    iconWrap: "border-amber-100 bg-white text-amber-600",
+    label: "text-amber-900/80",
+  },
+} as const;
+
 const ReportSkeleton = () => (
-  <div className="space-y-8 animate-pulse">
-    <div className="bg-slate-100 rounded-[2.5rem] h-48 w-full" />
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {[1, 2, 3].map(i => (
-        <div key={i} className="bg-slate-100 rounded-[2rem] h-32" />
+  <div className="space-y-4 animate-pulse">
+    <div className="bg-slate-100 rounded-2xl h-32 w-full" />
+    <div className="grid grid-cols-3 gap-2">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="bg-slate-100 rounded-lg h-20" />
       ))}
     </div>
-    <div className="bg-white rounded-[2.5rem] border border-slate-100 h-96 w-full" />
+    <div className="bg-white rounded-2xl border border-slate-100 h-72 w-full" />
   </div>
 );
 
@@ -93,13 +114,13 @@ export default function StudentReportPage() {
       title="Performance Report Card"
       description="Detailed monthly breakdown of task-wise performance and evaluation."
       actions={
-        <div className="flex flex-wrap items-center gap-3 no-print">
-          {/* Month Selector */}
-          <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
+        <div className="grid grid-cols-3 gap-2 w-full no-print items-stretch sm:flex sm:flex-wrap sm:items-stretch sm:gap-2 sm:w-auto">
+          {/* Month Selector — same row height as select + export (h-10) */}
+          <div className="flex h-10 min-h-10 items-center gap-0.5 rounded-xl border border-slate-200 bg-white px-0.5 shadow-sm min-w-0">
             <Button 
                 variant="ghost" 
                 size="sm" 
-                className="h-8 w-8 p-0 rounded-lg"
+                className="h-8 w-8 shrink-0 p-0 rounded-lg"
                 onClick={() => {
                     if (selectedMonth === 1) {
                         setSelectedMonth(12);
@@ -111,13 +132,13 @@ export default function StudentReportPage() {
             >
                 <ChevronLeft className="h-4 w-4" />
             </Button>
-            <div className="px-3 min-w-[120px] text-center">
-                <span className="text-sm font-black text-slate-900">{months[selectedMonth - 1]} {selectedYear}</span>
+            <div className="min-w-0 flex-1 px-1 text-center">
+                <span className="text-xs font-black tabular-nums text-slate-900 truncate block">{months[selectedMonth - 1]} {selectedYear}</span>
             </div>
             <Button 
                 variant="ghost" 
                 size="sm" 
-                className="h-8 w-8 p-0 rounded-lg"
+                className="h-8 w-8 shrink-0 p-0 rounded-lg"
                 onClick={() => {
                     if (selectedMonth === 12) {
                         setSelectedMonth(1);
@@ -133,8 +154,8 @@ export default function StudentReportPage() {
 
           {/* Class Selector */}
           <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-            <SelectTrigger className="w-[220px] rounded-xl font-bold border-slate-200 bg-white shadow-sm">
-              <GraduationCap className="h-4 w-4 mr-2 text-indigo-600" />
+            <SelectTrigger className="h-10 min-h-10 w-full rounded-xl border-slate-200 bg-white px-3 text-xs font-bold shadow-sm sm:w-[220px] min-w-0 [&>span]:truncate">
+              <GraduationCap className="mr-2 h-4 w-4 shrink-0 text-indigo-600" />
               <SelectValue placeholder="Select Context">
                 {selectedClassId === 'overall' 
                   ? 'Overall Results' 
@@ -152,10 +173,11 @@ export default function StudentReportPage() {
           </Select>
 
           <Button 
+            size="sm"
             onClick={handlePrint}
-            className="rounded-xl font-black bg-slate-900 hover:bg-slate-800 text-white gap-2 shadow-lg shadow-slate-200"
+            className="h-10 min-h-10 w-full rounded-xl px-3 text-xs font-black shadow-lg shadow-slate-200 sm:w-auto bg-slate-900 hover:bg-slate-800 text-white gap-2"
           >
-            <Printer className="h-4 w-4" /> Export PDF
+            <Printer className="h-4 w-4 shrink-0" /> Export PDF
           </Button>
         </div>
       }
@@ -163,9 +185,9 @@ export default function StudentReportPage() {
       {loading ? (
         <ReportSkeleton />
       ) : (
-        <div className="space-y-8 print:space-y-4">
+        <div className="space-y-4 print:space-y-4">
           {!report ? (
-            <div className="bg-white rounded-[2.5rem] p-20 text-center border-2 border-slate-100 shadow-xl shadow-slate-200/50">
+            <div className="bg-white rounded-2xl sm:rounded-[2.5rem] p-8 sm:p-20 text-center border-2 border-slate-100 shadow-xl shadow-slate-200/50">
               <FileText className="h-20 w-20 text-slate-200 mx-auto mb-6" />
               <h2 className="text-2xl font-black text-slate-900 mb-2">No Report Found</h2>
               <Button onClick={() => navigate(-1)} className="rounded-xl bg-indigo-600">Go Back</Button>
@@ -185,19 +207,19 @@ export default function StudentReportPage() {
           `}} />
 
           {/* Report Card Header */}
-          <div className="bg-white rounded-[2.5rem] p-10 border-2 border-slate-100 shadow-xl shadow-slate-200/50 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden print:p-6 print:rounded-2xl">
-            <div className="absolute top-0 left-0 w-2 h-full bg-indigo-600" />
-            <div className="flex items-center gap-8">
-                <div className="h-24 w-24 rounded-[2rem] bg-indigo-50 flex items-center justify-center text-indigo-600 border border-indigo-100 print:h-16 print:w-16">
-                  <FileText className="h-12 w-12 print:h-8 print:w-8" />
+          <div className="relative flex flex-col items-stretch gap-4 overflow-hidden rounded-2xl border-2 border-slate-100 bg-white p-4 shadow-xl shadow-slate-200/50 print:rounded-2xl print:p-5 md:flex-row md:items-center md:justify-between md:gap-6">
+            <div className="absolute top-0 left-0 h-full w-1.5 bg-indigo-600" />
+            <div className="flex w-full min-w-0 items-center gap-3 pl-2 md:gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 print:h-12 print:w-12">
+                  <FileText className="h-6 w-6 print:h-6 print:w-6" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                      <Badge className="bg-indigo-600 text-white border-none font-black text-[10px] uppercase px-3 py-1">Official Progress Report</Badge>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Period: {months[selectedMonth - 1]} {selectedYear}</span>
+                <div className="min-w-0">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <Badge className="border-none bg-indigo-600 px-2 py-0.5 text-[10px] font-black uppercase text-white">Official Progress Report</Badge>
+                      <span className="hidden text-[10px] font-black uppercase tracking-widest text-slate-400 md:inline">Period: {months[selectedMonth - 1]} {selectedYear}</span>
                   </div>
-                  <h1 className="text-4xl font-black text-slate-900 print:text-2xl">{report.student_name}</h1>
-                  <p className="text-slate-400 font-bold mt-1 uppercase tracking-widest text-xs">
+                  <h1 className="truncate text-xl font-black text-slate-900 md:text-2xl print:text-xl">{report.student_name}</h1>
+                  <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 md:text-xs">
                     {selectedClassId === 'overall' 
                         ? 'Cumulative Performance across all classes' 
                         : `Class Report: ${report.enrolled_classes?.find((c: any) => c.id === selectedClassId)?.name || 'Loading...'}`
@@ -206,120 +228,130 @@ export default function StudentReportPage() {
                 </div>
             </div>
             
-            <div className="flex items-center gap-10 pr-6">
+            <div className="flex w-full items-center justify-start pl-2 md:w-auto md:justify-end md:pr-2">
                 <div className="text-center">
-                  <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Total Grade</p>
-                  <div className="relative inline-flex items-center justify-center">
-                      <svg className="w-24 h-24 transform -rotate-90 print:w-20 print:h-20">
-                        <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-100" />
-                        <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray={251} strokeDashoffset={251 - (251 * report.overall_percentage) / 100} className="text-indigo-600 transition-all duration-1000" />
+                  <p className="mb-1 text-[10px] font-black uppercase text-slate-400">Total Grade</p>
+                  <div className="relative inline-flex h-[4.75rem] w-[4.75rem] items-center justify-center md:h-[5.25rem] md:w-[5.25rem]">
+                      <svg className="h-full w-full -rotate-90" viewBox="0 0 100 100" aria-hidden>
+                        <circle cx="50" cy="50" r="38" stroke="currentColor" strokeWidth="11" fill="transparent" className="text-slate-100" />
+                        <circle cx="50" cy="50" r="38" stroke="currentColor" strokeWidth="11" fill="transparent" strokeDasharray={GRADE_RING_C} strokeDashoffset={GRADE_RING_C - (GRADE_RING_C * report.overall_percentage) / 100} className="text-indigo-600 transition-all duration-1000" strokeLinecap="round" />
                       </svg>
-                      <span className="absolute text-2xl font-black text-slate-900">{report.overall_percentage}%</span>
+                      <span className="absolute text-lg font-black tabular-nums text-slate-900 md:text-xl">{report.overall_percentage}%</span>
                   </div>
                 </div>
             </div>
           </div>
 
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              { label: 'Assigned Tasks', value: `${report.total_assigned} / ${report.total_month_tasks}`, icon: Target, color: 'blue' },
-              { label: 'Completions', value: `${report.total_completed} / ${report.total_assigned}`, icon: CheckCircle2, color: 'emerald' },
-              { label: 'Evaluated (Scores)', value: `${report.total_reviewed} / ${report.total_completed}`, icon: Trophy, color: 'amber' }
-            ].map((stat, i) => (
-              <Card key={i} className={clsx("rounded-[2rem] border-none shadow-sm overflow-hidden relative", `bg-${stat.color}-50/50`)}>
-                <div className={clsx("absolute top-0 left-0 w-1 h-full", `bg-${stat.color}-500/20`)} />
-                <CardContent className="p-8 flex items-center gap-6">
-                  <div className={clsx("h-14 w-14 rounded-2xl bg-white flex items-center justify-center shadow-md", `text-${stat.color}-600`)}>
-                    <stat.icon className="h-7 w-7" />
+          {/* Quick Stats — equal columns, unified type scale */}
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                { label: 'Assigned Tasks', value: `${report.total_assigned} / ${report.total_month_tasks}`, icon: Target, theme: 'blue' as const },
+                { label: 'Completions', value: `${report.total_completed} / ${report.total_assigned}`, icon: CheckCircle2, theme: 'emerald' as const },
+                { label: 'Evaluated (Scores)', value: `${report.total_reviewed} / ${report.total_completed}`, icon: Trophy, theme: 'amber' as const },
+              ] as const
+            ).map((stat, i) => {
+              const th = REPORT_STAT_THEMES[stat.theme];
+              return (
+              <Card key={i} className={clsx("rounded-lg border shadow-sm", th.card)}>
+                <CardContent className="flex min-h-[5.25rem] items-center gap-0 px-3 py-3 sm:gap-2.5">
+                  <div className={clsx("hidden h-9 w-9 shrink-0 items-center justify-center rounded-md border shadow-sm sm:flex", th.iconWrap)}>
+                    <stat.icon className="h-4 w-4" />
                   </div>
-                  <div>
-                    <p className={clsx("text-[10px] font-black uppercase tracking-widest mb-1 opacity-70", `text-${stat.color}-900`)}>{stat.label}</p>
-                    <p className="text-3xl font-black text-slate-900">{stat.value}</p>
+                  <div className="min-w-0 flex-1 overflow-visible text-left">
+                    <p
+                      className={clsx(
+                        "mb-0.5 text-[10px] font-black uppercase leading-snug tracking-wide text-pretty break-words [overflow-wrap:anywhere]",
+                        th.label,
+                      )}
+                    >
+                      {stat.label}
+                    </p>
+                    <p className="truncate text-lg font-black tabular-nums text-slate-900">{stat.value}</p>
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            );})}
           </div>
 
           {/* Dynamic Grid Tables */}
           {selectedClassId === 'overall' && report.class_reports?.map((cReport: any) => (
-              <div key={cReport.class_id} className="bg-white rounded-[2.5rem] border-2 border-slate-100 shadow-xl shadow-slate-200/50 overflow-hidden print:shadow-none print:border-slate-200">
-                <div className="px-10 py-8 bg-slate-50 border-b-2 border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
-                      <GraduationCap className="h-6 w-6 text-indigo-600" />
-                      Class Report: {cReport.class_name}
+              <div key={cReport.class_id} className="overflow-hidden rounded-2xl border-2 border-slate-100 bg-white shadow-xl shadow-slate-200/50 print:border-slate-200 print:shadow-none">
+                <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5 md:py-4">
+                  <div className="min-w-0">
+                    <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
+                      <GraduationCap className="h-5 w-5 shrink-0 text-indigo-600" />
+                      <span className="truncate">Class Report: {cReport.class_name}</span>
                     </h3>
-                    <p className="text-sm font-bold text-slate-400 mt-1 italic">Scores from {cReport.class_name}</p>
+                    <p className="mt-0.5 text-xs font-bold italic text-slate-400">Scores from {cReport.class_name}</p>
                   </div>
-                  <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
-                    <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded bg-emerald-500" /> 80%+
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-bold text-slate-500">
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-2.5 w-2.5 shrink-0 rounded bg-emerald-500" /> 80%+
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded bg-blue-500" /> 60%+
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-2.5 w-2.5 shrink-0 rounded bg-blue-500" /> 60%+
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded bg-amber-500" /> 0%+
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-2.5 w-2.5 shrink-0 rounded bg-amber-500" /> 0%+
                     </div>
                   </div>
                 </div>
                 <div className="overflow-x-auto scrollbar-hide">
-                  <table className="w-full border-collapse min-w-[1200px]">
+                  <table className="w-full border-collapse min-w-[920px]">
                     <thead>
                       <tr className="bg-slate-50">
-                        <th className="sticky left-0 bg-slate-50 px-10 py-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 border-r-2 border-slate-100 z-10 w-48">Metric</th>
+                        <th className="sticky left-0 z-10 w-36 border-r-2 border-slate-100 bg-slate-50 px-3 py-2 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 md:w-44">Metric</th>
                         {days.map(d => (
-                          <th key={d} className="px-4 py-6 text-[11px] font-black uppercase tracking-widest text-slate-400 border-r border-slate-100">
+                          <th key={d} className="border-r border-slate-100 px-1.5 py-2 text-center text-[10px] font-black tabular-nums text-slate-400">
                             {d}
                           </th>
                         ))}
-                        <th className="px-8 py-6 text-[11px] font-black uppercase tracking-[0.2em] text-indigo-600 bg-indigo-50/50">Avg</th>
+                        <th className="bg-indigo-50/60 px-2 py-2 text-center text-[10px] font-black uppercase tracking-wide text-indigo-600">Avg</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y-2 divide-slate-100">
+                    <tbody className="divide-y divide-slate-100">
                       {cReport.grid.map((row: any) => (
-                        <tr key={row.task_type} className="hover:bg-slate-50/30 transition-colors">
-                          <td className="sticky left-0 bg-white px-10 py-6 border-r-2 border-slate-100 z-10">
-                            <Badge className="bg-slate-900 text-white font-black text-[10px] uppercase px-3 py-1 rounded-lg w-full justify-center">
+                        <tr key={row.task_type} className="transition-colors hover:bg-slate-50/40">
+                          <td className="sticky left-0 z-10 border-r-2 border-slate-100 bg-white px-3 py-2">
+                            <Badge className="w-full justify-center rounded-md bg-slate-900 px-2 py-0.5 text-[10px] font-black uppercase text-white">
                               {row.task_type}
                             </Badge>
                           </td>
                           {days.map(d => {
                             const score = row.days[d];
                             return (
-                              <td key={d} className="px-4 py-6 text-center border-r border-slate-100">
+                              <td key={d} className="border-r border-slate-100 px-1.5 py-2 text-center">
                                 {score !== undefined ? (
                                   <span className={clsx(
-                                    "text-sm font-black",
+                                    "text-xs font-black tabular-nums",
                                     score >= 80 ? "text-emerald-500" : score >= 60 ? "text-blue-500" : "text-amber-500"
                                   )}>
                                     {score}
                                   </span>
                                 ) : (
-                                  <span className="text-slate-100 font-bold">-</span>
+                                  <span className="font-bold text-slate-200">—</span>
                                 )}
                               </td>
                             );
                           })}
-                          <td className="px-8 py-6 text-center bg-indigo-50/20 font-black">
+                          <td className="bg-indigo-50/15 px-2 py-2 text-center font-black">
                             {row.type_average !== null ? (
-                              <span className="text-indigo-600 text-sm font-black">{row.type_average}%</span>
+                              <span className="text-xs font-black tabular-nums text-indigo-600">{row.type_average}%</span>
                             ) : (
-                              <span className="text-slate-200 font-bold">-</span>
+                              <span className="font-bold text-slate-200">—</span>
                             )}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
-                       <tr className="bg-indigo-50/50 text-indigo-900">
-                          <td className="sticky left-0 bg-indigo-50/50 px-10 py-8 font-black uppercase tracking-widest text-indigo-600 border-r border-indigo-100 z-10">Class Average</td>
-                          <td colSpan={31} className="px-10 py-8 text-right font-bold text-slate-400 italic border-t border-indigo-100">
+                       <tr className="bg-indigo-50/60 text-indigo-950">
+                          <td className="sticky left-0 z-10 border-r border-indigo-100 bg-indigo-50/80 px-3 py-3 text-[10px] font-black uppercase tracking-wide text-indigo-700">Class Average</td>
+                          <td colSpan={31} className="border-t border-indigo-100/80 px-3 py-3 text-right text-[10px] font-semibold italic text-slate-500">
                             Calculated based on all evaluated tasks for this class
                           </td>
-                          <td className="px-8 py-8 text-center bg-indigo-100 text-indigo-700 font-black text-xl border-t border-indigo-100">
+                          <td className="border-t border-indigo-100/80 bg-indigo-100 px-3 py-3 text-center text-base font-black tabular-nums text-indigo-800">
                             {cReport.overall_percentage}%
                           </td>
                        </tr>
@@ -329,71 +361,71 @@ export default function StudentReportPage() {
               </div>
           ))}
 
-          <div className="bg-white rounded-[2.5rem] border-2 border-slate-100 shadow-xl shadow-slate-200/50 overflow-hidden print:shadow-none print:border-slate-200">
-            <div className="px-10 py-8 bg-slate-50 border-b-2 border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
-                  <TrendingUp className="h-6 w-6 text-indigo-600" />
-                  {selectedClassId === 'overall' ? 'Overall Average' : 'Daily Breakdown'}
+          <div className="overflow-hidden rounded-2xl border-2 border-slate-100 bg-white shadow-xl shadow-slate-200/50 print:border-slate-200 print:shadow-none">
+            <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5 md:py-4">
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
+                  <TrendingUp className="h-5 w-5 shrink-0 text-indigo-600" />
+                  <span className="truncate">{selectedClassId === 'overall' ? 'Overall Average' : 'Daily Breakdown'}</span>
                 </h3>
-                <p className="text-sm font-bold text-slate-400 mt-1 italic">Scores are averaged for multiple tasks of the same type per day</p>
+                <p className="mt-0.5 text-xs font-bold italic text-slate-400">Scores are averaged for multiple tasks of the same type per day</p>
               </div>
-              <div className="flex items-center gap-4 text-xs font-bold text-slate-400">
-                <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded bg-emerald-500" /> 80%+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-bold text-slate-500">
+                <div className="flex items-center gap-1.5">
+                    <div className="h-2.5 w-2.5 shrink-0 rounded bg-emerald-500" /> 80%+
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded bg-blue-500" /> 60%+
+                <div className="flex items-center gap-1.5">
+                    <div className="h-2.5 w-2.5 shrink-0 rounded bg-blue-500" /> 60%+
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="h-3 w-3 rounded bg-amber-500" /> 0%+
+                <div className="flex items-center gap-1.5">
+                    <div className="h-2.5 w-2.5 shrink-0 rounded bg-amber-500" /> 0%+
                 </div>
               </div>
             </div>
 
             <div className="overflow-x-auto scrollbar-hide">
-              <table className="w-full border-collapse min-w-[1200px]">
+              <table className="w-full border-collapse min-w-[920px]">
                 <thead>
                   <tr className="bg-slate-50">
-                    <th className="sticky left-0 bg-slate-50 px-10 py-6 text-[11px] font-black uppercase tracking-[0.2em] text-slate-500 border-r-2 border-slate-100 z-10 w-48">Metric</th>
+                    <th className="sticky left-0 z-10 w-36 border-r-2 border-slate-100 bg-slate-50 px-3 py-2 text-left text-[10px] font-black uppercase tracking-wide text-slate-500 md:w-44">Metric</th>
                     {days.map(d => (
-                      <th key={d} className="px-4 py-6 text-[11px] font-black uppercase tracking-widest text-slate-400 border-r border-slate-100">
+                      <th key={d} className="border-r border-slate-100 px-1.5 py-2 text-center text-[10px] font-black tabular-nums text-slate-400">
                         {d}
                       </th>
                     ))}
-                    <th className="px-8 py-6 text-[11px] font-black uppercase tracking-[0.2em] text-indigo-600 bg-indigo-50/50">Avg</th>
+                    <th className="bg-indigo-50/60 px-2 py-2 text-center text-[10px] font-black uppercase tracking-wide text-indigo-600">Avg</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y-2 divide-slate-100">
+                <tbody className="divide-y divide-slate-100">
                   {report.grid.map((row: any) => (
-                    <tr key={row.task_type} className="hover:bg-slate-50/30 transition-colors">
-                      <td className="sticky left-0 bg-white px-10 py-6 border-r-2 border-slate-100 z-10">
-                        <Badge className="bg-slate-900 text-white font-black text-[10px] uppercase px-3 py-1 rounded-lg w-full justify-center">
+                    <tr key={row.task_type} className="transition-colors hover:bg-slate-50/40">
+                      <td className="sticky left-0 z-10 border-r-2 border-slate-100 bg-white px-3 py-2">
+                        <Badge className="w-full justify-center rounded-md bg-slate-900 px-2 py-0.5 text-[10px] font-black uppercase text-white">
                           {row.task_type}
                         </Badge>
                       </td>
                       {days.map(d => {
                         const score = row.days[d];
                         return (
-                          <td key={d} className="px-4 py-6 text-center border-r border-slate-100">
+                          <td key={d} className="border-r border-slate-100 px-1.5 py-2 text-center">
                             {score !== undefined ? (
                               <span className={clsx(
-                                "text-sm font-black",
+                                "text-xs font-black tabular-nums",
                                 score >= 80 ? "text-emerald-500" : score >= 60 ? "text-blue-500" : "text-amber-500"
                               )}>
                                 {score}
                               </span>
                             ) : (
-                              <span className="text-slate-100 font-bold">-</span>
+                              <span className="font-bold text-slate-200">—</span>
                             )}
                           </td>
                         );
                       })}
-                      <td className="px-8 py-6 text-center bg-indigo-50/20 font-black">
+                      <td className="bg-indigo-50/15 px-2 py-2 text-center font-black">
                         {row.type_average !== null ? (
-                          <span className="text-indigo-600 text-sm font-black">{row.type_average}%</span>
+                          <span className="text-xs font-black tabular-nums text-indigo-600">{row.type_average}%</span>
                         ) : (
-                          <span className="text-slate-200 font-bold">-</span>
+                          <span className="font-bold text-slate-200">—</span>
                         )}
                       </td>
                     </tr>
@@ -401,11 +433,11 @@ export default function StudentReportPage() {
                 </tbody>
                 <tfoot>
                    <tr className="bg-slate-900 text-white">
-                      <td className="sticky left-0 bg-slate-900 px-10 py-8 font-black uppercase tracking-widest text-indigo-400 border-r border-white/10 z-10">Monthly Average</td>
-                      <td colSpan={31} className="px-10 py-8 text-right font-bold text-slate-400 italic">
+                      <td className="sticky left-0 z-10 border-r border-white/10 bg-slate-900 px-3 py-3 text-[10px] font-black uppercase tracking-wide text-indigo-300">Monthly Average</td>
+                      <td colSpan={31} className="px-3 py-3 text-right text-[10px] font-semibold italic text-slate-400">
                         Calculated based on all evaluated tasks for this period
                       </td>
-                      <td className="px-8 py-8 text-center bg-indigo-600 font-black text-xl">
+                      <td className="bg-indigo-600 px-3 py-3 text-center text-base font-black tabular-nums text-white">
                         {report.overall_percentage}%
                       </td>
                    </tr>

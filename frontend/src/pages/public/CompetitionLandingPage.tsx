@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { CalendarDays, Trophy } from 'lucide-react'
 import { competitionApi } from '@/services/competitionApi'
 import { useAuthStore } from '@/stores/authStore'
 import type { Competition } from '@/types'
@@ -49,7 +50,7 @@ export const CompetitionLandingPage: React.FC = () => {
   }
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+    <div className="min-h-dvh flex items-center justify-center bg-slate-50 overflow-x-clip">
       <div className="flex flex-col items-center gap-3">
         <div className="w-8 h-8 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin" />
         <p className="text-slate-400 font-medium animate-pulse">Loading competition...</p>
@@ -58,7 +59,7 @@ export const CompetitionLandingPage: React.FC = () => {
   )
   
   if (errorStr && !competition) return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-50 p-6">
+    <div className="flex items-center justify-center min-h-dvh bg-slate-50 p-4 sm:p-6 overflow-x-clip">
       <div className="p-8 bg-white shadow-xl rounded-2xl max-w-md text-center border border-slate-100">
         <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
           <span className="text-2xl">⚠️</span>
@@ -73,8 +74,8 @@ export const CompetitionLandingPage: React.FC = () => {
   if (!competition) return null
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4 sm:p-6 lg:p-8">
-      <div className="max-w-2xl w-full bg-white rounded-[2rem] shadow-2xl shadow-blue-900/5 overflow-hidden border border-slate-100">
+    <div className="min-h-dvh bg-[#f8fafc] flex items-center justify-center p-3.5 sm:p-6 lg:p-8 overflow-x-clip">
+      <div className="max-w-2xl w-full bg-white rounded-[2rem] shadow-2xl shadow-blue-900/5 overflow-hidden border border-slate-100 app-section">
         <div className="aspect-[21/9] bg-gradient-to-br from-indigo-600 via-blue-600 to-indigo-700 relative flex items-center justify-center overflow-hidden p-8 text-center">
             {/* Background pattern */}
             <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
@@ -88,13 +89,15 @@ export const CompetitionLandingPage: React.FC = () => {
             </div>
         </div>
 
-        <div className="p-8 sm:p-10">
+        <div className="p-5 sm:p-8 lg:p-10">
           <div className="flex flex-wrap items-center gap-3 mb-8">
              <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-xl text-xs font-bold border border-blue-100">
-                📅 {competition.start_date ? new Date(competition.start_date).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD'}
+                <CalendarDays className="h-3.5 w-3.5" />
+                {competition.start_date ? new Date(competition.start_date).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : 'TBD'}
              </div>
              <div className="flex items-center gap-2 bg-slate-50 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold border border-slate-100">
-                🏆 Interactive Competition
+                <Trophy className="h-3.5 w-3.5" />
+                Interactive Competition
              </div>
           </div>
 

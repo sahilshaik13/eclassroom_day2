@@ -34,6 +34,35 @@ class AuthError(Exception):
 
 class AuthService:
 
+    @staticmethod
+    def _record_student_login_attendance(
+        student_id: Optional[str],
+        user_id: Optional[str],
+        tenant_id: Optional[str],
+    ) -> None:
+        """
+        Record a student's login attendance once per calendar date.
+        Duplicate logins on the same date are ignored.
+        """
+        if not student_id or not tenant_id:
+            return
+        try:
+            admin = get_admin_client()
+            now_utc = datetime.now(timezone.utc)
+            admin.table("student_login_attendance").upsert(
+                {
+                    "student_id": str(student_id),
+                    "user_id": str(user_id) if user_id else None,
+                    "tenant_id": str(tenant_id),
+                    "login_date": now_utc.date().isoformat(),
+                    "login_at": now_utc.isoformat(),
+                },
+                on_conflict="student_id,login_date",
+            ).execute()
+        except Exception:
+            # Login should never fail because attendance snapshot write failed.
+            pass
+
     # ── OTP (Student phone login) ─────────────────────────────
 
     @staticmethod
@@ -245,7 +274,20 @@ class AuthService:
             except Exception as e:
                 raise AuthError("INTERNAL_ERROR", f"Failed to setup user account: {str(e)}", 500)
         
-        # 6. Issue full session immediately (no MFA for students)
+        # 6. Record login time (OTP flow bypasses Supabase Auth last_sign_in)
+        try:
+            login_ts = datetime.now(timezone.utc).isoformat()
+            admin.table("users").update({"last_login_at": login_ts}).eq("id", user_data["id"]).execute()
+        except Exception:
+            pass
+
+        AuthService._record_student_login_attendance(
+            student_id=student_record["id"] if student_record else None,
+            user_id=user_data.get("id"),
+            tenant_id=tenant_id,
+        )
+
+        # 7. Issue full session immediately (no MFA for students)
         access_token = AuthService._issue_session(user_data, mfa_verified=True)
         return {
             "access_token": access_token,
