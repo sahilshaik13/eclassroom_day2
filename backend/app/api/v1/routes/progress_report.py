@@ -4,41 +4,37 @@ from datetime import datetime, date
 from app.core.deps import require_student, require_teacher, TokenData
 from app.db.supabase import get_admin_client
 from app.core.response import success, error
+from app.services.study_plan_kpi_service import (
+    ALL_KPI_BUCKETS,
+    KPI_LABELS,
+    hybrid_progress_value,
+    kpi_bucket_for_task,
+    summarize_bucket_progress,
+)
 
 router = APIRouter(tags=["Progress Report"])
 
-# Human-readable labels for fixed KPI dashboard axes.
-KPI_LABELS = {
-    "hifz": "Hifz",
-    "kubra": "Kubra",
-    "sughra": "Sughra",
-    "tajweed": "Tajweed",
-}
-ALL_KPI_BUCKETS = ["hifz", "kubra", "sughra", "tajweed"]
 
-_TASK_TYPE_TO_KPI_BUCKET = {
-    "memorise": "hifz",
-    "review": "kubra",
-    "read": "kubra",
-    "reflection": "kubra",
-    "recite": "sughra",
-    "listen": "sughra",
-    "mcq": "tajweed",
-    "written": "tajweed",
-}
+def _serialize_bucket_summary(summary: dict[str, dict[str, int]]) -> list[dict]:
+    rows: list[dict] = []
+    for bucket in ALL_KPI_BUCKETS:
+        row = summary.get(bucket) or {}
+        rows.append(
+            {
+                "bucket": bucket,
+                "label": KPI_LABELS.get(bucket, bucket.title()),
+                "assigned": row.get("assigned", 0),
+                "submitted": row.get("submitted", 0),
+                "reviewed": row.get("reviewed", 0),
+                "progress_pct": row.get("progress_pct", 0),
+            }
+        )
+    return rows
 
 
-def kpi_bucket_for_task(task: dict) -> str:
-    """
-    Resolve KPI bucket using Gemini semantic config first.
-    Fallback: infer from task_type to keep backward compatibility.
-    """
-    cfg = task.get("config") if isinstance(task.get("config"), dict) else {}
-    kb = (cfg.get("kpi_bucket") or "").strip().lower() if isinstance(cfg, dict) else ""
-    if kb in ALL_KPI_BUCKETS:
-        return kb
-    t = (task.get("task_type") or "").strip().lower()
-    return _TASK_TYPE_TO_KPI_BUCKET.get(t, "kubra")
+def _overall_from_bucket_summary(summary: dict[str, dict[str, int]]) -> int:
+    values = [row.get("progress_pct", 0) for row in summary.values() if row.get("assigned", 0) > 0]
+    return round(sum(values) / len(values)) if values else 0
 
 
 async def generate_detailed_report(
@@ -114,11 +110,12 @@ async def generate_detailed_report(
     )
     days = days_res.data or []
 
-    # 5. Build the score grid, filtering by month/year
-    # We will build separate grids per class and an overall grid
-    overall_grid = {}  # { task_type: { day_of_month: [scores] } }
-    class_grids = {}   # { class_id: { task_type: { day_of_month: [scores] } } }
-    
+    # 5. Build hybrid bucket progress from assigned/submitted/reviewed tasks.
+    overall_grid = {}  # { bucket: { day_of_month: [hybrid values] } }
+    class_grids = {}   # { class_id: { bucket: { day_of_month: [hybrid values] } } }
+    overall_records = []
+    class_records = {}
+
     total_reviewed_count = 0
     total_score_sum = 0
     total_assigned = 0
@@ -148,9 +145,19 @@ async def generate_detailed_report(
 
         cal_day = sched_dt.day
 
+        matched_class_ids = []
+        p_id = day.get("plan_id")
+        t_id = day.get("template_id")
+        for plan_record in plan_records:
+            if p_id and plan_record["id"] == p_id:
+                matched_class_ids.append(plan_record.get("class_id"))
+            elif t_id and plan_record.get("template_id") == t_id:
+                matched_class_ids.append(plan_record.get("class_id"))
+        matched_class_ids = list(set(filter(None, matched_class_ids)))
+
         for period in (day.get("study_plan_periods") or []):
             for task in (period.get("study_plan_tasks") or []):
-                kpi_ttype = kpi_bucket_for_task(task)
+                bucket = kpi_bucket_for_task(task)
 
                 total_month_tasks += 1
 
@@ -174,35 +181,28 @@ async def generate_detailed_report(
                         val = score if score is not None else 0
                         total_reviewed_count += 1
                         total_score_sum += val
-                        
-                        # Add to overall grid (bucketed KPI axis, not raw DB enum)
-                        if kpi_ttype not in overall_grid:
-                            overall_grid[kpi_ttype] = {}
-                        if cal_day not in overall_grid[kpi_ttype]:
-                            overall_grid[kpi_ttype][cal_day] = []
-                        overall_grid[kpi_ttype][cal_day].append(val)
-                        
-                        # Add to specific class grid(s)
-                        p_id = day.get("plan_id")
-                        t_id = day.get("template_id")
-                        
-                        matched_class_ids = []
-                        for p in plan_records:
-                            if p_id and p["id"] == p_id:
-                                matched_class_ids.append(p.get("class_id"))
-                            elif t_id and p.get("template_id") == t_id:
-                                matched_class_ids.append(p.get("class_id"))
-                                
-                        matched_class_ids = list(set(filter(None, matched_class_ids)))
-                        
-                        for c_id in matched_class_ids:
-                            if c_id not in class_grids:
-                                class_grids[c_id] = {}
-                            if kpi_ttype not in class_grids[c_id]:
-                                class_grids[c_id][kpi_ttype] = {}
-                            if cal_day not in class_grids[c_id][kpi_ttype]:
-                                class_grids[c_id][kpi_ttype][cal_day] = []
-                            class_grids[c_id][kpi_ttype][cal_day].append(val)
+
+                if not day_is_available:
+                    continue
+
+                value = hybrid_progress_value(my_sub)
+                overall_records.append({"task": task, "submission": my_sub})
+
+                if bucket not in overall_grid:
+                    overall_grid[bucket] = {}
+                if cal_day not in overall_grid[bucket]:
+                    overall_grid[bucket][cal_day] = []
+                overall_grid[bucket][cal_day].append(value)
+
+                for c_id in matched_class_ids:
+                    if c_id not in class_grids:
+                        class_grids[c_id] = {}
+                    if bucket not in class_grids[c_id]:
+                        class_grids[c_id][bucket] = {}
+                    if cal_day not in class_grids[c_id][bucket]:
+                        class_grids[c_id][bucket][cal_day] = []
+                    class_grids[c_id][bucket][cal_day].append(value)
+                    class_records.setdefault(c_id, []).append({"task": task, "submission": my_sub})
 
     # 6. Build the grid rows for the frontend table
     
@@ -224,23 +224,23 @@ async def generate_detailed_report(
         return processed
 
     processed_overall_grid = process_grid(overall_grid)
-    valid_overall_averages = [r["type_average"] for r in processed_overall_grid if r["type_average"] is not None]
-    overall_pct = round(sum(valid_overall_averages) / len(valid_overall_averages)) if valid_overall_averages else 0
+    overall_bucket_summary = summarize_bucket_progress(overall_records)
+    overall_pct = _overall_from_bucket_summary(overall_bucket_summary)
 
     class_reports = []
     for c in classes:
         c_id = c["id"]
         c_grid = class_grids.get(c_id, {})
         processed_c_grid = process_grid(c_grid)
-        
-        valid_c_averages = [r["type_average"] for r in processed_c_grid if r["type_average"] is not None]
-        c_overall_pct = round(sum(valid_c_averages) / len(valid_c_averages)) if valid_c_averages else 0
+        bucket_summary = summarize_bucket_progress(class_records.get(c_id, []))
+        c_overall_pct = _overall_from_bucket_summary(bucket_summary)
         
         class_reports.append({
             "class_id": c_id,
             "class_name": c["name"],
             "grid": processed_c_grid,
-            "overall_percentage": c_overall_pct
+            "overall_percentage": c_overall_pct,
+            "bucket_summaries": _serialize_bucket_summary(bucket_summary),
         })
 
     return {
@@ -254,7 +254,9 @@ async def generate_detailed_report(
         "total_month_tasks": total_month_tasks,
         "total_completed": total_completed,
         "total_reviewed": total_reviewed_count,
+        "average_review_score": round(total_score_sum / total_reviewed_count) if total_reviewed_count else 0,
         "grid": processed_overall_grid,
+        "bucket_summaries": _serialize_bucket_summary(overall_bucket_summary),
         "class_reports": class_reports
     }, None
 
@@ -271,7 +273,9 @@ def _empty_report(student, classes, sel_month, sel_year):
         "total_month_tasks": 0,
         "total_completed": 0,
         "total_reviewed": 0,
+        "average_review_score": 0,
         "grid": [{"task_type": KPI_LABELS.get(t, t), "days": {}, "type_average": None} for t in ALL_KPI_BUCKETS],
+        "bucket_summaries": _serialize_bucket_summary({}),
         "class_reports": [],
     }
 

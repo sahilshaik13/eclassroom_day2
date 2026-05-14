@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from app.schemas import study_plan as sp
+from app.services.study_plan_pdf_import_service import build_import_payload
+from app.services.study_plan_kpi_service import kpi_bucket_for_task, summarize_bucket_progress
 
 from app.core.deps import require_student, TokenData
 from app.core.response import success, error
@@ -61,7 +63,7 @@ async def get_today_tasks(request: Request, token: TokenData = Depends(require_s
 
     days_res = (
         admin.table("study_plan_days")
-        .select("id, day_number, study_plans(name), study_plan_periods(id, title, study_plan_tasks(*, study_plan_submissions(*)))")
+        .select("id, day_number, scheduled_date, study_plans(name), study_plan_periods(id, title, study_plan_tasks(*, study_plan_submissions(*)))")
         .in_("plan_id", plan_ids)
         .eq("scheduled_date", today)
         .execute()
@@ -81,9 +83,11 @@ async def get_today_tasks(request: Request, token: TokenData = Depends(require_s
 
                 tasks.append({
                     **t,
+                    "kpi_bucket": kpi_bucket_for_task(t),
                     "plan_name": plan_name,
                     "period_title": period["title"],
                     "day_number": day_number,
+                    "scheduled_date": day.get("scheduled_date"),
                     "status": my_sub["status"] if my_sub else "pending",
                     "completed": my_sub is not None,
                     "submission": my_sub
@@ -277,6 +281,7 @@ def _student_class_study_plan_bundle(admin, student_id: str, tenant_id: str, cla
     days_res = q.or_(filter_clause).order("day_number").execute()
     today = date.today()
     days = _safe_data(days_res) or []
+    plan_bucket_records = []
 
     for day in days:
         is_accessible = day.get("is_accessible", False)
@@ -292,12 +297,23 @@ def _student_class_study_plan_bundle(admin, student_id: str, tenant_id: str, cla
             day["lock_reason"] = "Date not arrived" if not date_arrived else "Waiting for teacher access"
         else:
             day["is_locked"] = False
+            day_bucket_records = []
             for period in (day.get("periods") or []):
+                period_bucket_records = []
                 for task in (period.get("tasks") or []):
                     all_subs = task.get("study_plan_submissions") or []
                     task["study_plan_submissions"] = [s for s in all_subs if s["student_id"] == student_id]
+                    task["kpi_bucket"] = kpi_bucket_for_task(task)
+                    submission = task["study_plan_submissions"][0] if task["study_plan_submissions"] else None
+                    record = {"task": task, "submission": submission}
+                    period_bucket_records.append(record)
+                    day_bucket_records.append(record)
+                    plan_bucket_records.append(record)
+                period["bucket_progress"] = summarize_bucket_progress(period_bucket_records)
+            day["bucket_progress"] = summarize_bucket_progress(day_bucket_records)
 
     plan["days"] = days
+    plan["bucket_progress"] = summarize_bucket_progress(plan_bucket_records)
 
     return plan
 
@@ -317,6 +333,47 @@ async def get_student_aggregate_study_plan(token: TokenData = Depends(require_st
         bundle = _student_class_study_plan_bundle(admin, student_id, token.tenant_id, cid)
         if bundle and (bundle.get("days") or []):
             return success(bundle)
+    return success(None)
+
+
+@router.get("/study-plan-source")
+async def get_student_aggregate_study_plan_source(token: TokenData = Depends(require_student)):
+    admin = get_admin_client()
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
+    if not student_res.data:
+        return error("NOT_FOUND", "Student not found", 404)
+    student_id = student_res.data["id"]
+
+    enr = admin.table("class_enrollments").select("class_id").eq("student_id", student_id).execute()
+    class_ids = [r["class_id"] for r in (enr.data or [])]
+    if not class_ids:
+        return success(None)
+
+    for cid in class_ids:
+        plan_res = (
+            admin.table("study_plans")
+            .select("source_import_id")
+            .eq("class_id", cid)
+            .eq("tenant_id", token.tenant_id)
+            .eq("status", "active")
+            .maybe_single()
+            .execute()
+        )
+        plan = plan_res.data if plan_res else None
+        if not plan or not plan.get("source_import_id"):
+            continue
+
+        import_res = (
+            admin.table("study_plan_pdf_imports")
+            .select("*")
+            .eq("id", plan["source_import_id"])
+            .eq("tenant_id", token.tenant_id)
+            .maybe_single()
+            .execute()
+        )
+        import_row = import_res.data if import_res else None
+        if import_row:
+            return success(build_import_payload(import_row, admin))
     return success(None)
 
 
@@ -341,6 +398,50 @@ async def get_student_classroom_study_plan(class_id: str, token: TokenData = Dep
 
     bundle = _student_class_study_plan_bundle(admin, student_id, token.tenant_id, class_id)
     return success(bundle)
+
+
+@router.get("/classes/{class_id}/study-plan-source")
+async def get_student_classroom_study_plan_source(class_id: str, token: TokenData = Depends(require_student)):
+    admin = get_admin_client()
+    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
+    if not student_res.data:
+        return error("NOT_FOUND", "Student not found", 404)
+    student_id = student_res.data["id"]
+
+    enr_check = (
+        admin.table("class_enrollments")
+        .select("id")
+        .eq("class_id", class_id)
+        .eq("student_id", student_id)
+        .maybe_single()
+        .execute()
+    )
+    if not enr_check.data:
+        return error("FORBIDDEN", "Not enrolled in this classroom", 403)
+
+    plan_res = (
+        admin.table("study_plans")
+        .select("source_import_id")
+        .eq("class_id", class_id)
+        .eq("tenant_id", token.tenant_id)
+        .eq("status", "active")
+        .maybe_single()
+        .execute()
+    )
+    plan = plan_res.data if plan_res else None
+    if not plan or not plan.get("source_import_id"):
+        return success(None)
+
+    import_res = (
+        admin.table("study_plan_pdf_imports")
+        .select("*")
+        .eq("id", plan["source_import_id"])
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    import_row = import_res.data if import_res else None
+    return success(build_import_payload(import_row, admin) if import_row else None)
 
 # ── Accountability partner ────────────────────────────────────
 

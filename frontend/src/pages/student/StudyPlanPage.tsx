@@ -3,11 +3,14 @@ import { ChevronDown, CheckCircle2, Circle, BookOpen, Calendar, ArrowRight, Targ
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import type { StudyPlanPdfImport } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
 import { StudyPlanCalendarPanel } from '@/components/study-plan/StudyPlanCalendarPanel'
+import { StudyPlanSourceCard } from '@/components/study-plan/StudyPlanSourceCard'
+import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
 
 const TASK_ICONS: Record<string, React.ReactNode> = {
   memorise: <Target className="h-3.5 w-3.5" />,
@@ -16,15 +19,6 @@ const TASK_ICONS: Record<string, React.ReactNode> = {
   listen: <BookOpen className="h-3.5 w-3.5" />,
   read: <Calendar className="h-3.5 w-3.5" />,
   mcq: <CheckCircle2 className="h-3.5 w-3.5" />,
-}
-
-const TASK_COLORS: Record<string, string> = {
-  memorise: 'text-blue-600 bg-blue-50 border-blue-100',
-  review: 'text-amber-500 bg-amber-50 border-amber-100',
-  recite: 'text-rose-500 bg-rose-50 border-rose-100',
-  listen: 'text-indigo-500 bg-indigo-50 border-indigo-100',
-  read: 'text-emerald-500 bg-emerald-50 border-emerald-100',
-  mcq: 'text-violet-500 bg-violet-50 border-violet-100',
 }
 
 interface Task {
@@ -62,6 +56,7 @@ export default function StudyPlanPage() {
   const [loading, setLoading] = useState(true)
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [submittingTask, setSubmittingTask] = useState<Task | null>(null)
+  const [source, setSource] = useState<StudyPlanPdfImport | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -79,6 +74,10 @@ export default function StudyPlanPage() {
       })
       .catch(() => toast.error('Could not load your curriculum'))
       .finally(() => setLoading(false))
+
+    api.get('/student/study-plan-source')
+      .then(res => setSource(res.data?.data || null))
+      .catch(() => setSource(null))
   }
 
   useEffect(load, [])
@@ -106,6 +105,14 @@ export default function StudyPlanPage() {
           <div className="space-y-6">
             <StudyPlanCalendarPanel days={days} readOnly anchorKey="student-plan" />
           </div>
+        )}
+        {!loading && (
+          <StudyPlanSourceCard
+            source={source}
+            title="Complete Study Plan"
+            description="Review the full imported table and the original PDF for your current class study plan."
+            emptyMessage="The full PDF-backed study plan is not available yet."
+          />
         )}
         {loading ? (
           <div className="space-y-4">
@@ -194,7 +201,10 @@ export default function StudyPlanPage() {
                           <div className="flex items-center gap-2 px-2">
                             <Clock className="h-4 w-4 text-slate-300" />
                             <span className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
-                              {period.title} ({period.duration_minutes}m)
+                              {formatStudyPlanPeriodLabel(period.title, {
+                                scheduledDate: day.scheduled_date,
+                                dayNumber: day.day_number,
+                              })} ({period.duration_minutes}m)
                             </span>
                           </div>
 
@@ -221,16 +231,6 @@ export default function StudyPlanPage() {
                                   </div>
 
                                   <div className="min-w-0 flex-1">
-                                    <div className="mb-1 flex items-center gap-2">
-                                      <span
-                                        className={clsx(
-                                          'rounded-lg border px-2 py-0.5 text-[9px] font-black uppercase tracking-wider',
-                                          TASK_COLORS[task.task_type] || 'border-slate-200 bg-slate-50 text-slate-500'
-                                        )}
-                                      >
-                                        {task.task_type}
-                                      </span>
-                                    </div>
                                     <p
                                       className={clsx(
                                         'text-base font-black tracking-tight transition-all',

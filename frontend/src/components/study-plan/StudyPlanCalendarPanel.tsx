@@ -15,6 +15,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
 
 /** Minimal shape from API / builder — avoids tight coupling to StudyPlanBuilder types */
 export interface CalendarPlanDay {
@@ -197,7 +198,12 @@ export function StudyPlanCalendarPanel({
           <ul className="space-y-4">
             {selectedPlanDay.periods.map((period) => (
               <li key={period.id || period.title} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0">
-                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">{period.title}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                  {formatStudyPlanPeriodLabel(period.title, {
+                    scheduledDate: selectedPlanDay.scheduled_date,
+                    dayNumber: selectedPlanDay.day_number,
+                  })}
+                </p>
                 <ul className="mt-2 space-y-2">
                   {(period.tasks || []).map((task) => (
                     <li
@@ -209,7 +215,6 @@ export function StudyPlanCalendarPanel({
                         {task.description ? (
                           <p className="mt-1 text-xs leading-snug text-slate-600">{task.description}</p>
                         ) : null}
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{task.task_type}</p>
                       </div>
                     </li>
                   ))}

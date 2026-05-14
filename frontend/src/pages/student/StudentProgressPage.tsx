@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import api from '@/services/api';
 import toast from 'react-hot-toast';
 import { clsx } from 'clsx';
+import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels';
 
 export default function StudentProgressPage() {
   const navigate = useNavigate();
@@ -211,7 +212,12 @@ export default function StudentProgressPage() {
                     <div key={period.id} className="space-y-3">
                       <div className="flex items-center gap-3">
                         <div className="h-px flex-1 bg-slate-200" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">{period.title}</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">
+                          {formatStudyPlanPeriodLabel(period.title, {
+                            scheduledDate: day.scheduled_date,
+                            dayNumber: day.day_number,
+                          })}
+                        </span>
                         <div className="h-px flex-1 bg-slate-200" />
                       </div>
 
@@ -238,7 +244,6 @@ export default function StudentProgressPage() {
                                     </div>
                                     <div className="min-w-0">
                                       <h4 className="text-sm font-bold text-slate-800 transition-colors group-hover:text-blue-600">{task.title}</h4>
-                                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{task.task_type}</p>
                                     </div>
                                   </div>
                                   

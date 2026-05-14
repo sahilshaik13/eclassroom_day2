@@ -58,7 +58,6 @@ import AdminStudentsPage from '@/pages/admin/AdminStudentsPage'
 import AdminTeachersPage from '@/pages/admin/AdminTeachersPage'
 import AdminClassesPage from '@/pages/admin/AdminClassesPage'
 import StudyPlansPage from '@/pages/admin/StudyPlansPage'
-import AdminStudyPlanDetail from '@/pages/admin/AdminStudyPlanDetail'
 import AdminSettingsPage from '@/pages/admin/AdminSettingsPage'
 import AdminCompetitionsPage from '@/pages/admin/AdminCompetitionsPage'
 import AdminClassStudyPlanPage from '@/pages/admin/AdminClassStudyPlanPage'
@@ -258,7 +257,6 @@ export default function App() {
           <Route path="applicants" element={<AdminTeachersPage />} />
           <Route path="classes" element={<AdminClassesPage />} />
           <Route path="study-plans" element={<StudyPlansPage />} />
-          <Route path="study-plans/:id" element={<AdminStudyPlanDetail />} />
           <Route path="settings" element={<AdminSettingsPage />} />
           <Route path="competitions" element={<AdminCompetitionsPage />} />
           <Route path="classes/:classId/study-plan" element={<AdminClassStudyPlanPage />} />

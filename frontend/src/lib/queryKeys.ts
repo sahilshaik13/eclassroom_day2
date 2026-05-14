@@ -20,6 +20,8 @@ export const queryKeys = {
       ['teacher', 'doubts', filter ?? 'all'] as const,
     classroomStudyPlan: (classId: string) =>
       ['teacher', 'classroom', classId, 'study-plan'] as const,
+    classroomStudyPlanSource: (classId: string) =>
+      ['teacher', 'classroom', classId, 'study-plan-source'] as const,
     studentsByClass: (classId: string) =>
       ['teacher', 'students', classId] as const,
     studentsAll: () => ['teacher', 'students'] as const,
@@ -27,6 +29,7 @@ export const queryKeys = {
   },
   student: {
     tasksToday: () => ['student', 'tasks', 'today'] as const,
+    studyPlanSource: () => ['student', 'study-plan-source'] as const,
     doubts: () => ['student', 'doubts'] as const,
     classesMy: () => ['student', 'classes', 'my'] as const,
   },

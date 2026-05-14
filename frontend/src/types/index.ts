@@ -80,13 +80,16 @@ export interface AuditLogEntry {
 // ── Student domain ────────────────────────────────────────────────────────────
 
 export type TaskType = 'memorise' | 'review' | 'recite' | 'listen' | 'read' | 'mcq' | 'written' | 'reflection'
+export type AcademicBucket = 'hifz' | 'kubra' | 'sughra' | 'tajweed'
 
 export interface Task {
   id: string
   title: string
   description?: string
   task_type: TaskType
+  kpi_bucket?: AcademicBucket
   day_number?: number
+  scheduled_date?: string
   completed: boolean
   completed_at?: string
   notes?: string
@@ -235,6 +238,53 @@ export interface StudyPlanTaskItem {
   description?: string
   task_type: TaskType
   order_index: number
+}
+
+export interface StudyPlanPdfImport {
+  id: string
+  class_id: string
+  teacher_id?: string | null
+  original_filename?: string | null
+  pdf_bucket?: string
+  pdf_storage_path?: string
+  pdf_url?: string | null
+  ocr_job_id?: string | null
+  ocr_status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'applied'
+  total_chunks: number
+  completed_chunks: number
+  failed_chunks: number
+  detected_columns: string[]
+  selected_columns: string[]
+  column_bucket_map: Record<string, AcademicBucket>
+  extracted_rows: Record<string, string>[]
+  filtered_rows: Record<string, string>[]
+  applied_rows: Record<string, string>[]
+  parse_message?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface AppliedStudyPlanSummary {
+  id: string
+  class_id: string
+  name: string
+  description?: string
+  status: string
+  updated_at?: string
+  source_import_id?: string | null
+  class: {
+    id: string
+    name: string
+    teacher_name: string
+    enrollment_count: number
+    is_active: boolean
+  }
+  source_import?: {
+    id: string
+    original_filename?: string | null
+    ocr_status: string
+    updated_at?: string
+  } | null
 }
 
 // ── Competition domain ────────────────────────────────────────────────────────

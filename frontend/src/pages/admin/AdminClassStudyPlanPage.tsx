@@ -6,6 +6,7 @@ import api from '@/services/api'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Button } from '@/components/ui/button'
 import StudyPlanBuilder, { Day, TaskType } from '@/components/study-plan/StudyPlanBuilder'
+import { AdminStudyPlanImportCard } from '@/components/admin/AdminStudyPlanImportCard'
 
 export default function AdminClassStudyPlanPage() {
     const { classId } = useParams()
@@ -167,16 +168,22 @@ export default function AdminClassStudyPlanPage() {
                         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
                     </div>
                 ) : !plan ? (
-                    <div className="flex flex-col items-center justify-center py-24 text-center bg-white rounded-3xl border border-slate-100 shadow-sm">
-                        <BookOpen className="h-12 w-12 text-slate-300 mb-4" />
-                        <h3 className="text-base font-bold text-slate-900">No study plan assigned</h3>
-                        <p className="text-sm text-slate-400 max-w-xs mt-2">Apply a template to this classroom to start building its plan.</p>
-                        <Button onClick={() => navigate('/admin/study-plans')} className="mt-6 bg-blue-600 text-white rounded-xl">
-                            Go to Study Plans
-                        </Button>
+                    <div className="space-y-6">
+                        <AdminStudyPlanImportCard classId={classId!} className={className} onApplied={() => { void loadData() }} />
+                        <div className="flex flex-col items-center justify-center py-20 text-center bg-white rounded-3xl border border-slate-100 shadow-sm">
+                            <BookOpen className="h-12 w-12 text-slate-300 mb-4" />
+                            <h3 className="text-base font-bold text-slate-900">No live study plan assigned yet</h3>
+                            <p className="text-sm text-slate-400 max-w-sm mt-2">
+                                Upload a study-plan PDF above, review the OCR table, then apply it to generate the class plan.
+                            </p>
+                            <Button onClick={() => navigate('/admin/study-plans')} className="mt-6 bg-blue-600 text-white rounded-xl">
+                                Open Study Plan Imports
+                            </Button>
+                        </div>
                     </div>
                 ) : (
                     <div className="space-y-6">
+                        <AdminStudyPlanImportCard classId={classId!} className={className} onApplied={() => { void loadData() }} />
                         <StudyPlanBuilder 
                             days={days}
                             onChange={setDays}

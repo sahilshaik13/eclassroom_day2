@@ -16,6 +16,7 @@ import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent } from '@/components/ui/card'
 import { clsx } from 'clsx'
 import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
+import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
 
 interface Task {
   id: string
@@ -24,6 +25,8 @@ interface Task {
   task_type: string
   period_title: string
   plan_name: string
+  scheduled_date?: string
+  day_number: number
   status: string
   completed: boolean
   config?: any
@@ -154,7 +157,10 @@ export default function StudentTodayPlanPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                        {task.period_title} • {task.plan_name}
+                        {formatStudyPlanPeriodLabel(task.period_title, {
+                          scheduledDate: task.scheduled_date,
+                          dayNumber: task.day_number,
+                        })} • {task.plan_name}
                       </span>
                     </div>
                     <h4 className={clsx(

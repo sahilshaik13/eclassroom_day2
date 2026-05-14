@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
 import clsx from 'clsx'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -450,7 +451,10 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                                       <Clock className="h-3.5 w-3.5" />
                                     </div>
                                     <h4 className={clsx('font-medium text-slate-900', embedded ? 'text-sm' : 'font-black')}>
-                                      {period.title}
+                                      {formatStudyPlanPeriodLabel(period.title, {
+                                        scheduledDate: day.scheduled_date,
+                                        dayNumber: day.day_number,
+                                      })}
                                     </h4>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2">
@@ -503,9 +507,6 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                                         <div className="min-w-0">
                                           <p className={clsx('truncate text-slate-800', embedded ? 'text-sm font-medium' : 'text-sm font-black')}>
                                             {task.title}
-                                          </p>
-                                          <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                                            {task.task_type}
                                           </p>
                                         </div>
                                       </div>

@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react'
 import { User, Video, Calendar, ChevronRight, Loader2, Search, Layers, Clock, CheckCircle2, Circle, Lock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import type { StudyPlanPdfImport } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { clsx } from 'clsx'
 import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
+import { StudyPlanSourceCard } from '@/components/study-plan/StudyPlanSourceCard'
+import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
 
 interface Teacher {
   name: string
@@ -28,6 +31,7 @@ export default function StudentClassesPage() {
   const [loadingPlan, setLoadingPlan] = useState(false)
   const [openDay, setOpenDay] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<any | null>(null)
+  const [planSource, setPlanSource] = useState<StudyPlanPdfImport | null>(null)
 
   useEffect(() => {
     api.get('/student/classes/my')
@@ -45,12 +49,17 @@ export default function StudentClassesPage() {
     setSelectedClass(cls)
     setLoadingPlan(true)
     setPlan(null)
+    setPlanSource(null)
     setOpenDay(null)
     try {
-      const res = await api.get(`/student/classes/${cls.id}/study-plan`)
-      setPlan(res.data.data)
-      if (res.data.data?.days?.length > 0) {
-        setOpenDay(res.data.data.days[0].id)
+      const [planRes, sourceRes] = await Promise.all([
+        api.get(`/student/classes/${cls.id}/study-plan`),
+        api.get(`/student/classes/${cls.id}/study-plan-source`).catch(() => ({ data: { data: null } })),
+      ])
+      setPlan(planRes.data.data)
+      setPlanSource((sourceRes as any).data?.data || null)
+      if (planRes.data.data?.days?.length > 0) {
+        setOpenDay(planRes.data.data.days[0].id)
       }
     } catch {
       toast.error("Failed to load study plan")
@@ -182,6 +191,13 @@ export default function StudentClassesPage() {
                 )}
               </div>
 
+              <StudyPlanSourceCard
+                source={planSource}
+                title="Complete Study Plan"
+                description="Full imported table and PDF for the selected class."
+                emptyMessage="No PDF-backed study plan is available for this class yet."
+              />
+
               <div className="space-y-3">
                 {plan.days.map((day: any) => {
                   const isOpen = openDay === day.id
@@ -254,7 +270,10 @@ export default function StudentClassesPage() {
                                 <div className="flex items-center gap-2">
                                    <Clock className="h-3 w-3 text-slate-400 shrink-0" />
                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                     {period.title} ({period.duration_minutes}m)
+                                     {formatStudyPlanPeriodLabel(period.title, {
+                                       scheduledDate: day.scheduled_date,
+                                       dayNumber: day.day_number,
+                                     })} ({period.duration_minutes}m)
                                    </span>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -282,7 +301,6 @@ export default function StudentClassesPage() {
                                                "truncate text-[11px] font-bold sm:text-xs",
                                                isDone ? "text-emerald-700" : "text-slate-700"
                                              )}>{task.title}</p>
-                                             <p className="text-[9px] font-bold uppercase text-slate-400">{task.task_type}</p>
                                           </div>
                                        </button>
                                      )

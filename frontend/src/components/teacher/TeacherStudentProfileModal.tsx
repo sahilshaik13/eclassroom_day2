@@ -33,7 +33,7 @@ type Student = {
   classes?: { id: string; name: string }[]
 }
 
-/** Must match `task_type` strings returned by `/teacher/students/:id/report` (KPI bucket labels). */
+/** Matches the academic bucket labels returned by the report payload. */
 const ACADEMIC = [
   {
     match: 'Hifz',
@@ -68,6 +68,14 @@ const ACADEMIC = [
 function pctFromGrid(grid: { task_type: string; type_average: number | null }[] | undefined, match: string) {
   const row = grid?.find((g) => g.task_type === match)
   return row?.type_average ?? 0
+}
+
+function pctFromBuckets(
+  summaries: { label: string; progress_pct: number }[] | undefined,
+  match: string
+) {
+  const row = summaries?.find((item) => item.label === match)
+  return row?.progress_pct ?? 0
 }
 
 function fmtLogin(iso?: string | null) {
@@ -118,6 +126,7 @@ type Overview = {
 type Report = {
   overall_percentage: number
   grid: { task_type: string; type_average: number | null; days: Record<string, number> }[]
+  bucket_summaries?: { bucket: string; label: string; progress_pct: number }[]
 }
 
 export function TeacherStudentProfileModal({
@@ -285,7 +294,7 @@ export function TeacherStudentProfileModal({
                 </h3>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   {ACADEMIC.map((a) => {
-                    const pct = pctFromGrid(report?.grid, a.match)
+                    const pct = pctFromBuckets(report?.bucket_summaries, a.match) || pctFromGrid(report?.grid, a.match)
                     return (
                       <div
                         key={a.match}

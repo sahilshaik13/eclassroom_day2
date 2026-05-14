@@ -13,6 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import toast from 'react-hot-toast'
 import { clsx } from 'clsx'
 import { TeacherSubmissionsWorkspace } from '@/components/teacher/TeacherSubmissionsWorkspace'
+import { StudyPlanTableView } from '@/components/study-plan/StudyPlanTableView'
+import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
+import { findStudyPlanSourceRow, getDashboardStudyPlanColumns } from '@/lib/studyPlanSource'
 
 interface StudentQuestion { id: string; student: string; initials: string; question: string; time: string; subject?: string }
 interface PulseStudent { student_id: string; name: string; completion_pct: number; pending_doubts: number }
@@ -61,7 +64,14 @@ export default function TeacherDashboard() {
     staleTime: 120_000,
   })
 
-  const { totalStudents, totalClasses, pendingDoubts, todayCurriculum, questions } = useMemo(() => {
+  const { data: firstClassSource } = useQuery({
+    queryKey: queryKeys.teacher.classroomStudyPlanSource(firstClassId ?? ''),
+    queryFn: async () => (await api.get(`/teacher/classrooms/${firstClassId}/study-plan-source`)).data?.data,
+    enabled: !!firstClassId,
+    staleTime: 120_000,
+  })
+
+  const { totalStudents, totalClasses, pendingDoubts, todayCurriculum, todayCurriculumColumns, todayCurriculumRow, questions } = useMemo(() => {
     const pulse: PulseStudent[] = pulseData ?? []
     const doubtsList = pendingDoubtsRaw as any[]
     const totalStudentsN = pulse.length
@@ -94,13 +104,29 @@ export default function TeacherDashboard() {
       }
     }
 
-    let curriculum: { className: string; periods: any[] } | null = null
+    let curriculum: { className: string; periods: any[]; scheduledDate?: string; dayNumber?: number } | null = null
+    let todayColumns: string[] = []
+    let todayRow: Record<string, string> | null = null
     if (firstClassPlan && classes[0]) {
       const cname = classes[0].name as string
       const dayList = firstClassPlan?.days || []
       const todayStr = new Date().toISOString().slice(0, 10)
       const day = dayList.find((d: any) => d.scheduled_date?.slice(0, 10) === todayStr)
-      if (day?.periods?.length) curriculum = { className: cname, periods: day.periods }
+      if (firstClassSource) {
+        todayColumns = getDashboardStudyPlanColumns(firstClassSource)
+        todayRow = findStudyPlanSourceRow(firstClassSource, {
+          scheduledDate: day?.scheduled_date || todayStr,
+          dayNumber: day?.day_number,
+        })
+      }
+      if (day?.periods?.length) {
+        curriculum = {
+          className: cname,
+          periods: day.periods,
+          scheduledDate: day.scheduled_date,
+          dayNumber: day.day_number,
+        }
+      }
     }
 
     return {
@@ -108,9 +134,11 @@ export default function TeacherDashboard() {
       totalClasses: totalClassesN,
       pendingDoubts: pendingCount,
       todayCurriculum: curriculum,
+      todayCurriculumColumns: todayColumns,
+      todayCurriculumRow: todayRow,
       questions: qList,
     }
-  }, [pulseData, pendingDoubtsRaw, classes, firstClassPlan])
+  }, [pulseData, pendingDoubtsRaw, classes, firstClassPlan, firstClassSource])
 
   const handleSendReply = async (questionId: string) => {
     if (!replyText.trim()) return
@@ -168,16 +196,33 @@ export default function TeacherDashboard() {
               <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
               Loading today&apos;s plan…
             </div>
-          ) : !todayCurriculum ? (
+          ) : !todayCurriculum && !todayCurriculumRow ? (
             <p className="text-sm text-slate-500">
               No scheduled curriculum day for today in your first class, or no plan yet. Open Study plan for the full calendar.
             </p>
           ) : (
             <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{todayCurriculum.className}</p>
-              {todayCurriculum.periods.map((period: any) => (
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {todayCurriculum?.className || classes[0]?.name}
+              </p>
+              {todayCurriculumRow && todayCurriculumColumns.length ? (
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-indigo-700">Today&apos;s timetable</p>
+                  <StudyPlanTableView
+                    columns={todayCurriculumColumns}
+                    rows={[todayCurriculumRow]}
+                    emptyMessage="No timetable row is available for today."
+                  />
+                </div>
+              ) : null}
+              {todayCurriculum?.periods?.map((period: any) => (
                 <div key={period.id || period.title}>
-                  <p className="text-xs font-semibold text-indigo-700">{period.title}</p>
+                  <p className="text-xs font-semibold text-indigo-700">
+                    {formatStudyPlanPeriodLabel(period.title, {
+                      scheduledDate: todayCurriculum.scheduledDate,
+                      dayNumber: todayCurriculum.dayNumber,
+                    })}
+                  </p>
                   <ul className="mt-2 space-y-1.5">
                     {(period.tasks || []).map((task: any) => (
                       <li
@@ -190,9 +235,6 @@ export default function TeacherDashboard() {
                             <p className="mt-0.5 text-xs text-slate-600">{task.description}</p>
                           ) : null}
                         </div>
-                        <Badge variant="secondary" className="w-fit shrink-0 text-[10px] font-medium capitalize">
-                          {task.task_type}
-                        </Badge>
                       </li>
                     ))}
                   </ul>

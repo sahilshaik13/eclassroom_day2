@@ -28,7 +28,8 @@ POST   /api/v1/admin/study-plans/{id}/apply
 from datetime import date, timedelta, datetime
 import logging
 from typing import Optional, List, Any
-from fastapi import APIRouter, Depends, Request
+import httpx
+from fastapi import APIRouter, Depends, Request, File, UploadFile
 from pydantic import BaseModel, EmailStr
 from app.schemas import study_plan as sp
 
@@ -37,6 +38,21 @@ from app.core.response import success, error, paginated
 from app.db.supabase import get_admin_client
 from app.services.auth_service import AuthService, AuthError
 from app.core.config import settings
+from app.services.study_plan_pdf_import_service import (
+    STUDY_PLAN_PDF_BUCKET,
+    build_import_payload,
+    build_plan_rows,
+    cancel_provider_job,
+    ensure_nexusocr_configured,
+    extract_columns_and_rows,
+    fetch_filtered_provider_result,
+    normalize_import_status,
+    retry_provider_job,
+    sync_import_status,
+    upload_pdf_to_provider,
+    upload_pdf_to_storage,
+)
+from app.services.study_plan_kpi_service import build_column_bucket_map, normalize_kpi_bucket
 
 class TeacherDayCreate(sp.TeacherDayCreate): pass
 class TeacherDayUpdate(sp.TeacherDayUpdate): pass
@@ -48,6 +64,16 @@ class TeacherTaskUpdate(sp.TeacherTaskUpdate): pass
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
+
+
+def _merge_task_config(config: Optional[dict], kpi_bucket: Optional[Any]) -> dict:
+    next_config = dict(config or {})
+    normalized_bucket = normalize_kpi_bucket(kpi_bucket)
+    if normalized_bucket:
+        next_config["kpi_bucket"] = normalized_bucket
+    elif "kpi_bucket" in next_config and not normalize_kpi_bucket(next_config.get("kpi_bucket")):
+        next_config.pop("kpi_bucket", None)
+    return next_config
 
 
 # ── Stats ─────────────────────────────────────────────────────
@@ -1101,6 +1127,62 @@ async def list_study_plans(request: Request, token: TokenData = Depends(require_
     return success(plans)
 
 
+@router.get("/applied-study-plans")
+async def list_applied_study_plans(token: TokenData = Depends(require_admin)):
+    admin = get_admin_client()
+    class_res = (
+        admin.table("classes")
+        .select("*, users!classes_teacher_id_fkey(name), class_enrollments(count)")
+        .eq("tenant_id", token.tenant_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    class_map: dict[str, dict[str, Any]] = {}
+    for row in (class_res.data or []):
+        teacher = row.pop("users", None) or {}
+        enr = row.pop("class_enrollments", []) or []
+        count = enr[0].get("count", 0) if enr and isinstance(enr, list) else 0
+        class_map[row["id"]] = {**row, "teacher_name": teacher.get("name", ""), "enrollment_count": count}
+
+    plan_res = (
+        admin.table("study_plans")
+        .select("*")
+        .eq("tenant_id", token.tenant_id)
+        .not_.is_("class_id", "null")
+        .neq("status", "archived")
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    plans = plan_res.data or []
+
+    import_ids = [row.get("source_import_id") for row in plans if row.get("source_import_id")]
+    import_map: dict[str, dict[str, Any]] = {}
+    if import_ids:
+        import_res = (
+            admin.table("study_plan_pdf_imports")
+            .select("id, original_filename, ocr_status, updated_at")
+            .in_("id", import_ids)
+            .execute()
+        )
+        import_map = {row["id"]: row for row in (import_res.data or [])}
+
+    result = []
+    for row in plans:
+        class_info = class_map.get(row["class_id"])
+        if not class_info:
+            continue
+        source_info = import_map.get(row.get("source_import_id"))
+        result.append(
+            {
+                **row,
+                "class": class_info,
+                "source_import": source_info,
+            }
+        )
+
+    return success(result)
+
+
 @router.post("/study-plans")
 async def create_study_plan(
     body: sp.StudyPlanBase,
@@ -1238,7 +1320,7 @@ async def add_template_task(
         "task_type": body.task_type.value,
         "required": body.required,
         "order_index": body.order_index,
-        "config": body.config
+        "config": _merge_task_config(body.config, body.kpi_bucket)
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
 
@@ -1253,6 +1335,9 @@ async def update_template_task(
     update_data = {k: v for k, v in body.dict().items() if v is not None}
     if "task_type" in update_data and update_data["task_type"]:
         update_data["task_type"] = update_data["task_type"].value
+    if "config" in update_data or "kpi_bucket" in update_data:
+        update_data["config"] = _merge_task_config(update_data.get("config"), update_data.get("kpi_bucket"))
+    update_data.pop("kpi_bucket", None)
         
     res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
     return success(res.data[0] if res.data else {})
@@ -1312,6 +1397,42 @@ async def get_classroom_study_plan(
         return success(plan)
     except Exception as e:
         return error("QUERY_ERROR", str(e), 500)
+
+
+@router.delete("/classrooms/{class_id}/study-plan")
+async def delete_classroom_study_plan(
+    class_id: str,
+    token: TokenData = Depends(require_admin)
+):
+    admin = get_admin_client()
+    classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
+    if not classroom:
+        return error("NOT_FOUND", "Class not found", 404)
+
+    plan_res = (
+        admin.table("study_plans")
+        .select("id, source_import_id")
+        .eq("tenant_id", token.tenant_id)
+        .eq("class_id", class_id)
+        .maybe_single()
+        .execute()
+    )
+    plan = plan_res.data if plan_res else None
+    if not plan:
+        return error("NOT_FOUND", "Study plan not found", 404)
+
+    admin.table("study_plans").delete().eq("id", plan["id"]).execute()
+
+    if plan.get("source_import_id"):
+        admin.table("study_plan_pdf_imports").update(
+            {
+                "applied_plan_id": None,
+                "ocr_status": "completed",
+                "parse_message": "Study plan removed from class",
+            }
+        ).eq("id", plan["source_import_id"]).execute()
+
+    return success({"deleted": True, "class_id": class_id})
 
 @router.post("/classroom-study-plans/days")
 async def admin_create_classroom_day(
@@ -1408,7 +1529,7 @@ async def admin_create_classroom_task(
         "task_type": body.task_type.value,
         "required": body.required,
         "order_index": body.order_index,
-        "config": body.config
+        "config": _merge_task_config(body.config, body.kpi_bucket)
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
 
@@ -1422,6 +1543,9 @@ async def admin_update_classroom_task(
     update_data = {k: v for k, v in body.dict().items() if v is not None}
     if "task_type" in update_data and update_data["task_type"]:
         update_data["task_type"] = update_data["task_type"].value
+    if "config" in update_data or "kpi_bucket" in update_data:
+        update_data["config"] = _merge_task_config(update_data.get("config"), update_data.get("kpi_bucket"))
+    update_data.pop("kpi_bucket", None)
     res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
     return success(res.data[0] if res.data else {})
 
@@ -1471,5 +1595,522 @@ async def apply_study_plan(
     # for their days, periods, and tasks.
     
     return success({"plan_id": new_plan_id})
+
+
+def _verify_admin_classroom(admin: Any, tenant_id: str, class_id: str) -> Optional[dict]:
+    result = (
+        admin.table("classes")
+        .select("id, name, teacher_id")
+        .eq("id", class_id)
+        .eq("tenant_id", tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    return result.data if result else None
+
+
+def _get_import_by_id(admin: Any, tenant_id: str, import_id: str) -> Optional[dict]:
+    result = (
+        admin.table("study_plan_pdf_imports")
+        .select("*")
+        .eq("id", import_id)
+        .eq("tenant_id", tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    return result.data if result else None
+
+
+def _get_latest_import_for_class(admin: Any, tenant_id: str, class_id: str) -> Optional[dict]:
+    result = (
+        admin.table("study_plan_pdf_imports")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("class_id", class_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def _project_rows(selected_columns: List[str], rows: List[dict]) -> List[dict]:
+    projected: List[dict] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        projected.append({column: row.get(column, "") for column in selected_columns})
+    return projected
+
+
+@router.post("/classrooms/{class_id}/study-plan-imports/upload")
+async def upload_classroom_study_plan_pdf(
+    class_id: str,
+    file: UploadFile = File(...),
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
+    if not classroom:
+        return error("NOT_FOUND", "Class not found", 404)
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return error("BAD_REQUEST", "Please upload a PDF file", 400)
+
+    try:
+        ensure_nexusocr_configured()
+    except ValueError as exc:
+        return error("CONFIG_ERROR", str(exc), 400)
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        return error("BAD_REQUEST", "Uploaded PDF is empty", 400)
+
+    try:
+        storage_path = upload_pdf_to_storage(admin, token.tenant_id, class_id, file.filename, file_bytes)
+        created = (
+            admin.table("study_plan_pdf_imports")
+            .insert(
+                {
+                    "tenant_id": token.tenant_id,
+                    "class_id": class_id,
+                    "teacher_id": classroom.get("teacher_id"),
+                    "uploaded_by": token.user_id,
+                    "pdf_bucket": STUDY_PLAN_PDF_BUCKET,
+                    "pdf_storage_path": storage_path,
+                    "original_filename": file.filename,
+                    "file_size_bytes": len(file_bytes),
+                    "ocr_status": "uploading",
+                }
+            )
+            .execute()
+        )
+        import_row = created.data[0] if created.data else None
+        if not import_row:
+            return error("INTERNAL_ERROR", "Failed to create study-plan import", 500)
+
+        provider_payload = await upload_pdf_to_provider(file_bytes, file.filename)
+        job_id = (
+            provider_payload.get("job_id")
+            or provider_payload.get("id")
+            or (provider_payload.get("job") or {}).get("id")
+        )
+        if not job_id:
+            admin.table("study_plan_pdf_imports").update(
+                {
+                    "ocr_status": "failed",
+                    "parse_message": "NexusOCR did not return a job id",
+                    "latest_payload": provider_payload,
+                }
+            ).eq("id", import_row["id"]).execute()
+            return error("OCR_ERROR", "NexusOCR did not return a job id", 502)
+
+        updated = (
+            admin.table("study_plan_pdf_imports")
+            .update(
+                {
+                    "ocr_job_id": job_id,
+                    "ocr_status": normalize_import_status(provider_payload.get("status")),
+                    "latest_payload": provider_payload,
+                }
+            )
+            .eq("id", import_row["id"])
+            .execute()
+        )
+        saved = updated.data[0] if updated.data else {**import_row, "ocr_job_id": job_id}
+        return success(build_import_payload(saved, admin), status_code=201)
+    except httpx.HTTPError as exc:
+        message = str(exc)
+        if 'import_row' in locals() and import_row:
+            admin.table("study_plan_pdf_imports").update(
+                {"ocr_status": "failed", "parse_message": message}
+            ).eq("id", import_row["id"]).execute()
+        return error("OCR_ERROR", message, 502)
+    except Exception as exc:
+        if 'import_row' in locals() and import_row:
+            admin.table("study_plan_pdf_imports").update(
+                {"ocr_status": "failed", "parse_message": str(exc)}
+            ).eq("id", import_row["id"]).execute()
+        return error("UPLOAD_ERROR", str(exc), 500)
+
+
+@router.get("/classrooms/{class_id}/study-plan-imports/current")
+async def get_current_classroom_study_plan_import(
+    class_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
+    if not classroom:
+        return error("NOT_FOUND", "Class not found", 404)
+
+    import_row = _get_latest_import_for_class(admin, token.tenant_id, class_id)
+    if not import_row:
+        return success(None)
+
+    try:
+        if import_row.get("ocr_job_id") and (
+            import_row.get("ocr_status") not in {"failed", "cancelled", "applied"}
+            or not import_row.get("extracted_rows")
+        ):
+            import_row = await sync_import_status(admin, import_row)
+    except Exception:
+        pass
+
+    return success(build_import_payload(import_row, admin))
+
+
+@router.get("/study-plan-imports/{import_id}")
+async def get_study_plan_import(
+    import_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    import_row = _get_import_by_id(admin, token.tenant_id, import_id)
+    if not import_row:
+        return error("NOT_FOUND", "Study-plan import not found", 404)
+    return success(build_import_payload(import_row, admin))
+
+
+@router.post("/study-plan-imports/{import_id}/refresh")
+async def refresh_study_plan_import(
+    import_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    import_row = _get_import_by_id(admin, token.tenant_id, import_id)
+    if not import_row:
+        return error("NOT_FOUND", "Study-plan import not found", 404)
+
+    if not import_row.get("ocr_job_id"):
+        return success(build_import_payload(import_row, admin))
+
+    try:
+        import_row = await sync_import_status(admin, import_row)
+        return success(build_import_payload(import_row, admin))
+    except httpx.HTTPError as exc:
+        return error("OCR_ERROR", str(exc), 502)
+
+
+@router.post("/study-plan-imports/{import_id}/select-columns")
+async def select_study_plan_import_columns(
+    import_id: str,
+    body: sp.StudyPlanImportColumnSelection,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    import_row = _get_import_by_id(admin, token.tenant_id, import_id)
+    if not import_row:
+        return error("NOT_FOUND", "Study-plan import not found", 404)
+
+    selected_columns = [column for column in body.selected_columns if str(column).strip()]
+    if not selected_columns:
+        return error("BAD_REQUEST", "Select at least one column", 400)
+
+    if import_row.get("ocr_job_id") and (
+        import_row.get("ocr_status") not in {"completed", "applied"}
+        or not import_row.get("extracted_rows")
+    ):
+        import_row = await sync_import_status(admin, import_row)
+
+    if not import_row.get("extracted_rows"):
+        return error("BAD_REQUEST", "OCR result is not ready yet", 400)
+
+    column_bucket_map = build_column_bucket_map(
+        selected_columns,
+        import_row.get("extracted_rows") or [],
+        body.column_bucket_map or import_row.get("column_bucket_map") or {},
+    )
+    filtered_rows = _project_rows(selected_columns, import_row.get("extracted_rows") or [])
+    latest_payload: Any = import_row.get("latest_payload") or {}
+    if import_row.get("ocr_job_id"):
+        try:
+            provider_payload = await fetch_filtered_provider_result(import_row["ocr_job_id"], selected_columns)
+            _, provider_rows = extract_columns_and_rows(provider_payload)
+            if provider_rows:
+                filtered_rows = provider_rows
+            latest_payload = provider_payload
+        except httpx.HTTPError:
+            pass
+
+    updated = (
+        admin.table("study_plan_pdf_imports")
+        .update(
+            {
+                "selected_columns": selected_columns,
+                "filtered_rows": filtered_rows,
+                "column_bucket_map": column_bucket_map,
+                "latest_payload": latest_payload,
+            }
+        )
+        .eq("id", import_id)
+        .execute()
+    )
+    saved = updated.data[0] if updated.data else {
+        **import_row,
+        "selected_columns": selected_columns,
+        "filtered_rows": filtered_rows,
+        "column_bucket_map": column_bucket_map,
+    }
+    return success(build_import_payload(saved, admin))
+
+
+@router.post("/study-plan-imports/{import_id}/cancel")
+async def cancel_study_plan_import(
+    import_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    import_row = _get_import_by_id(admin, token.tenant_id, import_id)
+    if not import_row:
+        return error("NOT_FOUND", "Study-plan import not found", 404)
+    if not import_row.get("ocr_job_id"):
+        return error("BAD_REQUEST", "This import has no OCR job", 400)
+
+    try:
+        provider_payload = await cancel_provider_job(import_row["ocr_job_id"])
+    except httpx.HTTPError as exc:
+        return error("OCR_ERROR", str(exc), 502)
+
+    updated = (
+        admin.table("study_plan_pdf_imports")
+        .update(
+            {
+                "ocr_status": "cancelled",
+                "latest_payload": provider_payload,
+                "parse_message": provider_payload.get("message") or "OCR job cancelled",
+            }
+        )
+        .eq("id", import_id)
+        .execute()
+    )
+    saved = updated.data[0] if updated.data else {**import_row, "ocr_status": "cancelled"}
+    return success(build_import_payload(saved, admin))
+
+
+@router.post("/study-plan-imports/{import_id}/retry")
+async def retry_study_plan_import(
+    import_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    import_row = _get_import_by_id(admin, token.tenant_id, import_id)
+    if not import_row:
+        return error("NOT_FOUND", "Study-plan import not found", 404)
+    if not import_row.get("ocr_job_id"):
+        return error("BAD_REQUEST", "This import has no OCR job", 400)
+
+    try:
+        provider_payload = await retry_provider_job(import_row["ocr_job_id"])
+        updated = (
+            admin.table("study_plan_pdf_imports")
+            .update(
+                {
+                    "ocr_status": normalize_import_status(provider_payload.get("status")),
+                    "parse_message": provider_payload.get("message"),
+                    "latest_payload": provider_payload,
+                }
+            )
+            .eq("id", import_id)
+            .execute()
+        )
+        saved = updated.data[0] if updated.data else {**import_row, "latest_payload": provider_payload}
+        try:
+            saved = await sync_import_status(admin, saved)
+        except Exception:
+            pass
+        return success(build_import_payload(saved, admin))
+    except httpx.HTTPError as exc:
+        return error("OCR_ERROR", str(exc), 502)
+
+
+@router.post("/study-plan-imports/{import_id}/apply")
+async def apply_study_plan_import(
+    import_id: str,
+    body: sp.StudyPlanImportApply,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    import_row = _get_import_by_id(admin, token.tenant_id, import_id)
+    if not import_row:
+        return error("NOT_FOUND", "Study-plan import not found", 404)
+
+    classroom = _verify_admin_classroom(admin, token.tenant_id, import_row["class_id"])
+    if not classroom:
+        return error("NOT_FOUND", "Class not found", 404)
+
+    selected_columns = [column for column in body.selected_columns if str(column).strip()]
+    if not selected_columns:
+        return error("BAD_REQUEST", "Select at least one column before applying", 400)
+
+    source_rows = import_row.get("filtered_rows") or import_row.get("extracted_rows") or []
+    if body.rows:
+        chosen_rows = body.rows
+    elif body.selected_row_indexes:
+        chosen_rows = [
+            source_rows[index]
+            for index in body.selected_row_indexes
+            if isinstance(index, int) and 0 <= index < len(source_rows)
+        ]
+    else:
+        chosen_rows = body.rows or []
+
+    projected_rows = _project_rows(selected_columns, chosen_rows)
+    column_bucket_map = build_column_bucket_map(
+        selected_columns,
+        projected_rows,
+        body.column_bucket_map or import_row.get("column_bucket_map") or {},
+    )
+    try:
+        plan_days = build_plan_rows(
+            selected_columns,
+            projected_rows,
+            column_bucket_map=column_bucket_map,
+            start_date=body.start_date,
+            end_date=body.end_date,
+        )
+    except ValueError as exc:
+        return error("BAD_REQUEST", str(exc), 400)
+
+    if not plan_days:
+        return error("BAD_REQUEST", "No usable study-plan rows were provided", 400)
+
+    archived_plan_id: Optional[str] = None
+    existing_plan_res = (
+        admin.table("study_plans")
+        .select("*")
+        .eq("tenant_id", token.tenant_id)
+        .eq("class_id", import_row["class_id"])
+        .maybe_single()
+        .execute()
+    )
+    existing_plan = existing_plan_res.data if existing_plan_res else None
+    if existing_plan:
+        archived_plan_id = existing_plan["id"]
+        admin.table("study_plans").update(
+            {
+                "status": "archived",
+                "archived_at": datetime.utcnow().isoformat(),
+                "archived_class_id": import_row["class_id"],
+                "class_id": None,
+            }
+        ).eq("id", archived_plan_id).execute()
+
+    plan_name = (body.name or "").strip() or f"{classroom['name']} Study Plan"
+    description = (body.description or "").strip() or f"Imported from {import_row.get('original_filename') or 'PDF study plan'}"
+    plan_res = (
+        admin.table("study_plans")
+        .insert(
+            {
+                "tenant_id": token.tenant_id,
+                "class_id": import_row["class_id"],
+                "name": plan_name,
+                "description": description,
+                "status": "active",
+                "created_by": token.user_id,
+                "source_import_id": import_id,
+            }
+        )
+        .execute()
+    )
+    if not plan_res.data:
+        return error("INTERNAL_ERROR", "Failed to create study plan", 500)
+
+    plan = plan_res.data[0]
+    for day in plan_days:
+        day_res = (
+            admin.table("study_plan_days")
+            .insert(
+                {
+                    "plan_id": plan["id"],
+                    "day_number": day["day_number"],
+                    "scheduled_date": day.get("scheduled_date"),
+                    "is_accessible": day.get("is_accessible", True),
+                }
+            )
+            .execute()
+        )
+        day_id = day_res.data[0]["id"]
+        for period in day["periods"]:
+            period_res = (
+                admin.table("study_plan_periods")
+                .insert(
+                    {
+                        "day_id": day_id,
+                        "title": period["title"],
+                        "duration_minutes": period["duration_minutes"],
+                        "order_index": period["order_index"],
+                    }
+                )
+                .execute()
+            )
+            period_id = period_res.data[0]["id"]
+            for task in period["tasks"]:
+                admin.table("study_plan_tasks").insert(
+                    {
+                        "period_id": period_id,
+                        "tenant_id": token.tenant_id,
+                        "title": task["title"],
+                        "description": task.get("description"),
+                        "task_type": task["task_type"],
+                        "required": task.get("required", True),
+                        "order_index": task["order_index"],
+                        "config": task.get("config") or {},
+                    }
+                ).execute()
+
+    updated = (
+        admin.table("study_plan_pdf_imports")
+        .update(
+            {
+                "ocr_status": "applied",
+                "selected_columns": selected_columns,
+                "filtered_rows": projected_rows,
+                "applied_rows": projected_rows,
+                "column_bucket_map": column_bucket_map,
+                "applied_plan_id": plan["id"],
+                "archived_plan_id": archived_plan_id,
+                "parse_message": f"Applied to {classroom['name']}",
+            }
+        )
+        .eq("id", import_id)
+        .execute()
+    )
+    saved_import = updated.data[0] if updated.data else import_row
+    return success(
+        {
+            "plan_id": plan["id"],
+            "import": build_import_payload(saved_import, admin),
+            "day_count": len(plan_days),
+        }
+    )
+
+
+@router.get("/classrooms/{class_id}/study-plan-source")
+async def get_admin_classroom_study_plan_source(
+    class_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
+    if not classroom:
+        return error("NOT_FOUND", "Class not found", 404)
+
+    plan_res = (
+        admin.table("study_plans")
+        .select("id, source_import_id")
+        .eq("tenant_id", token.tenant_id)
+        .eq("class_id", class_id)
+        .maybe_single()
+        .execute()
+    )
+    plan = plan_res.data if plan_res else None
+    import_row = None
+    if plan and plan.get("source_import_id"):
+        import_row = _get_import_by_id(admin, token.tenant_id, plan["source_import_id"])
+    if not import_row:
+        import_row = _get_latest_import_for_class(admin, token.tenant_id, class_id)
+    return success(build_import_payload(import_row, admin) if import_row else None)
 
 

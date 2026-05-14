@@ -4,12 +4,14 @@ import { BookOpen, Layers, Loader2, Plus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
+import type { StudyPlanPdfImport } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import StudyPlanBuilder, { Day, TaskType } from '@/components/study-plan/StudyPlanBuilder'
 import { StudyPlanCalendarPanel } from '@/components/study-plan/StudyPlanCalendarPanel'
+import { StudyPlanSourceCard } from '@/components/study-plan/StudyPlanSourceCard'
 import { cn } from "@/lib/utils"
 
 interface ClassItem { id: string; name: string }
@@ -20,6 +22,7 @@ export default function TeacherStudyPlanPage() {
     const [loading, setLoading] = useState(true)
     const [days, setDays] = useState<Day[]>([])
     const [className, setClassName] = useState('')
+    const [source, setSource] = useState<StudyPlanPdfImport | null>(null)
 
     const { data: classes = [], isError: classesError } = useQuery({
         queryKey: queryKeys.teacher.classes(),
@@ -47,9 +50,13 @@ export default function TeacherStudyPlanPage() {
             const cls = classes.find((c: ClassItem) => c.id === selectedClassId)
             if (cls) setClassName(cls.name)
 
-            const res = await api.get(`/teacher/classrooms/${selectedClassId}/study-plan`)
-            setPlan(res.data.data)
-            setDays(res.data.data?.days || [])
+            const [planRes, sourceRes] = await Promise.all([
+                api.get(`/teacher/classrooms/${selectedClassId}/study-plan`),
+                api.get(`/teacher/classrooms/${selectedClassId}/study-plan-source`).catch(() => ({ data: { data: null } })),
+            ])
+            setPlan(planRes.data.data)
+            setDays(planRes.data.data?.days || [])
+            setSource((sourceRes as any).data?.data || null)
         } catch (err) {
             toast.error("Failed to load study plan")
         } finally {
@@ -296,9 +303,12 @@ export default function TeacherStudyPlanPage() {
                         </div>
 
                         <Tabs defaultValue="calendar" className="w-full">
-                            <TabsList className="grid w-full max-w-md grid-cols-2 rounded-xl bg-slate-100 p-1">
+                            <TabsList className="grid w-full max-w-xl grid-cols-3 rounded-xl bg-slate-100 p-1">
                                 <TabsTrigger value="calendar" className="rounded-lg text-sm font-semibold">
                                     Calendar
+                                </TabsTrigger>
+                                <TabsTrigger value="source" className="rounded-lg text-sm font-semibold">
+                                    Table & PDF
                                 </TabsTrigger>
                                 <TabsTrigger value="structure" className="rounded-lg text-sm font-semibold">
                                     Structure editor
@@ -306,6 +316,14 @@ export default function TeacherStudyPlanPage() {
                             </TabsList>
                             <TabsContent value="calendar" className="mt-6 space-y-6">
                                 <StudyPlanCalendarPanel days={days} anchorKey={selectedClassId} />
+                            </TabsContent>
+                            <TabsContent value="source" className="mt-6">
+                                <StudyPlanSourceCard
+                                    source={source}
+                                    title="Applied Study Plan"
+                                    description="The full OCR-imported table and original PDF currently active for this class."
+                                    emptyMessage="No PDF-backed study plan has been applied to this class yet."
+                                />
                             </TabsContent>
                             <TabsContent value="structure" className="mt-6">
                                 <StudyPlanBuilder

@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     TWILIO_PHONE_NUMBER: str = ""
     TWILIO_MESSAGING_SERVICE_SID: str = ""
 
+    # ── NexusOCR (optional, admin study-plan import) ──────────
+    NEXUSOCR_API_URL: str = "https://nexusocr-backend-637895872255.asia-south1.run.app"
+    NEXUSOCR_API_KEY: str = ""
+    NEXUSOCR_TIMEOUT_SECONDS: int = 180
+
     # ── Rate limiting ─────────────────────────────────────────
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_API: str = "100/minute"

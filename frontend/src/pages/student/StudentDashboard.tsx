@@ -1,57 +1,43 @@
-import { useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
-  CheckCircle2, Circle, BookOpen, Headphones,
-  Loader2, Calendar, PlayCircle, ArrowRight,
-  MessageCircle, TrendingUp
+  BookOpen, Loader2, Calendar, PlayCircle, ArrowRight,
+  MessageCircle
 } from 'lucide-react'
 import { clsx } from 'clsx'
-import toast from 'react-hot-toast'
 import { Link } from 'react-router-dom'
 import { useAuthStore } from '@/stores/authStore'
-import type { Task, TaskType } from '@/types'
+import type { Task } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { StudyPlanTableView } from '@/components/study-plan/StudyPlanTableView'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { competitionApi } from '@/services/competitionApi'
-import TaskSubmissionModal from '@/components/student/TaskSubmissionModal'
+import { findStudyPlanSourceRow, getDashboardStudyPlanColumns, getDashboardStudyPlanTaskEntries } from '@/lib/studyPlanSource'
 
 async function fetchTodayTasks(): Promise<Task[]> {
   try {
     const res = await api.get('/student/tasks/today')
     return res.data.data
   } catch {
-    return [
-      { id: '1', title: 'Memorize Ayah 1-10', task_type: 'memorise', day_number: 1, completed: false },
-      { id: '2', title: 'Revision: Al-Mulk (Tajweed focus: Noon Sakinah)', task_type: 'review', day_number: 1, completed: false },
-      { id: '3', title: 'Reflection — What is the main message?', task_type: 'read', day_number: 1, completed: false },
-      { id: '4', title: 'Audio Recitation — Listen to Sheikh Hussary', task_type: 'listen', day_number: 1, completed: false },
-    ]
+    return []
   }
 }
 
-const TASK_COLORS: Record<TaskType, { bg: string; text: string; tag: string }> = {
-  memorise: { bg: 'bg-indigo-50 border-indigo-100', text: 'text-indigo-600', tag: 'New' },
-  review: { bg: 'bg-blue-50 border-blue-100', text: 'text-blue-600', tag: 'Review' },
-  recite: { bg: 'bg-violet-50 border-violet-100', text: 'text-violet-600', tag: 'Recite' },
-  listen: { bg: 'bg-emerald-50 border-emerald-100', text: 'text-emerald-600', tag: 'Audio' },
-  read: { bg: 'bg-amber-50 border-amber-100', text: 'text-amber-600', tag: 'Read' },
-  mcq: { bg: 'bg-orange-50 border-orange-100', text: 'text-orange-600', tag: 'Quiz' },
-  written: { bg: 'bg-rose-50 border-rose-100', text: 'text-rose-600', tag: 'Write' },
-  reflection: { bg: 'bg-teal-50 border-teal-100', text: 'text-teal-600', tag: 'Reflect' },
-}
-
 export default function StudentDashboard() {
-  const queryClient = useQueryClient()
   const { user } = useAuthStore()
-  const [completingId, setCompletingId] = useState<string | null>(null)
-  const [selectedTask, setSelectedTask] = useState<any>(null)
 
   const { data: tasks = [], isPending: loadingTasks } = useQuery({
     queryKey: queryKeys.student.tasksToday(),
     queryFn: fetchTodayTasks,
     staleTime: 30_000,
+  })
+
+  const { data: studyPlanSource } = useQuery({
+    queryKey: queryKeys.student.studyPlanSource(),
+    queryFn: async () => (await api.get('/student/study-plan-source')).data?.data,
+    staleTime: 120_000,
   })
 
   const { data: doubtsRaw = [] } = useQuery({
@@ -74,27 +60,26 @@ export default function StudentDashboard() {
     staleTime: 60_000,
   })
 
-  const completedCount = tasks.filter((t) => t.completed).length
-  const totalCount = tasks.length
-  const pct = totalCount ? Math.round((completedCount / totalCount) * 100) : 0
-
-  const toggleTask = async (id: string) => {
-    const task = tasks.find((t) => t.id === id)
-    if (!task) return
-    const key = queryKeys.student.tasksToday()
-    queryClient.setQueryData<Task[]>(key, (prev = []) =>
-      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
-    )
-    setCompletingId(id)
-    try {
-      await api.patch(`/student/tasks/${id}/toggle`)
-      if (!task.completed) toast.success('MashaAllah! Progress saved.')
-    } catch {
-      await queryClient.invalidateQueries({ queryKey: key })
-    } finally {
-      setCompletingId(null)
-    }
-  }
+  const todayPlanColumns = useMemo(() => getDashboardStudyPlanColumns(studyPlanSource), [studyPlanSource])
+  const todayPlanRow = useMemo(
+    () =>
+      findStudyPlanSourceRow(studyPlanSource, {
+        scheduledDate: tasks[0]?.scheduled_date || new Date().toISOString().slice(0, 10),
+        dayNumber: tasks[0]?.day_number,
+      }),
+    [studyPlanSource, tasks]
+  )
+  const planName = tasks[0]?.plan_name || 'Study plan'
+  const todayTaskEntries = useMemo(
+    () => getDashboardStudyPlanTaskEntries(todayPlanRow, todayPlanColumns),
+    [todayPlanColumns, todayPlanRow]
+  )
+  const todayHeading = useMemo(() => {
+    const raw = tasks[0]?.scheduled_date || String(todayPlanRow?.Date ?? todayPlanRow?.date ?? '')
+    const parsed = raw ? new Date(raw) : new Date()
+    if (Number.isNaN(parsed.getTime())) return null
+    return parsed.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+  }, [tasks, todayPlanRow])
 
   const firstName = user?.name?.split(' ')[0] || 'Learner'
 
@@ -155,132 +140,69 @@ export default function StudentDashboard() {
       </div>
 
       {/* Today's Plan */}
-      <section>
-        <div className="flex items-center gap-2 text-slate-400 font-bold text-[10px] tracking-widest uppercase mb-4">
-          <Calendar className="w-3 h-3" /> Today&apos;s plan
-          {tasks[0]?.plan_name ? (
-            <span className="normal-case font-semibold text-slate-600">— {tasks[0].plan_name}</span>
-          ) : null}
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-bold text-slate-900">Today&apos;s curriculum</h2>
+          <Button variant="outline" size="sm" className="rounded-xl border-slate-200 text-xs font-semibold" asChild>
+            <Link to="/student/study-plan">Study plan</Link>
+          </Button>
         </div>
-
-        {/* Plan Card */}
-        <Link to="/student/study-plan">
-          <Card className="bg-[#0f4c81] hover:bg-[#0c3d69] transition-colors cursor-pointer text-white border-0 shadow-lg mb-5 overflow-hidden relative group">
-            <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:scale-110 transition-transform">
-              <TrendingUp className="w-28 h-28" />
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          {loadingTasks && !todayPlanRow ? (
+            <div className="flex items-center gap-3 text-sm text-slate-500">
+              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+              Loading today&apos;s plan…
             </div>
-            <CardContent className="p-6 relative z-10">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-xl font-bold mb-1">{tasks[0]?.plan_name || 'Study plan'}</h3>
-                  <p className="text-blue-100/70 text-sm">
-                    {totalCount ? `${totalCount} scheduled ${totalCount === 1 ? 'item' : 'items'} today` : 'Open calendar for details'}
-                  </p>
-                </div>
-                <div className="bg-white/10 p-2 rounded-xl flex items-center gap-2">
-                   <span className="text-[10px] font-black uppercase">View All</span>
-                   <ArrowRight className="w-3 h-3" />
-                </div>
-              </div>
-              <div className="w-full bg-black/20 h-1.5 rounded-full overflow-hidden mb-3">
-                <div className="bg-white h-full rounded-full shadow-[0_0_8px_rgba(255,255,255,0.5)]" style={{ width: `${pct}%` }} />
-              </div>
-              <div className="flex justify-between text-xs text-blue-100/80">
-                <span>{pct}% Complete</span>
-                <span>{totalCount - completedCount} tasks left</span>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* Task List */}
-        <div className="space-y-3">
-          {loadingTasks ? (
-            [1, 2, 3].map(i => <div key={i} className="h-16 bg-slate-100 animate-pulse rounded-2xl" />)
-          ) : tasks.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 text-sm text-slate-500">
-              No tasks scheduled for today yet.
-            </div>
+          ) : !todayPlanRow && tasks.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No scheduled curriculum day for today yet. Open Study plan for the full calendar.
+            </p>
           ) : (
-            tasks.map((task) => {
-              const colors = TASK_COLORS[task.task_type]
-              const isLoading = completingId === task.id
-              const isSubmissionTask = ['mcq', 'written', 'reflection'].includes(task.task_type)
+            <div className="space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{planName}</p>
 
-              return (
-                <button
-                  key={task.id}
-                  onClick={() => {
-                    if (isSubmissionTask && !task.completed) {
-                      setSelectedTask(task)
-                    } else {
-                      toggleTask(task.id)
-                    }
-                  }}
-                  disabled={isLoading}
-                  className={clsx(
-                    'w-full flex items-center gap-4 p-4 rounded-2xl border text-left transition-all duration-200',
-                    task.completed
-                      ? 'bg-slate-50 border-slate-100 opacity-60'
-                      : 'bg-white border-slate-200 hover:border-blue-200 hover:shadow-sm'
-                  )}
-                >
-                  <div className={clsx(
-                    'h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0 border',
-                    task.completed ? 'bg-emerald-500 border-emerald-500 text-white' : `${colors.bg} ${colors.text}`
-                  )}>
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> :
-                      task.completed ? <CheckCircle2 className="h-4 w-4" /> :
-                        <Circle className="h-4 w-4" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={clsx(
-                      'text-sm font-semibold',
-                      task.completed ? 'line-through text-slate-400' : 'text-slate-900'
-                    )}>{task.title}</p>
-                    {task.description ? (
-                      <p className={clsx(
-                        'mt-0.5 line-clamp-2 text-xs text-slate-500',
-                        task.completed && 'line-through'
-                      )}>{task.description}</p>
-                    ) : null}
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full border max-w-[10rem] truncate', colors.bg, colors.text)}>
-                        {colors.tag}
-                      </span>
-                      {task.task_type === 'listen' && (
-                        <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                          <Headphones className="w-3 h-3" /> Audio
-                        </span>
-                      )}
+              {todayPlanRow && todayPlanColumns.length ? (
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-indigo-700">Today&apos;s timetable</p>
+                  <StudyPlanTableView
+                    columns={todayPlanColumns}
+                    rows={[todayPlanRow]}
+                    emptyMessage="No timetable row is available for today."
+                  />
+                </div>
+              ) : null}
+
+              {loadingTasks && !todayTaskEntries.length ? (
+                <div className="space-y-3">
+                  {[1, 2].map(i => <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-2xl" />)}
+                </div>
+              ) : todayTaskEntries.length > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-indigo-700">Today&apos;s tasks</p>
+                  {todayHeading ? (
+                    <p className="text-sm font-semibold text-indigo-700">{todayHeading}</p>
+                  ) : null}
+                  {todayTaskEntries.map((entry) => (
+                    <div
+                      key={entry.label}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800"
+                    >
+                      <span className="font-semibold">{entry.label}:</span> {entry.value}
                     </div>
-                  </div>
-                  <span className="text-xs text-slate-400 font-medium shrink-0">
-                    {task.task_type === 'memorise' ? '30m' : task.task_type === 'review' ? '15m' : task.task_type === 'listen' ? '20m' : '10m'}
-                  </span>
-                </button>
-              )
-            })
+                  ))}
+                </div>
+              ) : todayPlanRow ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                  Today&apos;s timetable is shown above. No task details are available below yet.
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                  No tasks scheduled for today yet.
+                </div>
+              )}
+            </div>
           )}
         </div>
-
-        {/* Submission Modal */}
-        {selectedTask && (
-          <TaskSubmissionModal 
-            task={selectedTask}
-            isOpen={!!selectedTask}
-            onClose={() => setSelectedTask(null)}
-            onSuccess={() => {
-              const key = queryKeys.student.tasksToday()
-              queryClient.setQueryData<Task[]>(key, (prev = []) =>
-                prev.map((t) =>
-                  t.id === selectedTask.id ? { ...t, completed: true } : t
-                )
-              )
-              setSelectedTask(null)
-            }}
-          />
-        )}
       </section>
 
       {/* Recent Doubts */}

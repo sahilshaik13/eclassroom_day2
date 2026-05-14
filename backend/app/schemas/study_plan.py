@@ -14,12 +14,20 @@ class TaskType(str, Enum):
     WRITTEN = "written"
     REFLECTION = "reflection"
 
+
+class AcademicBucket(str, Enum):
+    HIFZ = "hifz"
+    KUBRA = "kubra"
+    SUGHRA = "sughra"
+    TAJWEED = "tajweed"
+
 class PlanStatus(str, Enum):
     TEMPLATE = "template"
     DRAFT = "draft"
     ACTIVE = "active"
     PAUSED = "paused"
     COMPLETED = "completed"
+    ARCHIVED = "archived"
 
 class SubmissionStatus(str, Enum):
     PENDING = "pending"
@@ -47,6 +55,7 @@ class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
     task_type: TaskType = TaskType.MEMORISE
+    kpi_bucket: Optional[AcademicBucket] = None
     required: bool = True
     order_index: int = 0
     config: Dict[str, Any] = {}
@@ -154,6 +163,23 @@ class TeacherTaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     task_type: Optional[TaskType] = None
+    kpi_bucket: Optional[AcademicBucket] = None
     required: Optional[bool] = None
     order_index: Optional[int] = None
     config: Optional[dict] = None
+
+
+class StudyPlanImportColumnSelection(BaseModel):
+    selected_columns: List[str]
+    column_bucket_map: Optional[Dict[str, AcademicBucket | str]] = None
+
+
+class StudyPlanImportApply(BaseModel):
+    selected_columns: List[str]
+    rows: Optional[List[Dict[str, Any]]] = None
+    selected_row_indexes: Optional[List[int]] = None
+    column_bucket_map: Optional[Dict[str, AcademicBucket | str]] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None

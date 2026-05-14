@@ -20,6 +20,8 @@ from typing import Optional, Any
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from app.schemas import study_plan as sp
+from app.services.study_plan_pdf_import_service import build_import_payload
+from app.services.study_plan_kpi_service import kpi_bucket_for_task, normalize_kpi_bucket, summarize_bucket_progress
 
 from app.core.deps import require_teacher, TokenData
 from app.core.response import success, error
@@ -27,6 +29,16 @@ from app.db.supabase import get_user_client, get_admin_client
 
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
+
+
+def _merge_task_config(config: Optional[dict], kpi_bucket: Optional[Any]) -> dict:
+    next_config = dict(config or {})
+    normalized_bucket = normalize_kpi_bucket(kpi_bucket)
+    if normalized_bucket:
+        next_config["kpi_bucket"] = normalized_bucket
+    elif "kpi_bucket" in next_config and not normalize_kpi_bucket(next_config.get("kpi_bucket")):
+        next_config.pop("kpi_bucket", None)
+    return next_config
 
 # PostgREST `.in_(task_id, uuids)` becomes a very long query string; large plans exceed URL limits → 400 Bad Request.
 SUBMISSION_TASK_ID_IN_CHUNK = 100
@@ -364,17 +376,10 @@ async def get_students(
             total_tasks_in_plan = len(plan_task_ids)
             
             if plan_task_ids:
-                subs_res = (
-                    admin.table("study_plan_submissions")
-                    .select("student_id, status, score")
-                    .in_("task_id", plan_task_ids)
-                    .in_("student_id", list(students_map.keys()))
-                    .execute()
-                )
-                
-                # Aggregate for each student
                 for sid in students_map:
-                    s_subs = [s for s in (subs_res.data or []) if s["student_id"] == sid]
+                    # Use the chunked helper instead of one large cross-product query.
+                    # Large `.in_()` filters here can trigger PostgREST "JSON could not be generated".
+                    s_subs = _fetch_submissions_for_student_tasks(admin, sid, plan_task_ids)
                     completed = len([s for s in s_subs if s["status"] in ("submitted", "reviewed")])
                     reviewed_subs = [s for s in s_subs if s["status"] == "reviewed"]
                     reviewed_count = len(reviewed_subs)
@@ -1123,6 +1128,47 @@ async def get_classroom_study_plan(
         return error("QUERY_ERROR", str(e), 500)
 
 
+@router.get("/classrooms/{class_id}/study-plan-source")
+async def get_classroom_study_plan_source(
+    class_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    admin = get_admin_client()
+
+    q = admin.table("classes").select("id")
+    if token.role not in ("admin", "platform_admin"):
+        q = q.eq("teacher_id", token.user_id)
+    else:
+        q = q.eq("tenant_id", token.tenant_id)
+
+    class_res = q.eq("id", class_id).maybe_single().execute()
+    if not class_res.data:
+        return error("FORBIDDEN", "Class not found or access denied", 403)
+
+    plan_res = (
+        admin.table("study_plans")
+        .select("source_import_id")
+        .eq("class_id", class_id)
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    plan = plan_res.data if plan_res else None
+    if not plan or not plan.get("source_import_id"):
+        return success(None)
+
+    import_res = (
+        admin.table("study_plan_pdf_imports")
+        .select("*")
+        .eq("id", plan["source_import_id"])
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    import_row = import_res.data if import_res else None
+    return success(build_import_payload(import_row, admin) if import_row else None)
+
+
 def _is_present_uuid(val) -> bool:
     """PostgREST may receive Python None as the literal 'None' for uuid filters — avoid that."""
     if val is None:
@@ -1630,7 +1676,7 @@ async def create_classroom_task(
         "task_type": body.task_type.value,
         "required": body.required,
         "order_index": body.order_index,
-        "config": body.config
+        "config": _merge_task_config(body.config, body.kpi_bucket)
     }).execute()
     return success(res.data[0] if res.data else {}, status_code=201)
 
@@ -1644,6 +1690,9 @@ async def update_classroom_task(
     update_data = {k: v for k, v in body.dict().items() if v is not None}
     if "task_type" in update_data and update_data["task_type"]:
         update_data["task_type"] = update_data["task_type"].value
+    if "config" in update_data or "kpi_bucket" in update_data:
+        update_data["config"] = _merge_task_config(update_data.get("config"), update_data.get("kpi_bucket"))
+    update_data.pop("kpi_bucket", None)
     
     await touch_plan_by_task(task_id)
     res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
@@ -1716,17 +1765,20 @@ async def get_student_study_plan_progress(
     # 5. Map submissions to tasks
     subs_map = {s["task_id"]: s for s in submissions}
     
+    overall_bucket_records = []
     for d in days:
         day_tasks_count = 0
         day_completed_count = 0
         day_reviewed_count = 0
         day_total_score = 0
+        day_bucket_records = []
         
         for p in d.get("periods", []):
             period_tasks_count = 0
             period_completed_count = 0
             period_reviewed_count = 0
             period_total_score = 0
+            period_bucket_records = []
             
             p["tasks"].sort(key=lambda x: x.get("order_index", 0))
             for t in p["tasks"]:
@@ -1734,6 +1786,11 @@ async def get_student_study_plan_progress(
                 day_tasks_count += 1
                 sub = subs_map.get(t["id"])
                 t["submission"] = sub
+                t["kpi_bucket"] = kpi_bucket_for_task(t)
+                record = {"task": t, "submission": sub}
+                period_bucket_records.append(record)
+                day_bucket_records.append(record)
+                overall_bucket_records.append(record)
                 if sub:
                     period_completed_count += 1
                     day_completed_count += 1
@@ -1752,6 +1809,7 @@ async def get_student_study_plan_progress(
                 "average_score": round(period_total_score / period_reviewed_count) if period_reviewed_count > 0 else 0,
                 "is_fully_corrected": period_reviewed_count == period_tasks_count and period_tasks_count > 0
             }
+            p["bucket_progress"] = summarize_bucket_progress(period_bucket_records)
         
         d["periods"].sort(key=lambda x: x.get("order_index", 0))
         d["progress"] = {
@@ -1762,6 +1820,7 @@ async def get_student_study_plan_progress(
             "average_score": round(day_total_score / day_reviewed_count) if day_reviewed_count > 0 else 0,
             "is_fully_corrected": day_reviewed_count == day_tasks_count and day_tasks_count > 0
         }
+        d["bucket_progress"] = summarize_bucket_progress(day_bucket_records)
 
     # Calculate overall progress
     overall_progress = await get_student_overall_progress(admin, student_id, plan_id, template_id)
@@ -1769,6 +1828,7 @@ async def get_student_study_plan_progress(
     return success({
         "plan": plan,
         "days": days,
-        "overall_progress": overall_progress
+        "overall_progress": overall_progress,
+        "bucket_progress": summarize_bucket_progress(overall_bucket_records),
     })
 
