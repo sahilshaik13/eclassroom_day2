@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/authStore'
 import type { Task } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { LiveWaveform } from '@/components/ui/live-waveform'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { competitionListQueryOptions } from '@/lib/competitionQueries'
@@ -59,6 +60,7 @@ export default function StudentDashboard() {
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
   const [audioTaskId, setAudioTaskId] = useState<string | null>(null)
   const [recordingTaskId, setRecordingTaskId] = useState<string | null>(null)
+  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null)
   const [audioDataUrls, setAudioDataUrls] = useState<Record<string, { name: string; dataUrl: string }>>({})
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recorderStreamRef = useRef<MediaStream | null>(null)
@@ -174,12 +176,14 @@ export default function StudentDashboard() {
       recorderStreamRef.current.getTracks().forEach((t) => t.stop())
       recorderStreamRef.current = null
     }
+    setRecordingStream(null)
   }
 
   const startRecording = async (taskId: string) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       recorderStreamRef.current = stream
+      setRecordingStream(stream)
       const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
       recorderChunksRef.current = []
       recorder.ondataavailable = (evt) => {
@@ -404,6 +408,15 @@ export default function StudentDashboard() {
                             }}
                           />
                         </label>
+                        {recordingTaskId === task.id ? (
+                          <LiveWaveform
+                            active
+                            mode="scrolling"
+                            stream={recordingStream}
+                            height={52}
+                            className="mt-2 rounded-md bg-white"
+                          />
+                        ) : null}
                         <div className="mt-2 flex flex-wrap gap-2">
                           {recordingTaskId === task.id ? (
                             <Button

@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { LiveWaveform } from '@/components/ui/live-waveform';
 import toast from 'react-hot-toast';
 import api from '@/services/api';
 
@@ -27,6 +28,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
 
   // Audio recording state
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -35,6 +37,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setRecordingStream(stream);
       const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       chunksRef.current = [];
 
@@ -48,6 +51,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
         stream.getTracks().forEach(t => t.stop());
+        setRecordingStream(null);
       };
 
       mediaRecorderRef.current = recorder;
@@ -187,6 +191,13 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
               <div className="space-y-4">
                 <h3 className="text-xl font-black text-slate-900">Recording In Progress...</h3>
                 <p className="text-slate-500 font-medium">Recite clearly into your microphone.</p>
+                <LiveWaveform
+                  active
+                  mode="scrolling"
+                  stream={recordingStream}
+                  height={60}
+                  className="rounded-xl bg-white"
+                />
                 <Button 
                   onClick={stopRecording}
                   className="bg-red-600 hover:bg-red-700 text-white rounded-2xl px-8 h-14 font-black text-lg shadow-xl shadow-red-200"

@@ -22,6 +22,7 @@ import type { StudyPlanPdfImport } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { LiveWaveform } from '@/components/ui/live-waveform'
 import { clsx } from 'clsx'
 import { StudyPlanPdfEmbed } from '@/components/study-plan/StudyPlanPdfEmbed'
 import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
@@ -92,6 +93,7 @@ function TaskRow({
   const [audioDataUrl, setAudioDataUrl] = useState<string | null>(null)
   const [audioName, setAudioName] = useState<string>('')
   const [isRecording, setIsRecording] = useState(false)
+  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recorderStreamRef = useRef<MediaStream | null>(null)
   const recorderChunksRef = useRef<Blob[]>([])
@@ -106,12 +108,14 @@ function TaskRow({
       recorderStreamRef.current.getTracks().forEach((t) => t.stop())
       recorderStreamRef.current = null
     }
+    setRecordingStream(null)
   }
 
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       recorderStreamRef.current = stream
+      setRecordingStream(stream)
       const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
       recorderChunksRef.current = []
       recorder.ondataavailable = (evt) => {
@@ -245,6 +249,15 @@ function TaskRow({
               }}
             />
           </label>
+          {isRecording ? (
+            <LiveWaveform
+              active
+              mode="scrolling"
+              stream={recordingStream}
+              height={52}
+              className="mt-2 rounded-md bg-white"
+            />
+          ) : null}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {!isRecording ? (
               <Button

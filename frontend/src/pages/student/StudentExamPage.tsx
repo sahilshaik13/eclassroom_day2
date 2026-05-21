@@ -42,6 +42,7 @@ export default function StudentExamPage() {
   const [hasDraft, setHasDraft] = useState(false)
 
   const [recordingId, setRecordingId] = useState<string | null>(null)
+  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null)
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -163,6 +164,7 @@ export default function StudentExamPage() {
   const startRecording = useCallback(async (qid: string) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      setRecordingStream(stream)
       const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
       chunksRef.current = []
 
@@ -185,6 +187,7 @@ export default function StudentExamPage() {
         reader.readAsDataURL(blob)
         stream.getTracks().forEach((t) => t.stop())
         setRecordingId(null)
+        setRecordingStream(null)
       }
 
       mediaRecorderRef.current = recorder
@@ -387,6 +390,7 @@ export default function StudentExamPage() {
             onStartRecording={startRecording}
             onStopRecording={stopRecording}
             audioPreviewUrl={audioUrls[q.id]}
+            recordingStream={recordingId === q.id ? recordingStream : null}
           />
         ))}
       </div>

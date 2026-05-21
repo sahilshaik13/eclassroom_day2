@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { Mic, MicOff, ImagePlus, CheckCircle2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Button } from '@/components/ui/button'
+import { LiveWaveform } from '@/components/ui/live-waveform'
 import type { ExamQuestion } from '@/lib/competitionExam'
 import { isAnswerableQuestion } from '@/lib/competitionExam'
 
@@ -23,6 +24,7 @@ type Props = {
   onStartRecording: (id: string) => void
   onStopRecording: () => void
   audioPreviewUrl?: string
+  recordingStream?: MediaStream | null
 }
 
 export function ExamQuestionStudentView({
@@ -34,6 +36,7 @@ export function ExamQuestionStudentView({
   onStartRecording,
   onStopRecording,
   audioPreviewUrl,
+  recordingStream,
 }: Props) {
   if (!isAnswerableQuestion(question)) {
     return (
@@ -92,6 +95,7 @@ export function ExamQuestionStudentView({
           onStart={() => onStartRecording(question.id)}
           onStop={onStopRecording}
           onUpload={(dataUrl) => onAnswer(question.id, { audioDataUrl: dataUrl })}
+          recordingStream={recordingStream}
         />
       )}
     </div>
@@ -207,6 +211,7 @@ function AudioAnswer({
   onStart,
   onStop,
   onUpload,
+  recordingStream,
 }: {
   questionId: string
   isRecording: boolean
@@ -215,6 +220,7 @@ function AudioAnswer({
   onStart: () => void
   onStop: () => void
   onUpload: (dataUrl: string) => void
+  recordingStream?: MediaStream | null
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   return (
@@ -262,6 +268,15 @@ function AudioAnswer({
           <span className="animate-pulse text-xs font-bold text-red-500">Recording…</span>
         )}
       </div>
+      {isRecording ? (
+        <LiveWaveform
+          active
+          mode="scrolling"
+          stream={recordingStream ?? null}
+          height={56}
+          className="bg-white"
+        />
+      ) : null}
     </div>
   )
 }
