@@ -6,11 +6,17 @@ import { useAuthStore } from '@/stores/authStore'
 export function useTeacherStudentProfileRealtime(
   studentId: string | undefined,
   enabled: boolean,
+  options?: { tenantId?: string; classIds?: string[] },
 ) {
   const teacherId = useAuthStore((s) => s.user?.id)
+  const tenantId = options?.tenantId ?? useAuthStore((s) => s.user?.tenant_id ?? undefined)
+  const classIds = options?.classIds
 
   useEffect(() => {
     if (!enabled || !studentId || !teacherId) return
-    return subscribeToTeacherStudentProfile(studentId, teacherId)
-  }, [enabled, studentId, teacherId])
+    return subscribeToTeacherStudentProfile(studentId, teacherId, {
+      tenantId: tenantId ?? undefined,
+      classIds,
+    })
+  }, [enabled, studentId, teacherId, tenantId, classIds?.join(',')])
 }

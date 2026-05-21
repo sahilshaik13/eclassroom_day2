@@ -43,6 +43,10 @@ from app.services.realtime_events import broadcast_submission_reviewed
 
 from app.core import cache_keys, cache_ttl
 from app.core.cache_service import get_or_set_cache, invalidate_teacher_caches
+from app.services.student_overview_service import (
+    build_task_status_by_date,
+    enrolled_class_ids_for_student,
+)
 from app.services.study_plan_cache_service import (
     get_cached_study_plan_source,
     get_cached_teacher_study_plan,
@@ -594,6 +598,7 @@ async def get_student_overview_for_teacher(
                 "last_login_at": None,
                 "attendance_streak": 0,
                 "attendance_history": [],
+                "task_status_by_date": {},
                 "notes": [],
             }
         )
@@ -656,86 +661,15 @@ async def get_student_overview_for_teacher(
                 }
             )
 
-        task_status_by_date: dict[str, dict] = {}
-        try:
-            plans_res = (
-                admin.table("study_plans")
-                .select("id, template_id, class_id")
-                .in_("class_id", teacher_class_ids)
-                .eq("status", "active")
-                .execute()
-            )
-            plan_rows = plans_res.data or []
-            if plan_rows:
-                or_parts = [f"plan_id.eq.{p['id']}" for p in plan_rows if p.get("id")]
-                for p in plan_rows:
-                    if p.get("template_id"):
-                        or_parts.append(f"template_id.eq.{p['template_id']}")
-                or_parts = list(dict.fromkeys(or_parts))
-                if or_parts:
-                    days_res = (
-                        admin.table("study_plan_days")
-                        .select("id, day_number, scheduled_date, plan_id, template_id, periods:study_plan_periods(id, tasks:study_plan_tasks(id, title))")
-                        .or_(",".join(or_parts))
-                        .execute()
-                    )
-                    day_rows = days_res.data or []
-
-                    task_ids: list[str] = []
-                    for day in day_rows:
-                        for period in day.get("periods") or []:
-                            for task in period.get("tasks") or []:
-                                if task.get("id"):
-                                    task_ids.append(str(task["id"]))
-
-                    submitted_task_ids: set[str] = set()
-                    if task_ids:
-                        subs_res = (
-                            admin.table("study_plan_submissions")
-                            .select("task_id")
-                            .eq("student_id", student_id)
-                            .in_("task_id", list(set(task_ids)))
-                            .execute()
-                        )
-                        submitted_task_ids = {
-                            str(row.get("task_id"))
-                            for row in (subs_res.data or [])
-                            if row.get("task_id")
-                        }
-
-                    for day in day_rows:
-                        scheduled = str(day.get("scheduled_date") or "")[:10]
-                        if not scheduled:
-                            continue
-                        existing = task_status_by_date.get(scheduled) or {
-                            "day_number": day.get("day_number"),
-                            "tasks": [],
-                        }
-                        seen = {
-                            str(task.get("task_id"))
-                            for task in existing["tasks"]
-                            if task.get("task_id")
-                        }
-                        for period in day.get("periods") or []:
-                            for task in period.get("tasks") or []:
-                                task_id = str(task.get("id") or "")
-                                if not task_id or task_id in seen:
-                                    continue
-                                seen.add(task_id)
-                                existing["tasks"].append(
-                                    {
-                                        "task_id": task_id,
-                                        "title": str(task.get("title") or "Task"),
-                                        "submitted": task_id in submitted_task_ids,
-                                    }
-                                )
-                        total = len(existing["tasks"])
-                        submitted = len([t for t in existing["tasks"] if t.get("submitted")])
-                        existing["total_count"] = total
-                        existing["submitted_count"] = submitted
-                        task_status_by_date[scheduled] = existing
-        except Exception:
-            task_status_by_date = {}
+        student_class_ids = enrolled_class_ids_for_student(
+            admin, student_id, teacher_class_ids
+        )
+        tid = tid_filter or str(stu_res.data.get("tenant_id") or "")
+        task_status_by_date = (
+            build_task_status_by_date(admin, tid, student_id, student_class_ids)
+            if tid and student_class_ids
+            else {}
+        )
 
         return {
             "student_id": student_id,

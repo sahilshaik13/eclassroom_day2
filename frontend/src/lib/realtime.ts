@@ -624,7 +624,11 @@ export function subscribeToAdminUpdates(tenantId: string) {
 /**
  * Live updates for teacher student profile modal (attendance, tasks by date, progress).
  */
-export function subscribeToTeacherStudentProfile(studentId: string, teacherId: string) {
+export function subscribeToTeacherStudentProfile(
+  studentId: string,
+  teacherId: string,
+  options?: { tenantId?: string; classIds?: string[] },
+) {
   if (!USE_REALTIME) {
     return () => {};
   }
@@ -642,8 +646,9 @@ export function subscribeToTeacherStudentProfile(studentId: string, teacherId: s
     );
   };
 
-  const channel = supabase
-    .channel(`teacher:${teacherId}:student-profile:${studentId}`)
+  let channel = supabase.channel(`teacher:${teacherId}:student-profile:${studentId}`);
+
+  channel = channel
     .on(
       'postgres_changes',
       {
@@ -683,10 +688,39 @@ export function subscribeToTeacherStudentProfile(studentId: string, teacherId: s
         filter: `student_id=eq.${studentId}`,
       },
       refreshProfile,
-    )
-    .subscribe((status) => {
-      console.log(`[Realtime] Teacher student profile subscription: ${status}`);
-    });
+    );
+
+  const tenantId = options?.tenantId;
+  if (tenantId) {
+    channel = channel.on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'study_plan_tasks',
+        filter: `tenant_id=eq.${tenantId}`,
+      },
+      refreshProfile,
+    );
+  }
+
+  const classIds = options?.classIds ?? [];
+  for (const classId of classIds) {
+    channel = channel.on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'study_plans',
+        filter: `class_id=eq.${classId}`,
+      },
+      refreshProfile,
+    );
+  }
+
+  channel.subscribe((status) => {
+    console.log(`[Realtime] Teacher student profile subscription: ${status}`);
+  });
 
   return () => {
     channel.unsubscribe();

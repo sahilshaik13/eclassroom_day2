@@ -187,7 +187,20 @@ export function TeacherStudentProfileModal({
     return { month: now.getMonth() + 1, year: now.getFullYear() }
   }, [open, student?.id])
 
-  useTeacherStudentProfileRealtime(student?.id, open && !!student?.id)
+  const profileClassIds = useMemo(
+    () =>
+      (student?.classes?.length
+        ? student.classes.map((c) => c.id)
+        : student?.class_id
+          ? [student.class_id]
+          : []
+      ).filter(Boolean),
+    [student?.class_id, student?.classes],
+  )
+
+  useTeacherStudentProfileRealtime(student?.id, open && !!student?.id, {
+    classIds: profileClassIds,
+  })
 
   const {
     data: overview = null,

@@ -427,7 +427,7 @@ async def _purge_enrolled_student_study_plan_caches(tenant_id: str, class_id: st
         admin = get_admin_client()
         enr = (
             admin.table("class_enrollments")
-            .select("student_id")
+            .select("student_id, classes(teacher_id)")
             .eq("class_id", class_id)
             .execute()
         )
@@ -437,6 +437,14 @@ async def _purge_enrolled_student_study_plan_caches(tenant_id: str, class_id: st
                 keys.append(
                     cache_keys.classroom_study_plan_student(tenant_id, class_id, str(sid))
                 )
+                cls = row.get("classes") or {}
+                teacher_id = cls.get("teacher_id")
+                if teacher_id:
+                    keys.append(
+                        cache_keys.teacher_student_overview(
+                            tenant_id, str(teacher_id), str(sid)
+                        )
+                    )
     except Exception:
         _logger.exception(
             "enrollment lookup failed for student study-plan cache purge class_id=%s",
