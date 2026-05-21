@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Building2, Plus, ArrowLeft, ShieldCheck, Mail, GraduationCap, Users, Trash2, AlertTriangle, Power, Send, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { superAdminApi, type Tenant } from '@/services/superAdminApi'
+import { superAdminApi, invalidateSuperAdminQueries, type Tenant } from '@/services/superAdminApi'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,6 +26,7 @@ const createAdminSchema = z.object({
 type CreateAdminForm = z.infer<typeof createAdminSchema>
 
 export default function TenantDetailPage() {
+    const queryClient = useQueryClient()
     const { tenantId } = useParams<{ tenantId: string }>()
     const navigate = useNavigate()
     const [tenant, setTenant] = useState<Tenant | null>(null)
@@ -65,6 +67,7 @@ export default function TenantDetailPage() {
             setShowCreateDialog(false)
             reset()
             fetchData()
+            invalidateSuperAdminQueries(queryClient)
         } catch (e: any) {
             toast.error(e?.response?.data?.error?.message || 'Failed to create admin')
         } finally {
@@ -79,6 +82,7 @@ export default function TenantDetailPage() {
             await superAdminApi.updateTenant(tenantId, { is_active: !tenant.is_active })
             toast.success(`Organization ${tenant.is_active ? 'suspended' : 'activated'} successfully`)
             fetchData()
+            invalidateSuperAdminQueries(queryClient)
         } catch (e) {
             toast.error('Failed to update organization status')
         } finally {
@@ -104,6 +108,7 @@ export default function TenantDetailPage() {
         setDeleting(true)
         try {
             await superAdminApi.deleteTenant(tenantId)
+            invalidateSuperAdminQueries(queryClient)
             toast.success('Organization permanently deleted')
             navigate('/super-admin/tenants')
         } catch (e: any) {

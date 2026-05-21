@@ -15,17 +15,50 @@ POST /api/v1/teacher/grades
 GET  /api/v1/teacher/reports/{student_id}
 GET  /api/v1/teacher/submissions/pending    ← NEW: get all submitted tasks needing review
 """
+import asyncio
+import json
+import logging
 from datetime import date, timedelta, datetime
 from typing import Optional, Any
+from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from app.schemas import study_plan as sp
-from app.services.study_plan_pdf_import_service import build_import_payload
-from app.services.study_plan_kpi_service import kpi_bucket_for_task, normalize_kpi_bucket, summarize_bucket_progress
 
+_logger = logging.getLogger(__name__)
+from app.services.study_plan_pdf_import_service import build_import_payload
+from app.services.study_plan_kpi_service import (
+    filter_submittable_tasks,
+    is_day_topic_task,
+    is_tracker_task,
+    kpi_bucket_for_task,
+    normalize_kpi_bucket,
+    summarize_bucket_progress,
+)
+from app.services.study_plan_change_service import (
+    record_teacher_study_plan_change,
+    snapshot_for_entity,
+)
+from app.services.realtime_events import broadcast_submission_reviewed
+
+from app.core import cache_keys, cache_ttl
+from app.core.cache_service import get_or_set_cache, invalidate_teacher_caches
+from app.services.study_plan_cache_service import (
+    get_cached_study_plan_source,
+    get_cached_teacher_study_plan,
+    invalidate_student_progress_report_caches,
+    invalidate_student_study_plan_cache,
+    invalidate_study_plan_by_plan_id,
+    invalidate_study_plan_for_template,
+    invalidate_study_plan_caches,
+    resolve_class_id_from_period_id,
+    resolve_class_id_from_task,
+)
+from app.core.db_async import gather_sync, run_sync
 from app.core.deps import require_teacher, TokenData
-from app.core.response import success, error
+from app.core.response import success, error, paginated
 from app.db.supabase import get_user_client, get_admin_client
+from app.db.supabase_execute import first_row_from_response
 
 
 router = APIRouter(prefix="/teacher", tags=["teacher"])
@@ -40,102 +73,138 @@ def _merge_task_config(config: Optional[dict], kpi_bucket: Optional[Any]) -> dic
         next_config.pop("kpi_bucket", None)
     return next_config
 
-# PostgREST `.in_(task_id, uuids)` becomes a very long query string; large plans exceed URL limits → 400 Bad Request.
-SUBMISSION_TASK_ID_IN_CHUNK = 100
-
-
 def _fetch_submissions_for_student_tasks(admin: Any, student_id: str, task_ids: list[str]) -> list[dict]:
-    ids = list(dict.fromkeys(task_ids))
-    if not ids:
+    """One query by student_id; filter to plan tasks in Python."""
+    if not task_ids:
         return []
-    rows: list[dict] = []
-    for i in range(0, len(ids), SUBMISSION_TASK_ID_IN_CHUNK):
-        chunk = ids[i : i + SUBMISSION_TASK_ID_IN_CHUNK]
-        res = (
-            admin.table("study_plan_submissions")
-            .select("*")
-            .eq("student_id", student_id)
-            .in_("task_id", chunk)
-            .execute()
+    allowed = set(task_ids)
+    res = (
+        admin.table("study_plan_submissions")
+        .select("*")
+        .eq("student_id", student_id)
+        .execute()
+    )
+    return [r for r in (res.data or []) if r.get("task_id") in allowed]
+
+
+# ── BFF dashboard (stats + pulse + classes in one round trip) ─
+
+@router.get("/dashboard")
+async def teacher_dashboard(request: Request, token: TokenData = Depends(require_teacher)):
+    tid = str(token.tenant_id)
+    uid = str(token.user_id)
+    cache_key = cache_keys.teacher_dashboard(tid, uid)
+
+    async def _build() -> dict:
+        stats_res, pulse_res, classes_res = await asyncio.gather(
+            teacher_stats(request, token),
+            daily_pulse(request, token),
+            get_my_classes(request, token),
         )
-        rows.extend(res.data or [])
-    return rows
+        return {
+            "stats": json.loads(stats_res.body.decode()).get("data"),
+            "pulse": json.loads(pulse_res.body.decode()).get("data"),
+            "classes": json.loads(classes_res.body.decode()).get("data"),
+        }
+
+    payload, hit = await get_or_set_cache(cache_key, cache_ttl.DASHBOARD, _build)
+    response = success(payload)
+    response.headers["X-Cache"] = "HIT" if hit else "MISS"
+    return response
 
 
 # ── Daily Pulse ───────────────────────────────────────────────
 
 @router.get("/pulse/today")
 async def daily_pulse(request: Request, token: TokenData = Depends(require_teacher)):
-    client = get_user_client(request.state.jwt_token)
+    """
+    Returns today's student completion pulse for the teacher.
+    Cached since today's curriculum is the same for the entire day.
+    """
+    tid = str(token.tenant_id)
+    uid = str(token.user_id)
     today = date.today().isoformat()
+    cache_key = cache_keys.teacher_pulse(tid, uid)
 
-    classes_res = (
-        client.table("classes").select("id")
-        .eq("teacher_id", token.user_id).execute()
-    )
-    class_ids = [c["id"] for c in (classes_res.data or [])]
-    if not class_ids:
-        return success([])
+    async def _build_pulse() -> list:
+        client = get_user_client(request.state.jwt_token)
 
-    enrollments_res = (
-        client.table("class_enrollments")
-        .select("student_id, students(id, name, user_id)")
-        .in_("class_id", class_ids)
-        .execute()
-    )
+        classes_res = (
+            client.table("classes").select("id")
+            .eq("teacher_id", token.user_id).execute()
+        )
+        class_ids = [c["id"] for c in (classes_res.data or [])]
+        if not class_ids:
+            return []
 
-    student_ids = list({r["student_id"] for r in (enrollments_res.data or [])})
-    if not student_ids:
-        return success([])
+        enrollments_res = (
+            client.table("class_enrollments")
+            .select("student_id, students(id, name, user_id)")
+            .in_("class_id", class_ids)
+            .execute()
+        )
 
-    completions_res = (
-        client.table("task_completions")
-        .select("student_id, completed_at")
-        .in_("student_id", student_ids)
-        .eq("assigned_date", today)
-        .execute()
-    )
+        student_ids = list({r["student_id"] for r in (enrollments_res.data or [])})
+        if not student_ids:
+            return []
 
-    doubts_res = (
-        client.table("doubts")
-        .select("student_id")
-        .in_("class_id", class_ids)
-        .eq("status", "pending")
-        .execute()
-    )
+        def _completions():
+            return (
+                client.table("task_completions")
+                .select("student_id, completed_at")
+                .in_("student_id", student_ids)
+                .eq("assigned_date", today)
+                .execute()
+            )
 
-    completion_by_student: dict[str, dict] = {}
-    for row in (completions_res.data or []):
-        sid = row["student_id"]
-        if sid not in completion_by_student:
-            completion_by_student[sid] = {"total": 0, "done": 0}
-        completion_by_student[sid]["total"] += 1
-        if row["completed_at"]:
-            completion_by_student[sid]["done"] += 1
+        def _doubts():
+            return (
+                client.table("doubts")
+                .select("student_id")
+                .in_("class_id", class_ids)
+                .eq("status", "pending")
+                .execute()
+            )
 
-    doubts_by_student: dict[str, int] = {}
-    for row in (doubts_res.data or []):
-        sid = row["student_id"]
-        doubts_by_student[sid] = doubts_by_student.get(sid, 0) + 1
+        completions_res, doubts_res = await gather_sync(_completions, _doubts)
 
-    seen: set = set()
-    pulse = []
-    for row in (enrollments_res.data or []):
-        sid = row["student_id"]
-        if sid in seen:
-            continue
-        seen.add(sid)
-        student = row.get("students") or {}
-        comp = completion_by_student.get(sid, {"total": 0, "done": 0})
-        pct = round((comp["done"] / comp["total"]) * 100) if comp["total"] else 0
-        pulse.append({
-            "student_id": sid,
-            "name": student.get("name", ""),
-            "completion_pct": pct,
-            "pending_doubts": doubts_by_student.get(sid, 0),
-        })
+        completion_by_student: dict[str, dict] = {}
+        for row in (completions_res.data or []):
+            sid = row["student_id"]
+            if sid not in completion_by_student:
+                completion_by_student[sid] = {"total": 0, "done": 0}
+            completion_by_student[sid]["total"] += 1
+            if row["completed_at"]:
+                completion_by_student[sid]["done"] += 1
 
-    return success(sorted(pulse, key=lambda x: x["completion_pct"]))
+        doubts_by_student: dict[str, int] = {}
+        for row in (doubts_res.data or []):
+            sid = row["student_id"]
+            doubts_by_student[sid] = doubts_by_student.get(sid, 0) + 1
+
+        seen: set = set()
+        pulse = []
+        for row in (enrollments_res.data or []):
+            sid = row["student_id"]
+            if sid in seen:
+                continue
+            seen.add(sid)
+            student = row.get("students") or {}
+            comp = completion_by_student.get(sid, {"total": 0, "done": 0})
+            pct = round((comp["done"] / comp["total"]) * 100) if comp["total"] else 0
+            pulse.append({
+                "student_id": sid,
+                "name": student.get("name", ""),
+                "completion_pct": pct,
+                "pending_doubts": doubts_by_student.get(sid, 0),
+            })
+
+        return sorted(pulse, key=lambda x: x["completion_pct"])
+
+    payload, hit = await get_or_set_cache(cache_key, cache_ttl.TEACHER_PULSE, _build_pulse)
+    response = success(payload)
+    response.headers["X-Cache"] = "HIT" if hit else "MISS"
+    return response
 
 
 # ── Stats summary for teacher dashboard ──────────────────────
@@ -151,48 +220,48 @@ async def teacher_stats(request: Request, token: TokenData = Depends(require_tea
     )
     class_ids = [c["id"] for c in (classes_res.data or [])]
 
-    total_students = 0
-    if class_ids:
-        enr_res = (
-            client.table("class_enrollments")
-            .select("student_id")
-            .in_("class_id", class_ids)
-            .execute()
-        )
-        # Unique student count
-        total_students = len({r["student_id"] for r in (enr_res.data or [])})
-
-    # Today's classes
-    today = date.today().isoweekday()  # 1=Mon, 7=Sun
     total_classes = len(class_ids)
-
-    # Pending doubts
+    total_students = 0
     pending_doubts = 0
-    if class_ids:
-        d_res = (
-            client.table("doubts")
-            .select("id", count="exact")
-            .in_("class_id", class_ids)
-            .eq("status", "pending")
-            .execute()
-        )
-        pending_doubts = d_res.count or 0
-
-    # Attendance % last 30 days
-    since = (date.today() - timedelta(days=30)).isoformat()
     avg_attendance = 0
+
     if class_ids:
-        att_res = (
-            client.table("attendance")
-            .select("status")
-            .in_("class_id", class_ids)
-            .gte("session_date", since)
-            .execute()
-        )
+        since = (date.today() - timedelta(days=30)).isoformat()
+
+        def _enrollments():
+            return (
+                client.table("class_enrollments")
+                .select("student_id")
+                .in_("class_id", class_ids)
+                .execute()
+            )
+
+        def _doubts_count():
+            return (
+                client.table("doubts")
+                .select("id", count="exact")
+                .in_("class_id", class_ids)
+                .eq("status", "pending")
+                .execute()
+            )
+
+        def _attendance():
+            return (
+                client.table("attendance")
+                .select("status")
+                .in_("class_id", class_ids)
+                .gte("session_date", since)
+                .execute()
+            )
+
+        enr_res, d_res, att_res = await gather_sync(_enrollments, _doubts_count, _attendance)
+        total_students = len({r["student_id"] for r in (enr_res.data or [])})
+        pending_doubts = d_res.count or 0
         att_rows = att_res.data or []
         avg_attendance = (
             round(len([r for r in att_rows if r["status"] == "present"]) / len(att_rows) * 100)
-            if att_rows else 0
+            if att_rows
+            else 0
         )
 
     return success({
@@ -208,22 +277,25 @@ async def teacher_stats(request: Request, token: TokenData = Depends(require_tea
 @router.get("/classes")
 async def get_my_classes(request: Request, token: TokenData = Depends(require_teacher)):
     client = get_user_client(request.state.jwt_token)
-    if token.role in ("admin", "platform_admin"):
-        res = (
-            client.table("classes")
-            .select("*, class_enrollments(count)")
-            .eq("tenant_id", token.tenant_id)
-            .order("name")
-            .execute()
-        )
-    else:
-        res = (
+
+    def _query():
+        if token.role in ("admin", "platform_admin"):
+            return (
+                client.table("classes")
+                .select("*, class_enrollments(count)")
+                .eq("tenant_id", token.tenant_id)
+                .order("name")
+                .execute()
+            )
+        return (
             client.table("classes")
             .select("*, class_enrollments(count)")
             .eq("teacher_id", token.user_id)
             .order("name")
             .execute()
         )
+
+    res = await run_sync(_query)
     return success(res.data or [])
 
 
@@ -293,26 +365,37 @@ async def get_students(
     request: Request,
     search: Optional[str] = None,
     class_id: Optional[str] = None,
+    page: int = 1,
+    limit: int = 25,
     token: TokenData = Depends(require_teacher),
 ):
+    if not class_id:
+        return error("BAD_REQUEST", "class_id is required", 400)
+
+    page = max(1, page)
+    limit = max(1, min(100, limit))
+
     client = get_user_client(request.state.jwt_token)
 
-    q = client.table("classes").select("id")
-    if token.role not in ("admin", "platform_admin"):
-        q = q.eq("teacher_id", token.user_id)
-    else:
-        q = q.eq("tenant_id", token.tenant_id)
-        
-    classes_res = q.execute()
-    teacher_class_ids = [c["id"] for c in (classes_res.data or [])]
-    filter_ids = [class_id] if class_id and (class_id in teacher_class_ids or token.role in ("admin", "platform_admin")) else teacher_class_ids
+    def _verify_class():
+        q = client.table("classes").select("id").eq("id", class_id)
+        if token.role not in ("admin", "platform_admin"):
+            q = q.eq("teacher_id", token.user_id)
+        else:
+            q = q.eq("tenant_id", token.tenant_id)
+        return q.maybe_single().execute()
 
-    enr_res = (
-        client.table("class_enrollments")
-        .select("students(id, name, phone, deactivated_at, user_id), class_id, classes(name)")
-        .in_("class_id", filter_ids)
-        .execute()
-    )
+    def _enrollments():
+        return (
+            client.table("class_enrollments")
+            .select("students(id, name, phone, deactivated_at, user_id), class_id, classes(name)")
+            .eq("class_id", class_id)
+            .execute()
+        )
+
+    class_res, enr_res = await gather_sync(_verify_class, _enrollments)
+    if not class_res.data:
+        return error("FORBIDDEN", "Class not found or access denied", 403)
 
     # Group by student to support multiple classes
     students_map: dict[str, dict] = {}
@@ -343,65 +426,95 @@ async def get_students(
             students_map[sid]["class_id"] = row["class_id"]
             students_map[sid]["class_name"] = cls.get("name", "")
 
-    # Attach last OTP login time from public.users (batch)
     if students_map:
         admin = get_admin_client()
+        student_ids = list(students_map.keys())
         user_ids = list({str(v["user_id"]) for v in students_map.values() if v.get("user_id")})
-        if user_ids:
-            try:
-                lu_res = (
-                    admin.table("users")
-                    .select("id, last_login_at")
-                    .in_("id", user_ids)
-                    .execute()
-                )
-                by_uid = {str(r["id"]): r.get("last_login_at") for r in (lu_res.data or [])}
-                for sid, row in students_map.items():
-                    uid = row.get("user_id")
-                    if uid and str(uid) in by_uid:
-                        row["last_login_at"] = by_uid[str(uid)]
-            except Exception:
-                pass
 
-    # 3. If a specific class is selected, attach its progress metrics
-    if class_id and students_map:
-        # Get the study plan for this class to get its plan_id (Admin client for robustness)
-        admin = get_admin_client()
-        plan_res = admin.table("study_plans").select("id").eq("class_id", class_id).maybe_single().execute()
-        if plan_res and plan_res.data:
+        def _fetch_logins():
+            if not user_ids:
+                return {}
+            lu_res = (
+                admin.table("users")
+                .select("id, last_login_at")
+                .in_("id", user_ids)
+                .execute()
+            )
+            return {str(r["id"]): r.get("last_login_at") for r in (lu_res.data or [])}
+
+        def _fetch_class_progress():
+            plan_res = (
+                admin.table("study_plans")
+                .select("id")
+                .eq("class_id", class_id)
+                .maybe_single()
+                .execute()
+            )
+            if not plan_res or not plan_res.data:
+                return None
             plan_id = plan_res.data["id"]
-            # Fetch all tasks in the plan first (Using full table names for relationships)
-            tasks_res = admin.table("study_plan_tasks").select("id, study_plan_periods!inner(study_plan_days!inner(plan_id))").eq("study_plan_periods.study_plan_days.plan_id", plan_id).execute()
+            tasks_res = (
+                admin.table("study_plan_tasks")
+                .select("id, study_plan_periods!inner(study_plan_days!inner(plan_id))")
+                .eq("study_plan_periods.study_plan_days.plan_id", plan_id)
+                .execute()
+            )
             plan_task_ids = [t["id"] for t in (tasks_res.data or [])]
-            total_tasks_in_plan = len(plan_task_ids)
-            
-            if plan_task_ids:
+            if not plan_task_ids:
+                return (0, {sid: [] for sid in student_ids})
+            plan_task_id_set = set(plan_task_ids)
+            subs_res = (
+                admin.table("study_plan_submissions")
+                .select("student_id, task_id, status, score")
+                .in_("student_id", student_ids)
+                .execute()
+            )
+            subs_by_student: dict[str, list[dict]] = {sid: [] for sid in student_ids}
+            for sub in subs_res.data or []:
+                if sub.get("task_id") not in plan_task_id_set:
+                    continue
+                sid = str(sub.get("student_id"))
+                if sid in subs_by_student:
+                    subs_by_student[sid].append(sub)
+            return (len(plan_task_ids), subs_by_student)
+
+        try:
+            by_uid, progress_data = await gather_sync(_fetch_logins, _fetch_class_progress)
+            for sid, row in students_map.items():
+                uid = row.get("user_id")
+                if uid and str(uid) in by_uid:
+                    row["last_login_at"] = by_uid[str(uid)]
+            if progress_data:
+                total_tasks_in_plan, subs_by_student = progress_data
                 for sid in students_map:
-                    # Use the chunked helper instead of one large cross-product query.
-                    # Large `.in_()` filters here can trigger PostgREST "JSON could not be generated".
-                    s_subs = _fetch_submissions_for_student_tasks(admin, sid, plan_task_ids)
+                    s_subs = subs_by_student.get(sid, [])
                     completed = len([s for s in s_subs if s["status"] in ("submitted", "reviewed")])
                     reviewed_subs = [s for s in s_subs if s["status"] == "reviewed"]
                     reviewed_count = len(reviewed_subs)
-                    
                     scores = [s["score"] for s in reviewed_subs if s.get("score") is not None]
                     avg_score = round(sum(scores) / len(scores)) if scores else 0
-                    
                     students_map[sid]["progress"] = {
                         "total": total_tasks_in_plan,
                         "completed": completed,
                         "reviewed": reviewed_count,
-                        "pct": round((completed / total_tasks_in_plan) * 100) if total_tasks_in_plan > 0 else 0,
-                        "average_score": avg_score
+                        "pct": round((completed / total_tasks_in_plan) * 100)
+                        if total_tasks_in_plan > 0
+                        else 0,
+                        "average_score": avg_score,
                     }
-
+        except Exception:
+            pass
 
     out = []
     for v in students_map.values():
         row = dict(v)
         row.pop("user_id", None)
         out.append(row)
-    return success(out)
+
+    total = len(out)
+    start = (page - 1) * limit
+    page_rows = out[start : start + limit]
+    return paginated(page_rows, page=page, limit=limit, total=total)
 
 
 def _teacher_tenant_id(admin: Any, token: TokenData) -> Optional[str]:
@@ -423,30 +536,6 @@ def _compute_presence_streak(attendance_rows: list) -> int:
         if r.get("status") != "present":
             continue
         d = r.get("session_date")
-        if not d:
-            continue
-        if isinstance(d, str):
-            d = date_cls.fromisoformat(d[:10])
-        dates.append(d)
-    dates = sorted(set(dates), reverse=True)
-    if not dates:
-        return 0
-    streak = 1
-    for i in range(1, len(dates)):
-        if (dates[i - 1] - dates[i]).days == 1:
-            streak += 1
-        else:
-            break
-    return streak
-
-
-def _compute_login_streak(login_rows: list) -> int:
-    """Consecutive unique login dates counting back from most recent login date."""
-    from datetime import date as date_cls
-
-    dates: list = []
-    for r in login_rows or []:
-        d = r.get("login_date")
         if not d:
             continue
         if isinstance(d, str):
@@ -529,77 +618,138 @@ async def get_student_overview_for_teacher(
     )
     last_login = (user_res.data or {}).get("last_login_at")
 
-    login_rows = []
-    try:
-        login_att_res = (
-            admin.table("student_login_attendance")
-            .select("login_date, login_at")
+    from app.services.student_attendance_service import (
+        apply_last_login_fallback,
+        fetch_teacher_attendance_view,
+    )
+
+    attendance = apply_last_login_fallback(
+        fetch_teacher_attendance_view(student_id),
+        last_login,
+    )
+    history = attendance.get("attendance_history") or []
+    streak = attendance.get("attendance_streak") or 0
+
+    tid_for_cache = tid_filter or str(stu_res.data.get("tenant_id") or "")
+    cache_key = cache_keys.teacher_student_overview(
+        tid_for_cache, str(token.user_id), student_id
+    )
+
+    async def _build_overview() -> dict:
+        doubts_res = (
+            admin.table("doubts")
+            .select("id, title, body, created_at, status")
             .eq("student_id", student_id)
-            .order("login_date", desc=True)
-            .limit(60)
+            .in_("class_id", teacher_class_ids)
+            .order("created_at", desc=True)
+            .limit(12)
             .execute()
         )
-        login_rows = login_att_res.data or []
-    except Exception:
-        # Table might not exist yet in environments where migration was not applied.
-        login_rows = []
+        notes = []
+        for d in doubts_res.data or []:
+            notes.append(
+                {
+                    "type": "Doubt",
+                    "time": d.get("created_at"),
+                    "content": d.get("body") or d.get("title") or "",
+                    "variant": "amber",
+                }
+            )
 
-    if not login_rows and last_login:
-        login_rows = [
-            {
-                "login_date": str(last_login)[:10],
-                "login_at": last_login,
-            }
-        ]
-    streak = _compute_login_streak(login_rows)
+        task_status_by_date: dict[str, dict] = {}
+        try:
+            plans_res = (
+                admin.table("study_plans")
+                .select("id, template_id, class_id")
+                .in_("class_id", teacher_class_ids)
+                .eq("status", "active")
+                .execute()
+            )
+            plan_rows = plans_res.data or []
+            if plan_rows:
+                or_parts = [f"plan_id.eq.{p['id']}" for p in plan_rows if p.get("id")]
+                for p in plan_rows:
+                    if p.get("template_id"):
+                        or_parts.append(f"template_id.eq.{p['template_id']}")
+                or_parts = list(dict.fromkeys(or_parts))
+                if or_parts:
+                    days_res = (
+                        admin.table("study_plan_days")
+                        .select("id, day_number, scheduled_date, plan_id, template_id, periods:study_plan_periods(id, tasks:study_plan_tasks(id, title))")
+                        .or_(",".join(or_parts))
+                        .execute()
+                    )
+                    day_rows = days_res.data or []
 
-    history = []
-    for r in login_rows[:30]:
-        login_at = r.get("login_at")
-        details = "Unique login date"
-        if isinstance(login_at, str) and login_at:
-            try:
-                dt = datetime.fromisoformat(login_at.replace("Z", "+00:00"))
-                details = f"Logged in at {dt.strftime('%I:%M %p').lstrip('0')}"
-            except Exception:
-                details = "Unique login date"
-        history.append(
-            {
-                "date": r.get("login_date"),
-                "status": "Present",
-                "details": details,
-            }
-        )
+                    task_ids: list[str] = []
+                    for day in day_rows:
+                        for period in day.get("periods") or []:
+                            for task in period.get("tasks") or []:
+                                if task.get("id"):
+                                    task_ids.append(str(task["id"]))
 
-    doubts_res = (
-        admin.table("doubts")
-        .select("id, title, body, created_at, status")
-        .eq("student_id", student_id)
-        .in_("class_id", teacher_class_ids)
-        .order("created_at", desc=True)
-        .limit(12)
-        .execute()
-    )
-    notes = []
-    for d in doubts_res.data or []:
-        notes.append(
-            {
-                "type": "Doubt",
-                "time": d.get("created_at"),
-                "content": d.get("body") or d.get("title") or "",
-                "variant": "amber",
-            }
-        )
+                    submitted_task_ids: set[str] = set()
+                    if task_ids:
+                        subs_res = (
+                            admin.table("study_plan_submissions")
+                            .select("task_id")
+                            .eq("student_id", student_id)
+                            .in_("task_id", list(set(task_ids)))
+                            .execute()
+                        )
+                        submitted_task_ids = {
+                            str(row.get("task_id"))
+                            for row in (subs_res.data or [])
+                            if row.get("task_id")
+                        }
 
-    return success(
-        {
+                    for day in day_rows:
+                        scheduled = str(day.get("scheduled_date") or "")[:10]
+                        if not scheduled:
+                            continue
+                        existing = task_status_by_date.get(scheduled) or {
+                            "day_number": day.get("day_number"),
+                            "tasks": [],
+                        }
+                        seen = {
+                            str(task.get("task_id"))
+                            for task in existing["tasks"]
+                            if task.get("task_id")
+                        }
+                        for period in day.get("periods") or []:
+                            for task in period.get("tasks") or []:
+                                task_id = str(task.get("id") or "")
+                                if not task_id or task_id in seen:
+                                    continue
+                                seen.add(task_id)
+                                existing["tasks"].append(
+                                    {
+                                        "task_id": task_id,
+                                        "title": str(task.get("title") or "Task"),
+                                        "submitted": task_id in submitted_task_ids,
+                                    }
+                                )
+                        total = len(existing["tasks"])
+                        submitted = len([t for t in existing["tasks"] if t.get("submitted")])
+                        existing["total_count"] = total
+                        existing["submitted_count"] = submitted
+                        task_status_by_date[scheduled] = existing
+        except Exception:
+            task_status_by_date = {}
+
+        return {
             "student_id": student_id,
             "last_login_at": last_login,
             "attendance_streak": streak,
             "attendance_history": history,
+            "task_status_by_date": task_status_by_date,
             "notes": notes,
         }
-    )
+
+    payload, hit = await get_or_set_cache(cache_key, cache_ttl.TEACHER_STUDENT_OVERVIEW, _build_overview)
+    response = success(payload)
+    response.headers["X-Cache"] = "HIT" if hit else "MISS"
+    return response
 
 
 @router.get("/study-plan")
@@ -922,6 +1072,9 @@ async def reply_to_doubt(
 
     client.table("doubts").update({"status": "resolved"}).eq("id", doubt_id).execute()
 
+    if token.tenant_id:
+        await invalidate_teacher_caches(str(token.tenant_id), str(token.user_id))
+
     return success(resp_res.data[0] if resp_res.data else {}, status_code=201)
 
 
@@ -1078,52 +1231,13 @@ async def get_classroom_study_plan(
     if not class_data:
         return error("FORBIDDEN", "Class not found or access denied", 403)
 
-    # Fetch the class-bound study plan row.
-    plan_res = (
-        admin.table("study_plans")
-        .select("*")
-        .eq("class_id", class_id)
-        .eq("tenant_id", token.tenant_id)
-        .maybe_single()
-        .execute()
-    )
-    plan_data = _safe_data(plan_res)
-    if not plan_data:
-        return success(None)
-    plan = plan_data
-    
-    # 2. Fetch days with nested periods and tasks
     try:
-        plan_id = plan["id"]
-        template_id = plan.get("template_id")
-
-        q = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))")
-        # For synthetic template-only plans, avoid invalid UUID filter on plan_id.
-        filter_parts = []
-        if isinstance(plan_id, str) and not str(plan_id).startswith("template::"):
-            filter_parts.append(f"plan_id.eq.{plan_id}")
-        if template_id:
-            filter_parts.append(f"template_id.eq.{template_id}")
-        if not filter_parts:
-            return success(None)
-        filter_clause = ",".join(filter_parts)
-            
-        days_res = (
-            q.or_(filter_clause)
-            .order("day_number")
-            .execute()
-        )
-        days = _safe_data(days_res) or []
-        # Sort periods and tasks manually
-        for day in days:
-            if "periods" in day and day["periods"]:
-                day["periods"].sort(key=lambda x: x.get("order_index", 0))
-                for period in day["periods"]:
-                    if "tasks" in period and period["tasks"]:
-                        period["tasks"].sort(key=lambda x: x.get("order_index", 0))
-        
-        plan["days"] = days
-        return success(plan)
+        plan, cache_hit = await get_cached_teacher_study_plan(token.tenant_id, class_id)
+        if not plan:
+            return error("NOT_FOUND", "No study plan assigned to this classroom", 404)
+        response = success(plan)
+        response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+        return response
     except Exception as e:
         return error("QUERY_ERROR", str(e), 500)
 
@@ -1135,38 +1249,24 @@ async def get_classroom_study_plan_source(
 ):
     admin = get_admin_client()
 
-    q = admin.table("classes").select("id")
-    if token.role not in ("admin", "platform_admin"):
-        q = q.eq("teacher_id", token.user_id)
-    else:
-        q = q.eq("tenant_id", token.tenant_id)
+    try:
+        q = admin.table("classes").select("id")
+        if token.role not in ("admin", "platform_admin"):
+            q = q.eq("teacher_id", token.user_id)
+        else:
+            q = q.eq("tenant_id", token.tenant_id)
 
-    class_res = q.eq("id", class_id).maybe_single().execute()
-    if not class_res.data:
-        return error("FORBIDDEN", "Class not found or access denied", 403)
+        class_res = q.eq("id", class_id).limit(1).execute()
+        class_row = (class_res.data or [None])[0] if class_res else None
+        if not class_row:
+            return error("FORBIDDEN", "Class not found or access denied", 403)
 
-    plan_res = (
-        admin.table("study_plans")
-        .select("source_import_id")
-        .eq("class_id", class_id)
-        .eq("tenant_id", token.tenant_id)
-        .maybe_single()
-        .execute()
-    )
-    plan = plan_res.data if plan_res else None
-    if not plan or not plan.get("source_import_id"):
-        return success(None)
-
-    import_res = (
-        admin.table("study_plan_pdf_imports")
-        .select("*")
-        .eq("id", plan["source_import_id"])
-        .eq("tenant_id", token.tenant_id)
-        .maybe_single()
-        .execute()
-    )
-    import_row = import_res.data if import_res else None
-    return success(build_import_payload(import_row, admin) if import_row else None)
+        payload, cache_hit = await get_cached_study_plan_source(token.tenant_id, class_id)
+        response = success(payload)
+        response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+        return response
+    except Exception as exc:
+        return error("QUERY_ERROR", f"Failed to load classroom source: {exc}", 500)
 
 
 def _is_present_uuid(val) -> bool:
@@ -1186,6 +1286,30 @@ async def touch_plan(plan_id: Optional[str]):
     admin = get_admin_client()
     now = datetime.utcnow().isoformat()
     admin.table("study_plans").update({"updated_at": now}).eq("id", str(plan_id)).execute()
+    await invalidate_study_plan_by_plan_id(str(plan_id))
+    try:
+        plan_row = (
+            admin.table("study_plans")
+            .select("class_id, tenant_id")
+            .eq("id", str(plan_id))
+            .limit(1)
+            .execute()
+        )
+        if plan_row.data:
+            row = plan_row.data[0]
+            class_id = row.get("class_id")
+            tenant_id = row.get("tenant_id")
+            if class_id and tenant_id:
+                from app.services.realtime_events import broadcast_study_plan_changed
+
+                await broadcast_study_plan_changed(
+                    str(tenant_id),
+                    str(class_id),
+                    changed_by="",
+                    change_type="updated",
+                )
+    except Exception:
+        _logger.debug("study_plan realtime broadcast skipped for plan %s", plan_id)
 
 
 async def touch_plans_for_template(template_id: Optional[str]):
@@ -1195,6 +1319,15 @@ async def touch_plans_for_template(template_id: Optional[str]):
     admin = get_admin_client()
     now = datetime.utcnow().isoformat()
     admin.table("study_plans").update({"updated_at": now}).eq("template_id", str(template_id)).execute()
+    row = (
+        admin.table("study_plans")
+        .select("tenant_id")
+        .eq("template_id", str(template_id))
+        .limit(1)
+        .execute()
+    )
+    if row.data:
+        await invalidate_study_plan_for_template(str(row.data[0]["tenant_id"]), str(template_id))
 
 
 async def touch_plan_by_day(day_id: str):
@@ -1203,12 +1336,12 @@ async def touch_plan_by_day(day_id: str):
         admin.table("study_plan_days")
         .select("plan_id, template_id")
         .eq("id", day_id)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
-    if not res.data:
+    row = first_row_from_response(res)
+    if not row:
         return
-    row = res.data
     pid, tid = row.get("plan_id"), row.get("template_id")
     if _is_present_uuid(pid):
         await touch_plan(pid)
@@ -1217,13 +1350,29 @@ async def touch_plan_by_day(day_id: str):
 
 async def touch_plan_by_period(period_id: str):
     admin = get_admin_client()
-    res = admin.table("study_plan_periods").select("day_id").eq("id", period_id).maybe_single().execute()
-    if res.data: await touch_plan_by_day(res.data["day_id"])
+    res = (
+        admin.table("study_plan_periods")
+        .select("day_id")
+        .eq("id", period_id)
+        .limit(1)
+        .execute()
+    )
+    row = first_row_from_response(res)
+    if row and row.get("day_id"):
+        await touch_plan_by_day(str(row["day_id"]))
 
 async def touch_plan_by_task(task_id: str):
     admin = get_admin_client()
-    res = admin.table("study_plan_tasks").select("period_id").eq("id", task_id).maybe_single().execute()
-    if res.data: await touch_plan_by_period(res.data["period_id"])
+    res = (
+        admin.table("study_plan_tasks")
+        .select("period_id")
+        .eq("id", task_id)
+        .limit(1)
+        .execute()
+    )
+    row = first_row_from_response(res)
+    if row and row.get("period_id"):
+        await touch_plan_by_period(str(row["period_id"]))
 
 
 @router.post("/classrooms/{class_id}/publish")
@@ -1260,7 +1409,10 @@ async def publish_study_plan(
     
     if not res.data:
         return error("NOT_FOUND", "No study plan found for this classroom", 404)
-        
+
+    from app.services.study_plan_cache_service import invalidate_study_plan_caches
+
+    await invalidate_study_plan_caches(token.tenant_id, class_id)
     return success({"status": "active", "message": "Study plan published to students"})
 
 
@@ -1350,37 +1502,74 @@ async def get_student_day_progress(admin, student_id, day_id):
     }
 
 
-@router.get("/submissions/{submission_id}")
+@router.get("/submissions/{submission_id:uuid}")
 async def get_single_submission(
-    submission_id: str,
+    submission_id: UUID,
     token: TokenData = Depends(require_teacher)
 ):
     """Returns full details for a single submission."""
     admin = get_admin_client()
-    res = (
-        admin.table("study_plan_submissions")
-        .select("*, student:students(id, name, phone), task:study_plan_tasks(id, title, task_type, period:study_plan_periods(id, day:study_plan_days(id, plan_id, template_id)))")
-        .eq("id", submission_id)
-        .maybe_single()
-        .execute()
-    )
-    if not res.data:
-        return error("NOT_FOUND", "Submission not found", 404)
-    
-    submission = res.data
-    
-    # Calculate day progress
-    task = submission.get("task") or {}
-    period = task.get("period") or {}
-    day = period.get("day") or {}
-    day_id = day.get("id")
-    
-    day_progress = {"total": 0, "completed": 0, "reviewed": 0, "pct": 0}
-    if day_id:
-        day_progress = await get_student_day_progress(admin, submission["student_id"], day_id)
-    
-    submission["day_progress"] = day_progress
-    return success(submission)
+    sid = str(submission_id)
+    try:
+        sub_res = (
+            admin.table("study_plan_submissions")
+            .select("id, student_id, task_id, status, score, feedback, created_at, reviewed_at, audio_url, content")
+            .eq("id", sid)
+            .limit(1)
+            .execute()
+        )
+        if not sub_res.data:
+            return error("NOT_FOUND", "Submission not found", 404)
+        submission = dict(sub_res.data[0])
+
+        student_id = str(submission.get("student_id") or "")
+        task_id = str(submission.get("task_id") or "")
+
+        student = {}
+        task = {}
+        day_id = None
+
+        if student_id:
+            s_res = (
+                admin.table("students")
+                .select("id, name, phone")
+                .eq("id", student_id)
+                .limit(1)
+                .execute()
+            )
+            student = (s_res.data or [{}])[0] if s_res else {}
+
+        if task_id:
+            t_res = (
+                admin.table("study_plan_tasks")
+                .select("id, title, task_type, period_id")
+                .eq("id", task_id)
+                .limit(1)
+                .execute()
+            )
+            task = (t_res.data or [{}])[0] if t_res else {}
+            period_id = str(task.get("period_id") or "")
+            if period_id:
+                p_res = (
+                    admin.table("study_plan_periods")
+                    .select("id, day_id")
+                    .eq("id", period_id)
+                    .limit(1)
+                    .execute()
+                )
+                period = (p_res.data or [{}])[0] if p_res else {}
+                day_id = period.get("day_id")
+
+        day_progress = {"total": 0, "completed": 0, "reviewed": 0, "pct": 0}
+        if day_id and student_id:
+            day_progress = await get_student_day_progress(admin, student_id, day_id)
+
+        submission["student"] = student
+        submission["task"] = task
+        submission["day_progress"] = day_progress
+        return success(submission)
+    except Exception as exc:
+        return error("QUERY_ERROR", f"Failed to load submission: {exc}", 500)
 
 
 @router.get("/students/{student_id}/study-plan/period/{period_id}/submissions")
@@ -1441,57 +1630,176 @@ async def get_pending_submissions(
     Returns all submissions from students in teacher's classes 
     that have status 'submitted' (Under Review).
     """
-    client = get_user_client(request.state.jwt_token)
-    
-    # 1. Get teacher's classes
-    classes_res = (
-        client.table("classes").select("id")
-        .eq("teacher_id", token.user_id).execute()
-    )
-    class_ids = [c["id"] for c in (classes_res.data or [])]
-    if not class_ids:
+    admin = get_admin_client()
+    tenant_id = str(token.tenant_id)
+    teacher_id = str(token.user_id)
+
+    try:
+        # 1. Get teacher's classes (admin client + tenant filter avoids RLS-related 500s)
+        classes_res = (
+            admin.table("classes")
+            .select("id")
+            .eq("tenant_id", tenant_id)
+            .eq("teacher_id", teacher_id)
+            .execute()
+        )
+        class_ids = [str(c.get("id")) for c in (classes_res.data or []) if c and c.get("id")]
+        if not class_ids:
+            return success([])
+
+        # 2. Get students in those classes
+        enrollments_res = (
+            admin.table("class_enrollments")
+            .select("student_id")
+            .in_("class_id", class_ids)
+            .execute()
+        )
+        student_ids = list({str(r.get("student_id")) for r in (enrollments_res.data or []) if r and r.get("student_id")})
+        if not student_ids:
+            return success([])
+
+        # 3. Fetch pending submissions (core list)
+        subs_res = (
+            admin.table("study_plan_submissions")
+            .select("id, student_id, task_id, status, score, feedback, created_at, audio_url, content")
+            .eq("tenant_id", tenant_id)
+            .in_("student_id", student_ids)
+            .eq("status", "submitted")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        submissions = subs_res.data or []
+        if not submissions:
+            return success([])
+    except Exception:
+        # Never hard-fail the queue for transient DB/query issues.
         return success([])
 
-    # 2. Get students in those classes
-    enrollments_res = (
-        client.table("class_enrollments")
-        .select("student_id")
-        .in_("class_id", class_ids)
-        .execute()
-    )
-    student_ids = list({r["student_id"] for r in (enrollments_res.data or [])})
-    if not student_ids:
-        return success([])
+    student_map: dict[str, dict] = {}
+    task_map: dict[str, dict] = {}
+    period_map: dict[str, dict] = {}
+    day_map: dict[str, dict] = {}
+    plan_map: dict[str, dict] = {}
+    class_name_map: dict[str, str] = {}
 
-    # 3. Fetch submissions with status 'submitted'
-    res = (
-        client.table("study_plan_submissions")
-        .select("*, student:students(name, phone), task:study_plan_tasks(title, task_type)")
-        .in_("student_id", student_ids)
-        .eq("status", "submitted")
-        .order("created_at", desc=True)
-        .execute()
-    )
-    
-    # Flatten for frontend
-    flat_data = []
-    for sub in (res.data or []):
-        flat_data.append({
-            "id": sub["id"],
-            "student_id": sub["student_id"],
-            "student_name": sub.get("student", {}).get("name") if sub.get("student") else "Unknown",
-            "task_id": sub["task_id"],
-            "task_title": sub.get("task", {}).get("title") if sub.get("task") else "Unknown Task",
-            "task_type": sub.get("task", {}).get("task_type") if sub.get("task") else "unknown",
-            "status": sub["status"],
-            "score": sub.get("score"),
-            "feedback": sub.get("feedback"),
-            "submitted_at": sub.get("created_at"),
-            "audio_url": sub.get("audio_url"),
-            "content": sub.get("content")
-        })
-        
-    return success(flat_data)
+    try:
+        # students
+        student_lookup_ids = list({str(s.get("student_id")) for s in submissions if s and s.get("student_id")})
+        if student_lookup_ids:
+            s_rows = (
+                admin.table("students")
+                .select("id, name, phone")
+                .in_("id", student_lookup_ids)
+                .execute()
+            )
+            student_map = {str(r.get("id")): r for r in (s_rows.data or []) if r and r.get("id")}
+
+        # tasks
+        task_lookup_ids = list({str(s.get("task_id")) for s in submissions if s and s.get("task_id")})
+        if task_lookup_ids:
+            t_rows = (
+                admin.table("study_plan_tasks")
+                .select("id, title, task_type, period_id, config")
+                .in_("id", task_lookup_ids)
+                .execute()
+            )
+            task_map = {str(r.get("id")): r for r in (t_rows.data or []) if r and r.get("id")}
+
+        # periods
+        period_ids = [str(t.get("period_id")) for t in task_map.values() if t.get("period_id")]
+        if period_ids:
+            p_rows = (
+                admin.table("study_plan_periods")
+                .select("id, day_id")
+                .in_("id", list(set(period_ids)))
+                .execute()
+            )
+            period_map = {str(r.get("id")): r for r in (p_rows.data or []) if r and r.get("id")}
+
+        # days
+        day_ids = [str(p.get("day_id")) for p in period_map.values() if p.get("day_id")]
+        if day_ids:
+            d_rows = (
+                admin.table("study_plan_days")
+                .select("id, day_number, scheduled_date, plan_id")
+                .in_("id", list(set(day_ids)))
+                .execute()
+            )
+            day_map = {str(r.get("id")): r for r in (d_rows.data or []) if r and r.get("id")}
+
+        # plans + class names
+        plan_ids = [str(d.get("plan_id")) for d in day_map.values() if d.get("plan_id")]
+        if plan_ids:
+            plan_rows = (
+                admin.table("study_plans")
+                .select("id, class_id")
+                .in_("id", list(set(plan_ids)))
+                .execute()
+            )
+            plan_map = {str(r.get("id")): r for r in (plan_rows.data or []) if r and r.get("id")}
+            class_id_set = set(class_ids)
+            class_ids_for_names = [
+                str(r.get("class_id"))
+                for r in plan_map.values()
+                if r.get("class_id") and str(r.get("class_id")) in class_id_set
+            ]
+            if class_ids_for_names:
+                cls_rows = (
+                    admin.table("classes")
+                    .select("id, name")
+                    .in_("id", list(set(class_ids_for_names)))
+                    .execute()
+                )
+                class_name_map = {str(r.get("id")): str(r.get("name") or "") for r in (cls_rows.data or []) if r and r.get("id")}
+    except Exception:
+        # Leave maps best-effort; endpoint still returns core pending items.
+        pass
+
+    try:
+        flat_data = []
+        for sub in submissions:
+            if not isinstance(sub, dict):
+                continue
+            sid = str(sub.get("student_id") or "")
+            tid = str(sub.get("task_id") or "")
+            student_row = student_map.get(sid, {})
+            task = task_map.get(tid, {})
+            if is_tracker_task(task) or is_day_topic_task(task):
+                continue
+            period = period_map.get(str(task.get("period_id") or ""), {})
+            day = day_map.get(str(period.get("day_id") or ""), {})
+            plan = plan_map.get(str(day.get("plan_id") or ""), {})
+            class_id = str(plan.get("class_id") or "") or None
+            content = sub.get("content") if isinstance(sub.get("content"), dict) else {}
+            meta = content.get("submission_meta") if isinstance(content.get("submission_meta"), dict) else {}
+
+            flat_data.append(
+                {
+                    "id": sub.get("id"),
+                    "student_id": sid,
+                    "student_name": student_row.get("name") or "Unknown",
+                    "task_id": tid,
+                    "task_title": task.get("title") or "Unknown Task",
+                    "task_type": task.get("task_type") or "unknown",
+                    "class_id": class_id,
+                    "class_name": class_name_map.get(class_id or "", None),
+                    "day_number": day.get("day_number"),
+                    "scheduled_date": day.get("scheduled_date"),
+                    "submission_meta": meta,
+                    "marked_done": bool(content.get("toggled")) if isinstance(content, dict) else False,
+                    "status": sub.get("status"),
+                    "score": sub.get("score"),
+                    "feedback": sub.get("feedback"),
+                    "submitted_at": sub.get("created_at"),
+                    "audio_url": sub.get("audio_url"),
+                    "content": content,
+                }
+            )
+
+        return success(flat_data)
+    except Exception:
+        # Guardrail: never crash pending queue due to malformed row payloads.
+        return success([])
 
 
 @router.patch("/submissions/{submission_id}/review")
@@ -1501,6 +1809,15 @@ async def review_submission(
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
+    current = (
+        admin.table("study_plan_submissions")
+        .select("student_id, task_id, tenant_id")
+        .eq("id", submission_id)
+        .maybe_single()
+        .execute()
+    )
+    if not current.data:
+        return error("NOT_FOUND", "Submission not found", 404)
     
     update_data = {
         "status": body.status.value,
@@ -1519,6 +1836,36 @@ async def review_submission(
             update_data["content"] = content
 
     res = admin.table("study_plan_submissions").update(update_data).eq("id", submission_id).execute()
+    student_id = str(current.data.get("student_id") or "")
+    task_id = str(current.data.get("task_id") or "")
+    tenant_id = str(current.data.get("tenant_id") or token.tenant_id or "")
+    if student_id and task_id and tenant_id:
+        task_res = (
+            admin.table("study_plan_tasks")
+            .select("*, study_plan_periods(study_plan_days(*))")
+            .eq("id", task_id)
+            .limit(1)
+            .execute()
+        )
+        task = task_res.data[0] if task_res.data else None
+        class_id = resolve_class_id_from_task(admin, task) if task else None
+        if class_id:
+            # Broadcast real-time event to student portal
+            await broadcast_submission_reviewed(
+                tenant_id=tenant_id,
+                class_id=class_id,
+                student_id=student_id,
+                submission_id=submission_id,
+                task_id=task_id,
+                score=body.score,
+                status=body.status.value,
+            )
+            await invalidate_student_study_plan_cache(tenant_id, class_id, student_id)
+            # Also invalidate teacher caches so dashboard shows updated reviews
+            from app.services.study_plan_cache_service import invalidate_study_plan_caches
+            await invalidate_study_plan_caches(tenant_id, class_id)
+        await invalidate_student_progress_report_caches(tenant_id, student_id)
+
     return success(res.data[0] if res.data else {})
 
 
@@ -1599,6 +1946,9 @@ async def update_classroom_day(
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
+    before_res = admin.table("study_plan_days").select("*").eq("id", day_id).maybe_single().execute()
+    before_row = before_res.data if before_res else None
+
     update_data = {}
     if body.day_number is not None: update_data["day_number"] = body.day_number
     
@@ -1611,7 +1961,17 @@ async def update_classroom_day(
     
     await touch_plan_by_day(day_id)
     res = admin.table("study_plan_days").update(update_data).eq("id", day_id).execute()
-    return success(res.data[0] if res.data else {})
+    updated = res.data[0] if res.data else {}
+    if before_row and updated:
+        record_teacher_study_plan_change(
+            entity_type="day",
+            entity_id=day_id,
+            change_type="update",
+            previous_details=snapshot_for_entity("day", before_row),
+            new_details=snapshot_for_entity("day", updated),
+            teacher_user_id=token.user_id,
+        )
+    return success(updated)
 
 @router.delete("/study-plans/days/{day_id}")
 async def delete_classroom_day(
@@ -1646,10 +2006,23 @@ async def update_classroom_period(
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
+    before_res = admin.table("study_plan_periods").select("*").eq("id", period_id).maybe_single().execute()
+    before_row = before_res.data if before_res else None
+
     update_data = {k: v for k, v in body.dict().items() if v is not None}
     await touch_plan_by_period(period_id)
     res = admin.table("study_plan_periods").update(update_data).eq("id", period_id).execute()
-    return success(res.data[0] if res.data else {})
+    updated = res.data[0] if res.data else {}
+    if before_row and updated:
+        record_teacher_study_plan_change(
+            entity_type="period",
+            entity_id=period_id,
+            change_type="update",
+            previous_details=snapshot_for_entity("period", before_row),
+            new_details=snapshot_for_entity("period", updated),
+            teacher_user_id=token.user_id,
+        )
+    return success(updated)
 
 @router.delete("/study-plans/periods/{period_id}")
 async def delete_classroom_period(
@@ -1666,10 +2039,14 @@ async def create_classroom_task(
     body: TeacherTaskCreate,
     token: TokenData = Depends(require_teacher)
 ):
-    await touch_plan_by_period(str(body.period_id))
     admin = get_admin_client()
+    period_id = str(body.period_id)
+
+    await touch_plan_by_period(period_id)
+    class_id = resolve_class_id_from_period_id(admin, period_id)
+
     res = admin.table("study_plan_tasks").insert({
-        "period_id": str(body.period_id),
+        "period_id": period_id,
         "tenant_id": str(token.tenant_id),
         "title": body.title,
         "description": body.description,
@@ -1678,7 +2055,25 @@ async def create_classroom_task(
         "order_index": body.order_index,
         "config": _merge_task_config(body.config, body.kpi_bucket)
     }).execute()
-    return success(res.data[0] if res.data else {}, status_code=201)
+
+    created = res.data[0] if res.data else {}
+    if created:
+        try:
+            record_teacher_study_plan_change(
+                entity_type="task",
+                entity_id=str(created.get("id", "")),
+                change_type="create",
+                previous_details={},
+                new_details=snapshot_for_entity("task", created),
+                teacher_user_id=token.user_id,
+            )
+        except Exception:
+            _logger.exception("Failed to record study plan change for new task")
+
+    if class_id:
+        await invalidate_study_plan_caches(str(token.tenant_id), class_id)
+
+    return success(created, status_code=201)
 
 @router.patch("/study-plans/tasks/{task_id}")
 async def update_classroom_task(
@@ -1687,6 +2082,9 @@ async def update_classroom_task(
     token: TokenData = Depends(require_teacher)
 ):
     admin = get_admin_client()
+    before_res = admin.table("study_plan_tasks").select("*").eq("id", task_id).limit(1).execute()
+    before_row = before_res.data[0] if before_res.data else None
+
     update_data = {k: v for k, v in body.dict().items() if v is not None}
     if "task_type" in update_data and update_data["task_type"]:
         update_data["task_type"] = update_data["task_type"].value
@@ -1696,7 +2094,23 @@ async def update_classroom_task(
     
     await touch_plan_by_task(task_id)
     res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
-    return success(res.data[0] if res.data else {})
+    updated = res.data[0] if res.data else {}
+    if before_row and updated:
+        try:
+            record_teacher_study_plan_change(
+                entity_type="task",
+                entity_id=task_id,
+                change_type="update",
+                previous_details=snapshot_for_entity("task", before_row),
+                new_details=snapshot_for_entity("task", updated),
+                teacher_user_id=token.user_id,
+            )
+        except Exception:
+            _logger.exception("Failed to record study plan change for task %s", task_id)
+    class_id = resolve_class_id_from_task(admin, updated or before_row or {})
+    if class_id and token.tenant_id:
+        await invalidate_study_plan_caches(str(token.tenant_id), class_id)
+    return success(updated)
 
 @router.delete("/study-plans/tasks/{task_id}")
 async def delete_classroom_task(
@@ -1732,12 +2146,21 @@ async def get_student_study_plan_progress(
     if not class_res.data:
         return error("FORBIDDEN", "Class not found or access denied", 403)
 
-    # 2. Get the active plan for this classroom
-    plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).maybe_single().execute()
-    if not plan_res.data:
+    # 2. Get the latest active plan for this classroom (same behavior as student)
+    plan_res = (
+        admin.table("study_plans")
+        .select("*")
+        .eq("class_id", class_id)
+        .eq("tenant_id", token.tenant_id)
+        .eq("status", "active")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    plan = (plan_res.data or [None])[0] if plan_res else None
+    if not plan:
         return error("NOT_FOUND", "No study plan assigned to this classroom", 404)
-    
-    plan = plan_res.data
+
     plan_id = plan["id"]
     template_id = plan.get("template_id")
 
@@ -1762,11 +2185,24 @@ async def get_student_study_plan_progress(
     
     submissions = _fetch_submissions_for_student_tasks(admin, student_id, task_ids)
 
-    # 5. Map submissions to tasks
-    subs_map = {s["task_id"]: s for s in submissions}
+    # 5. Map latest submission per task
+    subs_map: dict[str, dict] = {}
+    for sub in submissions:
+        task_id = str(sub.get("task_id") or "")
+        if not task_id:
+            continue
+        prev = subs_map.get(task_id)
+        if not prev:
+            subs_map[task_id] = sub
+            continue
+        prev_key = str(prev.get("reviewed_at") or prev.get("updated_at") or prev.get("created_at") or "")
+        next_key = str(sub.get("reviewed_at") or sub.get("updated_at") or sub.get("created_at") or "")
+        if next_key > prev_key:
+            subs_map[task_id] = sub
     
     overall_bucket_records = []
     for d in days:
+        filter_submittable_tasks(d)
         day_tasks_count = 0
         day_completed_count = 0
         day_reviewed_count = 0
@@ -1831,4 +2267,39 @@ async def get_student_study_plan_progress(
         "overall_progress": overall_progress,
         "bucket_progress": summarize_bucket_progress(overall_bucket_records),
     })
+
+
+@router.get("/classrooms/{class_id}/study-plan")
+async def get_teacher_classroom_study_plan(
+    class_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    """
+    Returns the full study plan structure for a classroom.
+    Teacher edit view — shows any non-archived plan (not just active).
+    Uses Redis caching for improved performance.
+    """
+    # Use the cached teacher study plan (shows non-archived plan for editing)
+    plan, cache_hit = await get_cached_teacher_study_plan(str(token.tenant_id), class_id)
+    if plan is None:
+        return error("NOT_FOUND", "No study plan assigned to this classroom", 404)
+
+    response = success(plan)
+    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+    return response
+
+
+@router.get("/classrooms/{class_id}/study-plan-source")
+async def get_teacher_classroom_study_plan_source(
+    class_id: str,
+    token: TokenData = Depends(require_teacher)
+):
+    """
+    Returns the PDF source metadata for a classroom study plan.
+    Uses Redis caching for improved performance.
+    """
+    payload, cache_hit = await get_cached_study_plan_source(str(token.tenant_id), class_id)
+    response = success(payload)
+    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+    return response
 

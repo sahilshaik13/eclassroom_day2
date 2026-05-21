@@ -183,3 +183,4 @@ class StudyPlanImportApply(BaseModel):
     description: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    confirmed: Optional[bool] = False  # User confirmed overwrite of existing plan

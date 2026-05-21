@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   X,
   User,
@@ -12,9 +13,13 @@ import {
   Phone,
   ChevronLeft,
   ChevronRight,
+  CheckCircle2,
 } from 'lucide-react'
 import { format, formatDistanceToNow, isValid, parseISO } from 'date-fns'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
+import { studyPlanQueryOptions } from '@/lib/studyPlanQueries'
+import { useTeacherStudentProfileRealtime } from '@/hooks/useTeacherStudentProfileRealtime'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -116,10 +121,42 @@ function fmtAttDate(d: string) {
   }
 }
 
+function fmtCheckInTime(row: AttendanceRow) {
+  const iso = row.first_login_at ?? row.logged_at
+  if (!iso) return '—'
+  try {
+    const t = parseISO(iso)
+    if (isValid(t)) return format(t, 'h:mm a')
+  } catch {
+    /* ignore */
+  }
+  return '—'
+}
+
+type AttendanceRow = {
+  id?: string
+  date: string
+  status: string
+  details?: string
+  logged_at?: string | null
+  first_login_at?: string | null
+}
+
 type Overview = {
   last_login_at: string | null
   attendance_streak: number
-  attendance_history: { date: string; status: string; details: string }[]
+  /** One row per calendar day (student_login_attendance). */
+  attendance_history: AttendanceRow[]
+  task_status_by_date?: Record<
+    string,
+    {
+      day_number?: number
+      submitted_count?: number
+      total_count?: number
+      tasks: { task_id: string; title: string; submitted: boolean }[]
+    }
+  >
+  attendance_days?: string[]
   notes: { type: string; time: string; content: string; variant: string }[]
 }
 
@@ -141,35 +178,61 @@ export function TeacherStudentProfileModal({
   /** When set (e.g. admin portal), shows a control to open account/enrollment management. */
   onManageAccount?: () => void
 }) {
-  const [report, setReport] = useState<Report | null>(null)
-  const [overview, setOverview] = useState<Overview | null>(null)
-  const [loading, setLoading] = useState(false)
   const [attendancePage, setAttendancePage] = useState(0)
+  const [selectedAttendanceDate, setSelectedAttendanceDate] = useState<string | null>(null)
   const ATTENDANCE_ROWS_PER_PAGE = 7
 
-  useEffect(() => {
-    if (!open || !student) {
-      setReport(null)
-      setOverview(null)
-      return
-    }
+  const reportPeriod = useMemo(() => {
     const now = new Date()
-    setLoading(true)
-    Promise.all([
-      api.get<{
-        data: Report
-      }>(`/teacher/students/${student.id}/report`, {
-        params: { month: now.getMonth() + 1, year: now.getFullYear() },
-      }),
-      api.get<{ data: Overview }>(`/teacher/students/${student.id}/overview`),
-    ])
-      .then(([repRes, ovRes]) => {
-        setReport(repRes.data.data)
-        setOverview(ovRes.data.data)
-      })
-      .catch(() => toast.error('Could not load student report'))
-      .finally(() => setLoading(false))
+    return { month: now.getMonth() + 1, year: now.getFullYear() }
   }, [open, student?.id])
+
+  useTeacherStudentProfileRealtime(student?.id, open && !!student?.id)
+
+  const {
+    data: overview = null,
+    isLoading: overviewLoading,
+    isFetching: overviewFetching,
+    isError: overviewError,
+  } = useQuery({
+    queryKey: queryKeys.teacher.studentOverview(student?.id ?? ''),
+    queryFn: async () =>
+      (await api.get<{ data: Overview }>(`/teacher/students/${student!.id}/overview`)).data
+        .data,
+    enabled: open && !!student?.id,
+    ...studyPlanQueryOptions(),
+  })
+
+  const {
+    data: report = null,
+    isLoading: reportLoading,
+    isFetching: reportFetching,
+    isError: reportError,
+  } = useQuery({
+    queryKey: queryKeys.teacher.studentReport(
+      student?.id ?? '',
+      reportPeriod.month,
+      reportPeriod.year,
+      'all',
+    ),
+    queryFn: async () =>
+      (
+        await api.get<{ data: Report }>(`/teacher/students/${student!.id}/report`, {
+          params: { month: reportPeriod.month, year: reportPeriod.year },
+        })
+      ).data.data,
+    enabled: open && !!student?.id,
+    ...studyPlanQueryOptions(),
+  })
+
+  useEffect(() => {
+    if (overviewError || reportError) toast.error('Could not load student report')
+  }, [overviewError, reportError])
+
+  const loading =
+    (overviewLoading || reportLoading) && overview === null && report === null
+  const profileUpdating =
+    (overviewFetching || reportFetching) && !loading
 
   useEffect(() => {
     setAttendancePage(0)
@@ -189,6 +252,10 @@ export function TeacherStudentProfileModal({
     attendanceSliceStart + ATTENDANCE_ROWS_PER_PAGE
   )
   const emptyAttendanceRows = Math.max(0, ATTENDANCE_ROWS_PER_PAGE - currentAttendanceRows.length)
+  const selectedDateTasks =
+    selectedAttendanceDate && overview?.task_status_by_date
+      ? overview.task_status_by_date[selectedAttendanceDate]
+      : null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -279,6 +346,9 @@ export function TeacherStudentProfileModal({
         </div>
 
         <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6">
+          {profileUpdating && (
+            <p className="text-center text-[10px] font-medium text-slate-400">Updating…</p>
+          )}
           {loading && (
             <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
               Loading report…
@@ -456,32 +526,31 @@ export function TeacherStudentProfileModal({
                           <tr>
                             <th className="px-4 py-2">Date</th>
                             <th className="px-4 py-2">Status</th>
-                            <th className="px-4 py-2">Details</th>
+                            <th className="px-4 py-2">Check-in</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                           {attendanceRows.length > 0 ? (
                             <>
-                              {currentAttendanceRows.map((row, idx) => (
-                                <tr key={idx}>
+                              {currentAttendanceRows.map((row) => (
+                                <tr key={row.id ?? row.date}>
                                   <td className="px-4 py-2.5 text-slate-900 font-medium whitespace-nowrap">
-                                    {fmtAttDate(row.date)}
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedAttendanceDate(row.date.slice(0, 10))}
+                                      className="rounded px-1 py-0.5 text-left underline decoration-slate-300 underline-offset-2 hover:bg-slate-100 hover:decoration-slate-500"
+                                    >
+                                      {fmtAttDate(row.date)}
+                                    </button>
                                   </td>
                                   <td className="px-4 py-2.5">
-                                    <span
-                                      className={clsx(
-                                        'inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium border',
-                                        row.status?.toLowerCase() === 'present'
-                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                          : row.status?.toLowerCase() === 'absent'
-                                            ? 'bg-red-50 text-red-700 border-red-200'
-                                            : 'bg-amber-50 text-amber-800 border-amber-200'
-                                      )}
-                                    >
-                                      {row.status}
+                                    <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                                      {row.status || 'Present'}
                                     </span>
                                   </td>
-                                  <td className="px-4 py-2.5 text-slate-600">{row.details}</td>
+                                  <td className="px-4 py-2.5 text-slate-600 font-mono text-xs tabular-nums">
+                                    {fmtCheckInTime(row)}
+                                  </td>
                                 </tr>
                               ))}
                               {Array.from({ length: emptyAttendanceRows }).map((_, idx) => (
@@ -509,6 +578,39 @@ export function TeacherStudentProfileModal({
           )}
         </div>
       </DialogContent>
+      <Dialog open={!!selectedAttendanceDate} onOpenChange={(o) => !o && setSelectedAttendanceDate(null)}>
+        <DialogContent className="max-w-md rounded-2xl border border-slate-200 bg-white p-0">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h4 className="text-sm font-bold text-slate-900">
+              Tasks on {selectedAttendanceDate ? fmtAttDate(selectedAttendanceDate) : ''}
+            </h4>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              {selectedDateTasks?.submitted_count ?? 0}/{selectedDateTasks?.total_count ?? 0} submitted
+            </p>
+          </div>
+          <div className="max-h-[320px] space-y-1 overflow-y-auto p-3">
+            {(selectedDateTasks?.tasks?.length ?? 0) > 0 ? (
+              selectedDateTasks!.tasks.map((task) => (
+                <div
+                  key={task.task_id}
+                  className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2"
+                >
+                  <p className="line-clamp-2 pr-3 text-xs font-medium text-slate-700">{task.title}</p>
+                  {task.submitted ? (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                  ) : (
+                    <X className="h-4 w-4 shrink-0 rounded-full bg-rose-100 p-0.5 text-rose-600" />
+                  )}
+                </div>
+              ))
+            ) : (
+              <p className="py-8 text-center text-xs text-slate-400">
+                No study-plan tasks scheduled for this date.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

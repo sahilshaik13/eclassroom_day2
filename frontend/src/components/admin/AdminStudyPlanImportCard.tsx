@@ -7,6 +7,10 @@ import {
   RefreshCcw,
   RotateCcw,
   SquareX,
+  AlertTriangle,
+  Archive,
+  Users,
+  FileCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
@@ -17,6 +21,15 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { StudyPlanTableView } from '@/components/study-plan/StudyPlanTableView'
 import { StudyPlanPdfPreviewModal } from '@/components/study-plan/StudyPlanPdfPreviewModal'
+import { connectStudyPlanImportEvents } from '@/lib/sseImportEvents'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 interface AdminStudyPlanImportCardProps {
   classId: string
@@ -24,6 +37,8 @@ interface AdminStudyPlanImportCardProps {
   startDate?: string
   endDate?: string
   onApplied?: () => void
+  /** Bump to reload import state (e.g. after plan removed from class). */
+  refreshToken?: number
 }
 
 const BUCKET_OPTIONS = [
@@ -95,6 +110,8 @@ function statusTone(status: StudyPlanPdfImport['ocr_status']) {
       return 'bg-rose-50 text-rose-700 border-rose-200'
     case 'cancelled':
       return 'bg-amber-50 text-amber-700 border-amber-200'
+    case 'archived':
+      return 'bg-slate-100 text-slate-600 border-slate-200'
     default:
       return 'bg-blue-50 text-blue-700 border-blue-200'
   }
@@ -106,12 +123,16 @@ export function AdminStudyPlanImportCard({
   startDate,
   endDate,
   onApplied,
+  refreshToken = 0,
 }: AdminStudyPlanImportCardProps) {
   const [currentImport, setCurrentImport] = useState<StudyPlanPdfImport | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [applying, setApplying] = useState(false)
+  const [applyingKpi, setApplyingKpi] = useState(false)
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
+  const [applyCheckData, setApplyCheckData] = useState<any>(null)
   const [pendingColumns, setPendingColumns] = useState<string[]>([])
   const [columnBucketMap, setColumnBucketMap] = useState<Record<string, string>>({})
   const [tableRows, setTableRows] = useState<Record<string, string>[]>([])
@@ -172,16 +193,24 @@ export function AdminStudyPlanImportCard({
   }
 
   useEffect(() => {
+    hydrateImportState(null)
     void loadCurrentImport()
-  }, [classId])
+  }, [classId, refreshToken])
 
   useEffect(() => {
-    if (!currentImport || !['uploading', 'processing'].includes(currentImport.ocr_status)) return
-    const timer = window.setTimeout(() => {
-      void loadCurrentImport(true)
-    }, 4000)
-    return () => window.clearTimeout(timer)
-  }, [currentImport, classId])
+    if (!currentImport || !['pending', 'uploading', 'processing'].includes(currentImport.ocr_status)) {
+      return
+    }
+    return connectStudyPlanImportEvents(classId, (msg) => {
+      if (msg.import) {
+        hydrateImportState(msg.import as unknown as StudyPlanPdfImport)
+        return
+      }
+      if (['completed', 'failed', 'cancelled', 'applied', 'archived'].includes(msg.ocr_status || '')) {
+        void loadCurrentImport(true)
+      }
+    })
+  }, [currentImport?.ocr_status, classId])
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -193,11 +222,11 @@ export function AdminStudyPlanImportCard({
       const res = await api.postForm(`/admin/classrooms/${classId}/study-plan-imports/upload`, {
         file,
       }, {
-        timeout: 120_000,
+        timeout: 30_000,
       })
       const payload = res.data?.data as StudyPlanPdfImport
       hydrateImportState(payload)
-      toast.success('PDF uploaded. OCR processing has started.')
+      toast.success('PDF uploaded. OCR is processing in the background.')
     } catch (err: any) {
       if (err?.code === 'ECONNABORTED') {
         toast.error('Upload timed out while waiting for OCR. Please try again.')
@@ -288,7 +317,33 @@ export function AdminStudyPlanImportCard({
       toast.error('Select at least one row before applying')
       return
     }
+
+    // First, check if there's an existing plan that would be archived
     setApplying(true)
+    try {
+      const checkRes = await api.get(`/admin/study-plan-imports/${currentImport.id}/apply-check`)
+      const checkData = checkRes.data?.data
+
+      if (checkData?.has_existing_plan && checkData?.requires_confirmation) {
+        // Show confirmation dialog
+        setApplyCheckData(checkData)
+        setConfirmDialogOpen(true)
+        setApplying(false)
+        return
+      }
+
+      // No existing plan or no confirmation needed, proceed directly
+      await doApply(false)
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Failed to check apply status')
+      setApplying(false)
+    }
+  }
+
+  const doApply = async (confirmed: boolean) => {
+    if (!currentImport) return
+    const selectedRows = tableRows.filter((_, index) => selectedRowIndexes.includes(index))
+
     try {
       await api.post(`/admin/study-plan-imports/${currentImport.id}/apply`, {
         selected_columns: pendingColumns,
@@ -297,20 +352,51 @@ export function AdminStudyPlanImportCard({
         selected_row_indexes: selectedRowIndexes,
         start_date: startDate || null,
         end_date: endDate || null,
-      }, {
-        timeout: 180_000,
+        confirmed: confirmed,
       })
-      toast.success(`Applied study plan to ${className}`)
+      toast.success('Apply started in background (can take up to 5 mins). You can continue with other classes.')
       await loadCurrentImport(true)
       onApplied?.()
     } catch (err: any) {
-      if (err?.code === 'ECONNABORTED') {
+      if (err?.response?.status === 409 && err?.response?.data?.error?.code === 'CONFIRMATION_REQUIRED') {
+        // Should have been caught in check, but handle just in case
+        setConfirmDialogOpen(true)
+      } else if (err?.code === 'ECONNABORTED') {
         toast.error('Applying the study plan timed out. Please wait a bit and refresh.')
       } else {
         toast.error(err?.response?.data?.error?.message || 'Failed to apply study plan')
       }
     } finally {
       setApplying(false)
+      setConfirmDialogOpen(false)
+    }
+  }
+
+  const handleApplyKpiOnly = async () => {
+    if (!currentImport) return
+    if (!pendingColumns.length) {
+      toast.error('Select at least one column')
+      return
+    }
+    setApplyingKpi(true)
+    try {
+      const res = await api.post(`/admin/study-plan-imports/${currentImport.id}/apply-kpi`, {
+        selected_columns: pendingColumns,
+        column_bucket_map: selectedBucketMap,
+      })
+      const payload = res.data?.data?.import as StudyPlanPdfImport | undefined
+      if (payload) {
+        hydrateImportState(payload)
+      } else {
+        await loadCurrentImport(true)
+      }
+      const updatedTasks = Number(res.data?.data?.updated_tasks || 0)
+      toast.success(updatedTasks > 0 ? `KPI mapping applied to ${updatedTasks} tasks` : 'KPI mapping saved')
+      onApplied?.()
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Failed to apply KPI mapping')
+    } finally {
+      setApplyingKpi(false)
     }
   }
 
@@ -318,23 +404,23 @@ export function AdminStudyPlanImportCard({
 
   return (
     <>
-      <Card className="rounded-3xl border-slate-200/80 shadow-sm">
-        <CardHeader className="gap-3 pb-4">
+      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
+        <CardHeader className="gap-2 pb-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle className="text-lg font-black text-slate-900">AI PDF Import</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">
+              <CardTitle className="text-base font-black text-slate-900">AI PDF Import</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">
                 Upload the Arabic study-plan PDF for this class, review the extracted table, then apply it for the teacher and students.
               </p>
             </div>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-slate-800">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
               Upload PDF
               <input type="file" accept="application/pdf" className="hidden" onChange={handleUpload} disabled={uploading} />
             </label>
           </div>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-4">
           {loading ? (
             <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -373,7 +459,7 @@ export function AdminStudyPlanImportCard({
                 ) : null}
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-bold text-slate-900">
@@ -384,13 +470,13 @@ export function AdminStudyPlanImportCard({
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="h-9 rounded-xl text-xs font-bold" onClick={handleRefresh} disabled={syncing}>
+                    <Button variant="outline" className="h-8 rounded-lg text-[11px] font-bold" onClick={handleRefresh} disabled={syncing}>
                       {syncing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-2 h-3.5 w-3.5" />}
                       Refresh
                     </Button>
                     <Button
                       variant="outline"
-                      className="h-9 rounded-xl text-xs font-bold"
+                      className="h-8 rounded-lg text-[11px] font-bold"
                       onClick={() => setPdfOpen(true)}
                       disabled={!currentImport.pdf_url}
                     >
@@ -398,13 +484,13 @@ export function AdminStudyPlanImportCard({
                       Preview PDF
                     </Button>
                     {currentImport.ocr_status === 'failed' || currentImport.ocr_status === 'cancelled' ? (
-                      <Button variant="outline" className="h-9 rounded-xl text-xs font-bold" onClick={handleRetry} disabled={syncing}>
+                      <Button variant="outline" className="h-8 rounded-lg text-[11px] font-bold" onClick={handleRetry} disabled={syncing}>
                         <RotateCcw className="mr-2 h-3.5 w-3.5" />
                         Retry
                       </Button>
                     ) : null}
                     {['uploading', 'processing'].includes(currentImport.ocr_status) ? (
-                      <Button variant="outline" className="h-9 rounded-xl text-xs font-bold" onClick={handleCancel} disabled={syncing}>
+                      <Button variant="outline" className="h-8 rounded-lg text-[11px] font-bold" onClick={handleCancel} disabled={syncing}>
                         <SquareX className="mr-2 h-3.5 w-3.5" />
                         Cancel
                       </Button>
@@ -422,18 +508,34 @@ export function AdminStudyPlanImportCard({
               </div>
 
               {(currentImport.detected_columns?.length || pendingColumns.length) ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-bold text-slate-900">Columns to keep in the final table</p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="text-xs font-bold text-slate-900">Columns to keep in the final table</p>
+                      <p className="mt-1 text-[11px] text-slate-500">
                         Pick the columns that should stay visible and be converted into the class study plan.
                       </p>
                     </div>
-                    <Button variant="outline" className="h-9 rounded-xl text-xs font-bold" onClick={handleApplyColumnSelection} disabled={syncing}>
-                      {syncing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-2 h-3.5 w-3.5" />}
-                      Update table
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        className="h-8 rounded-lg text-[11px] font-bold"
+                        onClick={handleApplyColumnSelection}
+                        disabled={syncing}
+                      >
+                        {syncing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-2 h-3.5 w-3.5" />}
+                        Update table
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="h-8 rounded-lg text-[11px] font-bold"
+                        onClick={handleApplyKpiOnly}
+                        disabled={applyingKpi || syncing}
+                      >
+                        {applyingKpi ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-2 h-3.5 w-3.5" />}
+                        Apply KPI only
+                      </Button>
+                    </div>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
                     {(currentImport.detected_columns || []).map((column) => {
@@ -443,7 +545,7 @@ export function AdminStudyPlanImportCard({
                       return (
                         <div
                           key={column}
-                          className={`rounded-2xl border p-3 ${
+                          className={`rounded-xl border p-2.5 ${
                             checked ? 'border-slate-900 bg-slate-900/95 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'
                           }`}
                         >
@@ -476,14 +578,14 @@ export function AdminStudyPlanImportCard({
                                 {supportingLabel}
                               </Badge>
                             ) : (
-                              <div className="sm:w-40">
+                              <div className="sm:w-36">
                                 <Select
                                   value={columnBucketMap[column] || 'kubra'}
                                   onValueChange={(value) =>
                                     setColumnBucketMap((prev) => ({ ...prev, [column]: value }))
                                   }
                                 >
-                                  <SelectTrigger className={`h-9 rounded-xl border text-xs font-bold ${checked ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>
+                                  <SelectTrigger className={`h-8 rounded-lg border text-[11px] font-bold ${checked ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>
                                     <SelectValue placeholder="Academic bucket" />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -521,6 +623,7 @@ export function AdminStudyPlanImportCard({
                   columns={displayedColumns}
                   rows={visibleRows}
                   editable
+                  rowsPerPage={50}
                   selectedRowIndexes={selectedRowIndexes}
                   onSelectedRowIndexesChange={setSelectedRowIndexes}
                   onRowsChange={(rows) => setTableRows(rows as Record<string, string>[])}
@@ -528,17 +631,22 @@ export function AdminStudyPlanImportCard({
                 />
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-                <p className="text-sm text-slate-600">
-                  Applying this PDF will replace the current study plan for <span className="font-bold text-slate-900">{className}</span> and archive the previous one.
-                </p>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div>
+                  <p className="text-xs text-slate-600">
+                    Applying this PDF will replace the current study plan for <span className="font-bold text-slate-900">{className}</span> and archive the previous one.
+                  </p>
+                  <p className="mt-1 text-[11px] font-semibold text-indigo-700">
+                    Full apply runs in background and can take up to 5 minutes.
+                  </p>
+                </div>
                 <Button
                   onClick={handleApplyToClass}
                   disabled={applying || !displayedColumns.length || !visibleRows.length}
-                  className="h-10 rounded-xl bg-slate-900 px-5 text-sm font-bold text-white hover:bg-slate-800"
+                  className="h-9 rounded-lg bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800"
                 >
                   {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Apply to class
+                  Queue full apply
                 </Button>
               </div>
             </>
@@ -553,6 +661,84 @@ export function AdminStudyPlanImportCard({
         filename={currentImport?.original_filename}
         title={`${className} Study Plan PDF`}
       />
+
+      {/* Confirmation Dialog for overwriting existing plan */}
+      <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" />
+              Warning: Existing Study Plan Will Be Archived
+            </DialogTitle>
+            <DialogDescription className="pt-2 text-sm text-slate-600">
+              {applyCheckData?.warning || "This action will replace the current study plan. All student progress, submissions, and teacher reviews will be archived and no longer visible in the active dashboard."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {applyCheckData?.will_archive && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+              <p className="mb-2 font-semibold text-amber-800">Current plan that will be archived:</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <Archive className="h-3.5 w-3.5 text-amber-600" />
+                  <span className="text-slate-700">
+                    {applyCheckData.will_archive.total_tasks} tasks
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5 text-amber-600" />
+                  <span className="text-slate-700">
+                    {applyCheckData.will_archive.enrolled_students} students
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <FileCheck className="h-3.5 w-3.5 text-amber-600" />
+                  <span className="text-slate-700">
+                    {applyCheckData.will_archive.total_submissions} submissions
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="text-slate-700">
+                    {applyCheckData.will_archive.total_reviewed} reviewed
+                  </span>
+                </div>
+              </div>
+              <p className="mt-2 text-[10px] text-amber-700">
+                Plan created: {applyCheckData.will_archive.created_at ? new Date(applyCheckData.will_archive.created_at).toLocaleDateString() : 'Unknown'}
+              </p>
+            </div>
+          )}
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            <p className="font-medium text-slate-700">The archived plan will be stored and can be referenced later, but:</p>
+            <ul className="mt-1.5 list-disc space-y-1 pl-4">
+              <li>Students will see the new plan only</li>
+              <li>Teachers will see new tasks in the dashboard</li>
+              <li>Old submissions will not count toward current progress</li>
+              <li>This action <strong>cannot be undone</strong></li>
+            </ul>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDialogOpen(false)}
+              className="h-9 text-xs font-bold"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => doApply(true)}
+              disabled={applying}
+              className="h-9 bg-amber-600 text-xs font-bold text-white hover:bg-amber-700"
+            >
+              {applying ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+              Yes, Archive & Apply New Plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

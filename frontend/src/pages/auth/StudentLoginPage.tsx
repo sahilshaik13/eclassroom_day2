@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import { Phone, ArrowRight, RefreshCw } from 'lucide-react'
 import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
+import { pingStudentPortalIn } from '@/hooks/useStudentPortalAttendance'
 import { ApiClientError } from '@/services/api'
 
 const phoneSchema = z.object({
@@ -93,6 +94,7 @@ export default function StudentLoginPage() {
 
       // No MFA for students — proceed directly to session
       setSession(user, access_token, refresh_token)
+      void pingStudentPortalIn(true)
       toast.success('Welcome back!')
 
       if (user.is_registered) {

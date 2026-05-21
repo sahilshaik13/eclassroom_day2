@@ -4,6 +4,7 @@ import { Search, ChevronRight, Clock, User, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
+import { studyPlanQueryOptions } from '@/lib/studyPlanQueries'
 import { formatDistanceToNow, isValid, parseISO } from 'date-fns'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -54,20 +55,29 @@ export default function TeacherStudentsPage() {
   const [classFilter, setClassFilter] = useState('all')
   const [selected, setSelected] = useState<Student | null>(null)
 
-  const {
-    data: students = [],
-    isPending: loading,
-    isError: studentsError,
-  } = useQuery({
-    queryKey: queryKeys.teacher.studentsAll(),
-    queryFn: async (): Promise<Student[]> =>
-      (await api.get('/teacher/students')).data.data || [],
-  })
-
   const { data: classes = [] } = useQuery({
     queryKey: queryKeys.teacher.classes(),
     queryFn: async (): Promise<MyClass[]> =>
       (await api.get('/teacher/classes')).data.data || [],
+  })
+
+  const activeClassId =
+    classFilter !== 'all' ? classFilter : (classes[0]?.id ?? '')
+
+  const {
+    data: students = [],
+    isLoading: loading,
+    isError: studentsError,
+  } = useQuery({
+    queryKey: queryKeys.teacher.studentsByClass(activeClassId),
+    enabled: Boolean(activeClassId),
+    queryFn: async (): Promise<Student[]> => {
+      const res = await api.get('/teacher/students', {
+        params: { class_id: activeClassId, page: 1, limit: 100 },
+      })
+      return res.data.data || []
+    },
+    ...studyPlanQueryOptions(),
   })
 
   useEffect(() => {

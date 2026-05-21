@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   ChevronLeft,
   Loader2,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
+import { queryKeys } from '@/lib/queryKeys'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -49,6 +51,29 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
   const [progressData, setProgressData] = useState<any>(null)
   const [loadingProgress, setLoadingProgress] = useState(false)
   const [expandedDay, setExpandedDay] = useState<string | null>(null)
+  const [applyingRubricId, setApplyingRubricId] = useState<string | null>(null)
+  const [dayPage, setDayPage] = useState(0)
+  const DAYS_PER_PAGE = 10
+
+  // React Query for pending submissions - enables real-time updates
+  const { 
+    data: pendingSubmissions = [], 
+    isLoading: loadingPending,
+    error: pendingError,
+    refetch: refetchPending 
+  } = useQuery({
+    queryKey: queryKeys.teacher.pendingSubmissions(),
+    queryFn: async () => {
+      const res = await api.get('/teacher/submissions/pending')
+      return res.data?.data || []
+    },
+    // Stale-while-revalidate pattern
+    staleTime: 30_000,      // Consider fresh for 30s
+    gcTime: 2 * 60_000,     // Keep in cache for 2 minutes
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    placeholderData: (previousData) => previousData,
+  })
 
   useEffect(() => {
     loadInitialData()
@@ -65,6 +90,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
         const firstClassId = classList[0].id
         setSelectedClassId(firstClassId)
         await loadStudents(firstClassId)
+        // Pending submissions already loading via React Query
       }
     } catch {
       toast.error('Failed to load dashboard data')
@@ -80,6 +106,11 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
     } catch (err) {
       console.error('Failed to load students', err)
     }
+  }
+
+  // Manual refresh function
+  const loadPendingSubmissions = async () => {
+    await refetchPending()
   }
 
   const loadStudentProgress = async (studentId: string) => {
@@ -116,7 +147,76 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
     }
   }, [selectedClassId])
 
-  const filteredStudents = students.filter((s) => s.classes.some((c: any) => c.id === selectedClassId))
+  const applyRubric = async (submission: any, rubric: 'excellent' | 'acceptable' | 'needs_repeat') => {
+    const preset = {
+      excellent: { score: 100, feedback: 'Excellent recitation. Keep this level.' },
+      acceptable: { score: 75, feedback: 'Acceptable attempt. Keep practicing for cleaner delivery.' },
+      needs_repeat: { score: 40, feedback: 'Needs repeat. Please re-record and submit again.' },
+    }[rubric]
+    setApplyingRubricId(submission.id)
+    try {
+      await api.patch(`/teacher/submissions/${submission.id}/review`, {
+        status: 'reviewed',
+        score: preset.score,
+        feedback: preset.feedback,
+      })
+      // Keep queue responsive even if the follow-up refresh is transiently failing.
+      toast.success('Review saved')
+      await loadPendingSubmissions()
+      if (selectedStudent?.id === submission.student_id) {
+        await loadStudentProgress(selectedStudent.id)
+      }
+    } catch {
+      toast.error('Could not save review')
+    } finally {
+      setApplyingRubricId(null)
+    }
+  }
+
+  const filteredStudents = students.filter((s: any) => s.classes.some((c: any) => c.id === selectedClassId))
+  const visiblePending = pendingSubmissions.filter((item: { id?: string; class_id?: string; student_id?: string }) => {
+    if (selectedClassId && item.class_id && item.class_id !== selectedClassId) return false
+    if (selectedStudent?.id) return item.student_id === selectedStudent.id
+    return true
+  })
+
+  const pagedDays = useMemo(() => {
+    const source = Array.isArray(progressData?.days) ? [...progressData.days] : []
+    source.sort((a: any, b: any) => {
+      const da = a?.scheduled_date ? Date.parse(`${String(a.scheduled_date).slice(0, 10)}T12:00:00`) : 0
+      const db = b?.scheduled_date ? Date.parse(`${String(b.scheduled_date).slice(0, 10)}T12:00:00`) : 0
+      if (da && db && da !== db) return da - db
+      return (a?.day_number || 0) - (b?.day_number || 0)
+    })
+    const totalPages = Math.max(1, Math.ceil(source.length / DAYS_PER_PAGE))
+    const safePage = Math.min(dayPage, totalPages - 1)
+    const start = safePage * DAYS_PER_PAGE
+    return {
+      totalPages,
+      safePage,
+      totalDays: source.length,
+      days: source.slice(start, start + DAYS_PER_PAGE),
+    }
+  }, [progressData?.days, dayPage])
+
+  useEffect(() => {
+    const source = Array.isArray(progressData?.days) ? progressData.days : []
+    if (!source.length) {
+      setDayPage(0)
+      return
+    }
+    const today = new Date()
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const sorted = [...source].sort((a: any, b: any) => {
+      const da = a?.scheduled_date ? Date.parse(`${String(a.scheduled_date).slice(0, 10)}T12:00:00`) : 0
+      const db = b?.scheduled_date ? Date.parse(`${String(b.scheduled_date).slice(0, 10)}T12:00:00`) : 0
+      if (da && db && da !== db) return da - db
+      return (a?.day_number || 0) - (b?.day_number || 0)
+    })
+    const idx = sorted.findIndex((d: any) => String(d?.scheduled_date || '').slice(0, 10) === todayKey)
+    setDayPage(idx >= 0 ? Math.floor(idx / DAYS_PER_PAGE) : 0)
+    setExpandedDay(null)
+  }, [progressData?.days, selectedStudent?.id])
 
   const classSelect = (
     <Select value={selectedClassId} onValueChange={setSelectedClassId}>
@@ -284,6 +384,100 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
 
       {/* Progress workspace */}
       <div className={clsx('lg:col-span-9', embedded && 'lg:col-span-8')}>
+        <Card className={clsx('border border-slate-200 shadow-sm', embedded ? 'mb-3 rounded-xl' : 'mb-4 rounded-2xl')}>
+          <CardHeader className={clsx('border-b border-slate-100', embedded ? 'p-2.5' : 'p-3')}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className={clsx('font-semibold text-slate-900', embedded ? 'text-sm' : 'text-base')}>
+                Pending review queue
+              </h3>
+              <Badge className="border-0 bg-amber-50 text-[10px] font-semibold text-amber-800">
+                {visiblePending.length}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className={clsx(embedded ? 'p-2.5' : 'p-3')}>
+            {loadingPending ? (
+              <div className="flex items-center justify-center py-5">
+                <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+              </div>
+            ) : pendingError ? (
+              <p className="text-xs text-rose-600">
+                {pendingError instanceof Error ? pendingError.message : 'Failed to load pending submissions'}
+              </p>
+            ) : visiblePending.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                {selectedStudent ? 'No pending submissions for this student.' : 'No pending submissions in this class.'}
+              </p>
+            ) : (
+              <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+                {visiblePending.map((item: any) => (
+                  <div
+                    key={item.id}
+                    className="rounded-md border border-slate-200 bg-white p-2.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[11px] font-semibold text-slate-900">{item.student_name}</p>
+                        <p className="text-[10px] text-slate-500">
+                          {item.class_name || 'Class'} · Day {item.day_number ?? item.submission_meta?.day_number ?? '—'}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-slate-400">
+                        {item.scheduled_date ? new Date(item.scheduled_date).toLocaleDateString() : 'Date TBD'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] font-medium text-slate-700">{item.task_title}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      Marked done: {item.marked_done ? 'Yes' : 'No'}
+                    </p>
+                    {item.audio_url ? (
+                      <audio className="mt-1.5 h-7 w-full" controls src={item.audio_url} />
+                    ) : (
+                      <p className="mt-1 text-[10px] italic text-slate-400">No audio clip attached</p>
+                    )}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      <Button
+                        size="sm"
+                        disabled={applyingRubricId === item.id}
+                        onClick={() => applyRubric(item, 'excellent')}
+                        className="h-6 rounded-md bg-emerald-600 px-2 text-[10px] font-semibold text-white hover:bg-emerald-700"
+                      >
+                        Excellent
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={applyingRubricId === item.id}
+                        onClick={() => applyRubric(item, 'acceptable')}
+                        className="h-6 rounded-md bg-blue-600 px-2 text-[10px] font-semibold text-white hover:bg-blue-700"
+                      >
+                        Acceptable
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={applyingRubricId === item.id}
+                        onClick={() => applyRubric(item, 'needs_repeat')}
+                        className="h-6 rounded-md px-2 text-[10px] font-semibold text-rose-700"
+                      >
+                        Needs Repeat
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={applyingRubricId === item.id}
+                        className="h-6 rounded-md px-2 text-[10px] font-medium text-indigo-600"
+                        onClick={() => navigate(`/teacher/evaluate/submission/${item.id}`)}
+                      >
+                        Open
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {selectedStudent ? (
           <div className={clsx('space-y-4', !embedded && 'space-y-6')}>
             <div
@@ -358,7 +552,36 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
               </div>
             ) : (
               <div className="space-y-3">
-                {progressData.days.map((day: any) => (
+                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-lg text-xs font-semibold"
+                    disabled={pagedDays.safePage <= 0}
+                    onClick={() => setDayPage((p) => Math.max(0, p - 1))}
+                  >
+                    <ChevronLeft className="mr-1 h-4 w-4" />
+                    Prev
+                  </Button>
+                  <p className="text-[10px] font-semibold text-slate-500">
+                    Days {pagedDays.totalDays === 0 ? 0 : pagedDays.safePage * DAYS_PER_PAGE + 1}-
+                    {Math.min((pagedDays.safePage + 1) * DAYS_PER_PAGE, pagedDays.totalDays)} of {pagedDays.totalDays}
+                    <span className="block text-center text-[9px] text-slate-400">
+                      Page {pagedDays.safePage + 1}/{pagedDays.totalPages}
+                    </span>
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-lg text-xs font-semibold"
+                    disabled={pagedDays.safePage >= pagedDays.totalPages - 1}
+                    onClick={() => setDayPage((p) => Math.min(pagedDays.totalPages - 1, p + 1))}
+                  >
+                    Next
+                    <ChevronRight className="ml-1 h-4 w-4" />
+                  </Button>
+                </div>
+                {pagedDays.days.map((day: any) => (
                   <Card
                     key={day.id}
                     className={clsx(

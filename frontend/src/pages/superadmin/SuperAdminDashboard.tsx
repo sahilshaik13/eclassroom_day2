@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
     Building2,
@@ -17,10 +18,14 @@ import {
     ChevronLeft,
     ChevronRight,
 } from 'lucide-react'
-import toast from 'react-hot-toast'
 import type { AxiosError } from 'axios'
-import { superAdminApi, type PlatformStats, type Tenant } from '@/services/superAdminApi'
-import type { AuditLogEntry, PaginationMeta } from '@/types'
+import {
+    superAdminApi,
+    superAdminQueryKeys,
+    superAdminQueryOptions,
+    type Tenant,
+} from '@/services/superAdminApi'
+import type { AuditLogEntry } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -106,6 +111,25 @@ function getOutcomeTag(statusCode: number | null): AuditTag & { icon: typeof Che
     }
 }
 
+function getLevelTag(level?: string | null): AuditTag {
+    const key = (level || 'info').toLowerCase()
+    const tones: Record<string, string> = {
+        info: 'bg-slate-100 text-slate-700 border-slate-200',
+        warning: 'bg-amber-50 text-amber-800 border-amber-200',
+        error: 'bg-rose-50 text-rose-800 border-rose-200',
+    }
+    return {
+        label: key,
+        className: tones[key] || tones.info,
+    }
+}
+
+function getLogTypeLabel(row: AuditLogEntry): string {
+    if (row.log_type === 'unhandled_error') return 'Unhandled error'
+    if (row.log_type === 'app_event') return 'App event'
+    return 'HTTP'
+}
+
 function getRoleTag(role?: string | null): AuditTag {
     const key = (role || 'guest').toLowerCase()
     const tones: Record<string, string> = {
@@ -140,6 +164,16 @@ function getContextTags(row: AuditLogEntry): AuditTag[] {
         tags.push({ label: 'Busy', className: 'bg-amber-50 text-amber-700 border-amber-200' })
     }
     const path = row.path.toLowerCase()
+    if (row.log_type === 'unhandled_error') {
+        tags.push({ label: 'Crash', className: 'bg-rose-50 text-rose-700 border-rose-200' })
+    } else if (row.log_type === 'app_event') {
+        tags.push({ label: 'App log', className: 'bg-amber-50 text-amber-700 border-amber-200' })
+    }
+    if (row.log_level === 'error') {
+        tags.push({ label: 'Error', className: 'bg-rose-50 text-rose-700 border-rose-200' })
+    } else if (row.log_level === 'warning') {
+        tags.push({ label: 'Warning', className: 'bg-amber-50 text-amber-700 border-amber-200' })
+    }
     if (path.includes('/auth')) {
         tags.push({ label: 'Auth', className: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200' })
     } else if (path.includes('/admin')) {
@@ -162,64 +196,44 @@ function DetailItem({ label, value, mono = false }: { label: string; value: stri
 }
 
 export default function SuperAdminDashboard() {
-    const [stats, setStats] = useState<PlatformStats | null>(null)
-    const [recentTenants, setRecentTenants] = useState<Tenant[]>([])
-    const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
-    const [auditMeta, setAuditMeta] = useState<PaginationMeta | null>(null)
     const [auditPage, setAuditPage] = useState(1)
-    const [auditLoading, setAuditLoading] = useState(false)
-    const [auditError, setAuditError] = useState<string | null>(null)
     const [selectedAuditLog, setSelectedAuditLog] = useState<AuditLogEntry | null>(null)
-    const [loading, setLoading] = useState(true)
 
-    const fetchAuditPage = async (page: number) => {
-        setAuditLoading(true)
-        setAuditError(null)
-        try {
-            const res = await superAdminApi.getAuditLogs({ page, limit: 50 })
-            const rows = res.data.data
-            const meta = res.data.meta
-            setAuditMeta(meta)
-            setAuditPage(page)
-            setAuditLogs(rows)
-        } catch (error) {
-            const ax = error as AxiosError<{ error?: { message?: string } }>
-            const message =
-                ax.response?.data?.error?.message ||
-                'Audit logs are currently unavailable. Stats and tenants are still loaded.'
-            setAuditError(message)
-            setAuditLogs([])
-            setAuditMeta(null)
-            toast.error('Failed to load audit logs')
-        } finally {
-            setAuditLoading(false)
-        }
-    }
+    const {
+        data: stats,
+        isPending: statsLoading,
+    } = useQuery(superAdminQueryOptions.stats)
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const [statsResult, tenantsResult] = await Promise.allSettled([
-                superAdminApi.getStats(),
-                superAdminApi.getTenants(),
-            ])
+    const {
+        data: tenants = [],
+        isPending: tenantsLoading,
+    } = useQuery(superAdminQueryOptions.tenants)
 
-            if (statsResult.status === 'fulfilled') {
-                setStats(statsResult.value.data.data)
-            } else {
-                toast.error('Failed to load platform stats')
-            }
+    const {
+        data: auditResult,
+        isPending: auditLoading,
+        isError: auditIsError,
+        error: auditQueryError,
+    } = useQuery({
+        queryKey: superAdminQueryKeys.auditLogs(auditPage),
+        queryFn: async () => {
+            const res = await superAdminApi.getAuditLogs({ page: auditPage, limit: 50 })
+            return { rows: res.data.data, meta: res.data.meta }
+        },
+        staleTime: 0,
+    })
 
-            if (tenantsResult.status === 'fulfilled') {
-                setRecentTenants(tenantsResult.value.data.data.tenants.slice(0, 5))
-            } else {
-                toast.error('Failed to load tenants')
-            }
+    const recentTenants = tenants.slice(0, 5) as Tenant[]
+    const auditLogs = auditResult?.rows ?? []
+    const auditMeta = auditResult?.meta ?? null
+    const auditError = auditIsError
+        ? (auditQueryError as AxiosError<{ error?: { message?: string } }>)?.response?.data?.error?.message ||
+          'Application logs require DATABASE_URL (Neon) on the API server.'
+        : null
 
-            setLoading(false)
-            void fetchAuditPage(1)
-        }
-        fetchData()
-    }, [])
+    const loading = statsLoading || tenantsLoading
+
+    const fetchAuditPage = (page: number) => setAuditPage(page)
 
     if (loading) {
         return (
@@ -397,7 +411,7 @@ export default function SuperAdminDashboard() {
                     </CardContent>
                 </Card>
 
-                {/* API audit trail (7-day hot table only) */}
+                {/* Application logs (Neon — HTTP, warnings, errors) */}
                 <Card className="rounded-lg border-slate-200/60 shadow-sm">
                     <CardHeader className="space-y-0 border-b border-slate-100 p-2 sm:p-3">
                         <div className="flex items-start justify-between gap-2 sm:items-center sm:gap-2">
@@ -406,9 +420,9 @@ export default function SuperAdminDashboard() {
                                     <ScrollText className="h-3.5 w-3.5 text-indigo-700 sm:h-4 sm:w-4" />
                                 </div>
                                 <div className="min-w-0 leading-tight">
-                                    <CardTitle className="text-sm font-bold sm:text-base">System audit log</CardTitle>
+                                    <CardTitle className="text-sm font-bold sm:text-base">Application logs</CardTitle>
                                     <p className="mt-0 text-[10px] leading-snug text-slate-500 sm:text-xs">
-                                        Last 7 days of API requests (older rows archived; not shown).
+                                        API requests, warnings, and errors in Neon Postgres. Entries older than 7 days are trimmed automatically.
                                     </p>
                                 </div>
                             </div>
@@ -433,74 +447,120 @@ export default function SuperAdminDashboard() {
                                             Time
                                         </th>
                                         <th className="px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 sm:px-2 sm:text-[9px]">
+                                            Level
+                                        </th>
+                                        <th className="px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 sm:px-2 sm:text-[9px]">
                                             Method
                                         </th>
                                         <th className="px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 sm:px-2 sm:text-[9px]">
                                             Path
                                         </th>
-                                        <th className="hidden px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 md:table-cell sm:px-2 sm:text-[9px]">
-                                            Outcome
+                                        <th className="px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 sm:px-2 sm:text-[9px]">
+                                            Status
                                         </th>
-                                        <th className="hidden px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 lg:table-cell sm:px-2 sm:text-[9px]">
-                                            Role
-                                        </th>
-                                        <th className="hidden px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 xl:table-cell sm:px-2 sm:text-[9px]">
-                                            Tags
-                                        </th>
-                                        <th className="hidden px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 lg:table-cell sm:px-2 sm:text-[9px]">
+                                        <th className="px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 sm:px-2 sm:text-[9px]">
                                             ms
                                         </th>
+                                        <th className="hidden px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 md:table-cell sm:px-2 sm:text-[9px]">
+                                            Role
+                                        </th>
+                                        <th className="hidden px-1.5 py-1 text-[8px] font-bold uppercase tracking-wide text-slate-400 lg:table-cell sm:px-2 sm:text-[9px]">
+                                            Tags
+                                        </th>
                                         <th className="px-1.5 py-1 text-right text-[8px] font-bold uppercase tracking-wide text-slate-400 sm:px-2 sm:text-[9px]">
-                                            Trail
+                                            Details
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 [&_td]:align-middle">
                                     {auditLogs.length === 0 && !auditLoading ? (
                                         <tr>
-                                            <td colSpan={8} className="px-3 py-6 text-center text-slate-500 text-xs sm:py-8 sm:text-sm">
-                                                No audit entries yet. Apply migration <code className="text-xs bg-slate-100 px-1 rounded">024_audit_logs.sql</code> and traffic will appear here.
+                                            <td colSpan={9} className="px-3 py-6 text-center text-slate-500 text-xs sm:py-8 sm:text-sm">
+                                                No log entries yet. Set <code className="text-xs bg-slate-100 px-1 rounded">DATABASE_URL</code> on the API server, then generate traffic.
                                             </td>
                                         </tr>
                                     ) : (
                                         auditLogs.map((row) => {
+                                            const levelTag = getLevelTag(row.log_level)
                                             const methodBadge = getMethodBadge(row.http_method)
                                             const outcomeTag = getOutcomeTag(row.status_code)
                                             const roleTag = getRoleTag(row.actor_role)
                                             const contextTags = getContextTags(row)
                                             const OutcomeIcon = outcomeTag.icon
+                                            const isHttp = row.log_type === 'http_request'
+                                            const isError = row.log_level === 'error' || (row.status_code && row.status_code >= 400)
+                                            const summary = isHttp
+                                                ? row.path
+                                                : (row.message || row.path || getLogTypeLabel(row))
                                             return (
                                             <tr
                                                 key={row.id}
-                                                className="cursor-pointer hover:bg-slate-50/80 focus-within:bg-slate-50/80"
+                                                className={cn(
+                                                    "cursor-pointer hover:bg-slate-50/80 focus-within:bg-slate-50/80",
+                                                    isError && "bg-rose-50/30 hover:bg-rose-50/50"
+                                                )}
                                                 onClick={() => setSelectedAuditLog(row)}
                                             >
                                                 <td className="whitespace-nowrap px-1.5 py-0.5 font-mono text-[10px] leading-none text-slate-600 sm:px-2 sm:text-[11px]" title={formatAuditTime(row.occurred_at)}>
                                                     {formatAuditTimeCompact(row.occurred_at)}
                                                 </td>
                                                 <td className="px-1.5 py-0.5 sm:px-2">
-                                                    <span className={cn('inline-flex rounded border px-1 py-px text-[8px] font-bold uppercase leading-none sm:text-[9px]', methodBadge.className)}>
-                                                        {row.http_method}
+                                                    <span className={cn('inline-flex rounded border px-1 py-px text-[8px] font-bold uppercase leading-none sm:text-[9px]', levelTag.className)}>
+                                                        {levelTag.label}
                                                     </span>
                                                 </td>
-                                                <td className="max-w-[40vw] truncate px-1.5 py-0.5 text-[10px] leading-none text-slate-800 sm:max-w-[280px] sm:px-2 sm:text-[11px] md:max-w-[320px]" title={row.path}>
-                                                    {row.path}
+                                                <td className="px-1.5 py-0.5 sm:px-2">
+                                                    {isHttp ? (
+                                                        <span className={cn('inline-flex rounded border px-1 py-px text-[8px] font-bold uppercase leading-none sm:text-[9px]', methodBadge.className)}>
+                                                            {row.http_method}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex rounded border border-slate-200 bg-slate-50 px-1 py-px text-[8px] font-semibold leading-none text-slate-600 sm:text-[9px]">
+                                                            {getLogTypeLabel(row)}
+                                                        </span>
+                                                    )}
                                                 </td>
-                                                <td className="hidden px-1.5 py-0.5 md:table-cell sm:px-2">
+                                                <td className="max-w-[40vw] truncate px-1.5 py-0.5 text-[10px] leading-none text-slate-800 sm:max-w-[280px] sm:px-2 sm:text-[11px] md:max-w-[320px]" title={summary}>
+                                                    {summary}
+                                                </td>
+                                                <td className="px-1.5 py-0.5 sm:px-2">
                                                     <div className="flex items-center gap-1">
+                                                        {isError && (
+                                                            <span className="inline-flex items-center gap-0.5 rounded border border-rose-200 bg-rose-50 px-1 py-px text-[8px] font-bold leading-none text-rose-700 sm:text-[9px]">
+                                                                ERROR
+                                                            </span>
+                                                        )}
                                                         <span className={cn('inline-flex items-center gap-0.5 rounded-full border px-1 py-px text-[8px] font-bold leading-none sm:gap-1 sm:px-1.5 sm:text-[9px]', outcomeTag.className)}>
                                                             <OutcomeIcon className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
                                                             {outcomeTag.label}
                                                         </span>
-                                                        <span className="font-mono text-[9px] text-slate-500 sm:text-[10px]">{row.status_code ?? '—'}</span>
+                                                        <span className={cn(
+                                                            "font-mono text-[9px] sm:text-[10px]",
+                                                            row.status_code && row.status_code >= 400 ? "text-rose-600 font-bold" : "text-slate-500"
+                                                        )}>
+                                                            {row.status_code ?? '—'}
+                                                        </span>
                                                     </div>
                                                 </td>
-                                                <td className="hidden px-1.5 py-0.5 lg:table-cell sm:px-2">
+                                                <td className="px-1.5 py-0.5 text-slate-500 sm:px-2">
+                                                    <span className={cn(
+                                                        'inline-flex items-center gap-0.5 rounded-full px-1 py-px text-[8px] font-medium leading-none sm:gap-1 sm:px-1.5 sm:text-[9px]',
+                                                        (row.duration_ms ?? 0) >= 1000
+                                                            ? 'bg-rose-50 text-rose-700'
+                                                            : (row.duration_ms ?? 0) >= 300
+                                                                ? 'bg-amber-50 text-amber-700'
+                                                                : 'bg-slate-100 text-slate-600'
+                                                    )}>
+                                                        <Clock3 className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
+                                                        {row.duration_ms ?? '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="hidden px-1.5 py-0.5 md:table-cell sm:px-2">
                                                     <span className={cn('inline-flex rounded-full border px-1.5 py-px text-[8px] font-bold capitalize leading-none sm:text-[9px]', roleTag.className)}>
                                                         {roleTag.label}
                                                     </span>
                                                 </td>
-                                                <td className="hidden px-1.5 py-0.5 xl:table-cell sm:px-2">
+                                                <td className="hidden px-1.5 py-0.5 lg:table-cell sm:px-2">
                                                     <div className="flex flex-wrap gap-0.5 sm:gap-1">
                                                         {contextTags.length ? contextTags.slice(0, 3).map((tag) => (
                                                             <span
@@ -514,19 +574,6 @@ export default function SuperAdminDashboard() {
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="hidden px-1.5 py-0.5 text-slate-500 lg:table-cell sm:px-2">
-                                                    <span className={cn(
-                                                        'inline-flex items-center gap-0.5 rounded-full px-1 py-px text-[8px] font-medium leading-none sm:gap-1 sm:px-1.5 sm:text-[9px]',
-                                                        (row.duration_ms ?? 0) >= 1000
-                                                            ? 'bg-rose-50 text-rose-700'
-                                                            : (row.duration_ms ?? 0) >= 300
-                                                                ? 'bg-amber-50 text-amber-700'
-                                                                : 'bg-slate-100 text-slate-600'
-                                                    )}>
-                                                        <Clock3 className="h-2 w-2 sm:h-2.5 sm:w-2.5" />
-                                                        {row.duration_ms ?? '—'}
-                                                    </span>
-                                                </td>
                                                 <td className="px-1.5 py-0.5 text-right sm:px-2">
                                                     <button
                                                         type="button"
@@ -537,7 +584,7 @@ export default function SuperAdminDashboard() {
                                                         }}
                                                     >
                                                         <Eye className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
-                                                        <span className="hidden sm:inline">Details</span>
+                                                        <span className="hidden sm:inline">View</span>
                                                     </button>
                                                 </td>
                                             </tr>
@@ -608,12 +655,17 @@ export default function SuperAdminDashboard() {
                                         </Badge>
                                     ))}
                                 </div>
-                                <p className="mt-4 text-left text-sm text-slate-600">{selectedAuditLog.path}</p>
+                                <p className="mt-4 text-left text-sm text-slate-600">
+                                    {selectedAuditLog.message || selectedAuditLog.path || '—'}
+                                </p>
                             </DialogHeader>
 
                             <div className="space-y-6 px-6 py-6">
                                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                                     <DetailItem label="Occurred At" value={formatAuditTime(selectedAuditLog.occurred_at)} />
+                                    <DetailItem label="Log level" value={selectedAuditLog.log_level} />
+                                    <DetailItem label="Log type" value={selectedAuditLog.log_type} />
+                                    <DetailItem label="Request ID" value={selectedAuditLog.request_id || '—'} mono />
                                     <DetailItem label="Status Code" value={selectedAuditLog.status_code != null ? String(selectedAuditLog.status_code) : '—'} mono />
                                     <DetailItem label="Duration" value={selectedAuditLog.duration_ms != null ? `${selectedAuditLog.duration_ms} ms` : '—'} mono />
                                     <DetailItem label="Actor Role" value={selectedAuditLog.actor_role || '—'} />
@@ -624,7 +676,7 @@ export default function SuperAdminDashboard() {
                                     <DetailItem label="Method" value={selectedAuditLog.http_method} mono />
                                 </div>
 
-                                <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                                <div className="grid gap-4 lg:grid-cols-3">
                                     <div className="rounded-2xl border border-slate-200 bg-white p-5">
                                         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">User Agent</p>
                                         <p className="mt-3 break-words text-sm leading-6 text-slate-700">
@@ -640,10 +692,70 @@ export default function SuperAdminDashboard() {
                                                 : 'No query string captured'}
                                         </p>
                                     </div>
+
+                                    <div className={cn(
+                                        "rounded-2xl border p-5",
+                                        selectedAuditLog.status_code && selectedAuditLog.status_code >= 400
+                                            ? "border-rose-200 bg-rose-50"
+                                            : "border-emerald-200 bg-emerald-50"
+                                    )}>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Response Status</p>
+                                        <div className="mt-3 space-y-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className={cn(
+                                                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-bold",
+                                                    selectedAuditLog.status_code && selectedAuditLog.status_code >= 400
+                                                        ? "border-rose-200 bg-rose-100 text-rose-700"
+                                                        : "border-emerald-200 bg-emerald-100 text-emerald-700"
+                                                )}>
+                                                    {selectedAuditLog.status_code ?? '—'}
+                                                </span>
+                                                <span className="text-sm font-semibold text-slate-700">
+                                                    {selectedAuditLog.status_code && selectedAuditLog.status_code >= 400 ? 'Error Response' : 'Success Response'}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-slate-600">
+                                                Time taken: <span className="font-mono font-semibold">{selectedAuditLog.duration_ms ?? '—'} ms</span>
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
 
+                                {/* Server Response Preview */}
+                                {selectedAuditLog.metadata?.response_body || selectedAuditLog.metadata?.error_message ? (
+                                    <div className={cn(
+                                        "rounded-2xl border p-5",
+                                        selectedAuditLog.status_code && selectedAuditLog.status_code >= 400
+                                            ? "border-rose-200 bg-rose-50/50"
+                                            : "border-slate-200 bg-white"
+                                    )}>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                            Server Response {selectedAuditLog.status_code && selectedAuditLog.status_code >= 400 && (
+                                                <span className="ml-1 text-rose-600">(Error)</span>
+                                            )}
+                                        </p>
+                                        <div className="mt-3">
+                                            {selectedAuditLog.metadata?.error_message && typeof selectedAuditLog.metadata.error_message === 'string' ? (
+                                                <div className="rounded-lg border border-rose-200 bg-rose-100 p-3">
+                                                    <p className="text-xs font-semibold text-rose-700 mb-1">Error Message:</p>
+                                                    <p className="text-sm text-rose-800 font-mono break-all">
+                                                        {selectedAuditLog.metadata.error_message}
+                                                    </p>
+                                                </div>
+                                            ) : null}
+                                            {selectedAuditLog.metadata?.response_body ? (
+                                                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-200">
+                                                    {typeof selectedAuditLog.metadata.response_body === 'string'
+                                                        ? selectedAuditLog.metadata.response_body
+                                                        : JSON.stringify(selectedAuditLog.metadata.response_body, null, 2)}
+                                                </pre>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                ) : null}
+
                                 <div className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-slate-50">
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Metadata JSON</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Full Metadata JSON</p>
                                     <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-200">
                                         {JSON.stringify(selectedAuditLog.metadata ?? {}, null, 2)}
                                     </pre>

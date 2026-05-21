@@ -26,16 +26,36 @@ POST   /api/v1/admin/study-plans
 POST   /api/v1/admin/study-plans/{id}/apply
 """
 from datetime import date, timedelta, datetime
+import asyncio
+import json
 import logging
 from typing import Optional, List, Any
 import httpx
 from fastapi import APIRouter, Depends, Request, File, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr
 from app.schemas import study_plan as sp
 
+from app.core import cache_keys, cache_ttl
+from app.core.cache_service import (
+    acquire_upload_lock,
+    cache_delete,
+    cache_get,
+    cache_set,
+    invalidate_class_caches,
+    release_upload_lock,
+)
 from app.core.deps import require_admin, TokenData
+from app.services.super_admin_service import bust_platform_dashboard_cache
+from app.core.redis_client import get_redis
 from app.core.response import success, error, paginated
 from app.db.supabase import get_admin_client
+from app.services.import_events import channel_for_class, publish_import_event
+from app.worker.enqueue import enqueue_study_plan_apply, enqueue_study_plan_upload
+from app.services.study_plan_cache_service import (
+    get_cached_active_study_plan,
+    get_cached_study_plan_source,
+)
 from app.services.auth_service import AuthService, AuthError
 from app.core.config import settings
 from app.services.study_plan_pdf_import_service import (
@@ -53,6 +73,15 @@ from app.services.study_plan_pdf_import_service import (
     upload_pdf_to_storage,
 )
 from app.services.study_plan_kpi_service import build_column_bucket_map, normalize_kpi_bucket
+from app.services.study_plan_change_service import (
+    actor_display_name,
+    record_teacher_study_plan_change,
+    snapshot_for_entity,
+)
+from app.services.study_plan_import_apply_service import (
+    apply_import_kpi_mapping,
+    apply_import_to_classroom,
+)
 
 class TeacherDayCreate(sp.TeacherDayCreate): pass
 class TeacherDayUpdate(sp.TeacherDayUpdate): pass
@@ -78,23 +107,8 @@ def _merge_task_config(config: Optional[dict], kpi_bucket: Optional[Any]) -> dic
 
 # ── Stats ─────────────────────────────────────────────────────
 
-@router.get("/stats")
-async def get_stats(
-    request: Request, 
-    tenant_id: Optional[str] = None,
-    token: TokenData = Depends(require_admin)
-):
-    admin = get_admin_client()
-    
-    # Use provided tenant_id if platform_admin, otherwise token's tid
-    tid = tenant_id if (tenant_id and token.role == "platform_admin") else token.tenant_id
-
-    students_res = admin.table("students").select("id", count="exact").eq("tenant_id", tid).is_("deactivated_at", None).execute()
-    classes_res  = admin.table("classes").select("id", count="exact").eq("tenant_id", tid).eq("is_active", True).execute()
-    teachers_res = admin.table("users").select("id", count="exact").eq("tenant_id", tid).eq("role", "teacher").is_("deactivated_at", None).execute()
-    doubts_res   = admin.table("doubts").select("id", count="exact").eq("tenant_id", tid).eq("status", "pending").execute()
-
-    # Attendance % (last 30 days)
+async def _live_admin_kpis(admin, tid: str) -> tuple[int, int]:
+    """Attendance and task completion are date-sensitive — always computed live."""
     since = (date.today() - timedelta(days=30)).isoformat()
     att_res = admin.table("attendance").select("status").eq("tenant_id", tid).gte("session_date", since).execute()
     att_rows = att_res.data or []
@@ -102,23 +116,100 @@ async def get_stats(
         round(len([r for r in att_rows if r["status"] == "present"]) / len(att_rows) * 100)
         if att_rows else 0
     )
-
-    # Task completion % (today)
-    comp_res = admin.table("task_completions").select("completed_at").eq("tenant_id", tid).eq("assigned_date", date.today().isoformat()).execute()
+    comp_res = (
+        admin.table("task_completions")
+        .select("completed_at")
+        .eq("tenant_id", tid)
+        .eq("assigned_date", date.today().isoformat())
+        .execute()
+    )
     comp_rows = comp_res.data or []
     avg_comp = (
         round(len([r for r in comp_rows if r["completed_at"]]) / len(comp_rows) * 100)
         if comp_rows else 0
     )
+    return avg_att, avg_comp
 
-    return success({
-        "total_students": students_res.count or 0,
-        "total_classes": classes_res.count or 0,
-        "total_teachers": teachers_res.count or 0,
-        "active_doubts": doubts_res.count or 0,
+
+@router.get("/stats")
+async def get_stats(
+    request: Request,
+    tenant_id: Optional[str] = None,
+    token: TokenData = Depends(require_admin),
+):
+    admin = get_admin_client()
+    tid = tenant_id if (tenant_id and token.role == "platform_admin") else token.tenant_id
+    cache_key = cache_keys.admin_stats(tid)
+
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        response = success(cached)
+        response.headers["X-Cache"] = "HIT"
+        return response
+
+    totals: dict[str, int] = {}
+    try:
+        mv_res = admin.table("mv_admin_stats").select("*").eq("tenant_id", tid).maybe_single().execute()
+        if mv_res.data:
+            row = mv_res.data
+            totals = {
+                "total_students": row.get("total_students") or 0,
+                "total_classes": row.get("total_classes") or 0,
+                "total_teachers": row.get("total_teachers") or 0,
+                "active_doubts": row.get("active_doubts") or 0,
+            }
+    except Exception:
+        logging.getLogger(__name__).debug("mv_admin_stats unavailable, using live counts")
+
+    if not totals:
+        students_res, classes_res, teachers_res, doubts_res = await asyncio.gather(
+            asyncio.to_thread(
+                lambda: admin.table("students")
+                .select("id", count="exact")
+                .eq("tenant_id", tid)
+                .is_("deactivated_at", None)
+                .execute()
+            ),
+            asyncio.to_thread(
+                lambda: admin.table("classes")
+                .select("id", count="exact")
+                .eq("tenant_id", tid)
+                .eq("is_active", True)
+                .execute()
+            ),
+            asyncio.to_thread(
+                lambda: admin.table("users")
+                .select("id", count="exact")
+                .eq("tenant_id", tid)
+                .eq("role", "teacher")
+                .is_("deactivated_at", None)
+                .execute()
+            ),
+            asyncio.to_thread(
+                lambda: admin.table("doubts")
+                .select("id", count="exact")
+                .eq("tenant_id", tid)
+                .eq("status", "pending")
+                .execute()
+            ),
+        )
+        totals = {
+            "total_students": students_res.count or 0,
+            "total_classes": classes_res.count or 0,
+            "total_teachers": teachers_res.count or 0,
+            "active_doubts": doubts_res.count or 0,
+        }
+
+    avg_att, avg_comp = await _live_admin_kpis(admin, tid)
+    payload = {
+        **totals,
         "avg_attendance_pct": avg_att,
         "avg_task_completion_pct": avg_comp,
-    })
+    }
+    await cache_set(cache_key, payload, ttl_seconds=cache_ttl.ADMIN_STATS)
+    response = success(payload)
+    response.headers["X-Cache"] = "MISS"
+    return response
 
 
 # ── Class Enrollments Management ──────────────────────────────
@@ -291,6 +382,7 @@ async def create_student(
             "tenant_id": tid,
         }).execute()
 
+    await bust_platform_dashboard_cache(tid)
     return success(student, status_code=201)
 
 
@@ -417,6 +509,7 @@ async def delete_student(
     # 5. Delete auth user via AuthService
     await AuthService.delete_auth_user(user_id)
 
+    await bust_platform_dashboard_cache(str(token.tenant_id))
     return success({"message": "Student and auth user deleted successfully"})
 
 
@@ -524,6 +617,7 @@ async def invite_teacher(
             "is_active": True,
         }).execute()
 
+        await bust_platform_dashboard_cache(tid)
         return success({"user_id": user_id, "message": "Teacher invited successfully"}, status_code=201)
 
     except AuthError as e:
@@ -699,7 +793,8 @@ async def delete_teacher(
     
     # 4. Delete auth user via AuthService
     await AuthService.delete_auth_user(teacher_id)
-    
+
+    await bust_platform_dashboard_cache(str(token.tenant_id))
     return success({"message": "Teacher and auth user deleted successfully"})
 
 
@@ -812,6 +907,7 @@ async def approve_teacher_application(
             "status": "approved"
         }).eq("id", app_id).execute()
 
+        await bust_platform_dashboard_cache(str(token.tenant_id))
         return success({"message": "Application approved and invitation sent."})
 
     except Exception as e:
@@ -972,6 +1068,7 @@ async def approve_student_application(
         }
     ).eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
 
+    await bust_platform_dashboard_cache(str(token.tenant_id))
     return success(
         {
             "message": "Student application approved and assigned successfully.",
@@ -1125,6 +1222,22 @@ async def list_study_plans(request: Request, token: TokenData = Depends(require_
         days = row.pop("days", []) or []
         plans.append({**row, "day_count": len(days)})
     return success(plans)
+
+
+@router.get("/study-plan-changes")
+async def list_study_plan_teacher_changes(
+    token: TokenData = Depends(require_admin),
+    class_id: Optional[str] = None,
+    limit: int = 100,
+):
+    from app.services.study_plan_change_service import list_teacher_changes
+
+    rows = list_teacher_changes(
+        token.tenant_id,
+        class_id=class_id,
+        limit=min(max(limit, 1), 200),
+    )
+    return success(rows)
 
 
 @router.get("/applied-study-plans")
@@ -1360,41 +1473,17 @@ async def get_classroom_study_plan(
     class_id: str,
     token: TokenData = Depends(require_admin)
 ):
-    """Fetch the actual study plan being delivered in a classroom."""
+    """Fetch the active study plan for a classroom, or null if none is applied yet."""
     admin = get_admin_client()
     try:
-        # 1. Verify class belongs to tenant
-        class_res = admin.table("classes").select("id").eq("id", class_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
-        if not class_res.data:
+        classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
+        if not classroom:
             return error("NOT_FOUND", "Class not found", 404)
 
-        # 2. Fetch plan
-        plan_res = admin.table("study_plans").select("*").eq("class_id", class_id).maybe_single().execute()
-        if not plan_res.data:
-            return success(None) # No plan yet
-        
-        plan = plan_res.data
-        plan_id = plan["id"]
-        
-        # 3. Fetch days, periods, tasks
-        # If the plan is linked to a template, we fetch the template's days/tasks
-        # to ensure the admin and teacher are seeing the EXACT same data.
-        target_field = "template_id" if plan.get("template_id") else "plan_id"
-        target_id = plan.get("template_id") if plan.get("template_id") else plan_id
-        
-        days_res = admin.table("study_plan_days").select("*, periods:study_plan_periods(*, tasks:study_plan_tasks(*))").eq(target_field, target_id).order("day_number").execute()
-        
-        days = days_res.data or []
-        # Sort manually
-        for day in days:
-            if "periods" in day and day["periods"]:
-                day["periods"].sort(key=lambda x: x.get("order_index", 0))
-                for period in day["periods"]:
-                    if "tasks" in period and period["tasks"]:
-                        period["tasks"].sort(key=lambda x: x.get("order_index", 0))
-        
-        plan["days"] = days
-        return success(plan)
+        plan, cache_hit = await get_cached_active_study_plan(token.tenant_id, class_id)
+        response = success(plan)
+        response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+        return response
     except Exception as e:
         return error("QUERY_ERROR", str(e), 500)
 
@@ -1421,18 +1510,26 @@ async def delete_classroom_study_plan(
     if not plan:
         return error("NOT_FOUND", "Study plan not found", 404)
 
-    admin.table("study_plans").delete().eq("id", plan["id"]).execute()
+    plan_id = plan["id"]
+    admin.table("study_plans").update(
+        {
+            "status": "archived",
+            "archived_at": datetime.utcnow().isoformat(),
+            "archived_class_id": class_id,
+            "class_id": None,
+        }
+    ).eq("id", plan_id).execute()
 
-    if plan.get("source_import_id"):
-        admin.table("study_plan_pdf_imports").update(
-            {
-                "applied_plan_id": None,
-                "ocr_status": "completed",
-                "parse_message": "Study plan removed from class",
-            }
-        ).eq("id", plan["source_import_id"]).execute()
+    _archive_class_imports(
+        admin,
+        token.tenant_id,
+        class_id,
+        archived_plan_id=plan_id,
+    )
+    await publish_import_event(class_id, ocr_status="archived")
+    await invalidate_class_caches(token.tenant_id, class_id)
 
-    return success({"deleted": True, "class_id": class_id})
+    return success({"archived": True, "class_id": class_id, "plan_id": plan_id})
 
 @router.post("/classroom-study-plans/days")
 async def admin_create_classroom_day(
@@ -1464,13 +1561,27 @@ async def admin_update_classroom_day(
     token: TokenData = Depends(require_admin)
 ):
     admin = get_admin_client()
+    before_res = admin.table("study_plan_days").select("*").eq("id", day_id).maybe_single().execute()
+    before_row = before_res.data if before_res else None
+
     update_data = {}
     if body.day_number is not None: update_data["day_number"] = body.day_number
     if body.scheduled_date is not None: update_data["scheduled_date"] = body.scheduled_date.isoformat()
     if body.is_accessible is not None: update_data["is_accessible"] = body.is_accessible
-    
+
     res = admin.table("study_plan_days").update(update_data).eq("id", day_id).execute()
-    return success(res.data[0] if res.data else {})
+    updated = res.data[0] if res.data else {}
+    if before_row and updated:
+        record_teacher_study_plan_change(
+            entity_type="day",
+            entity_id=day_id,
+            change_type="update",
+            previous_details=snapshot_for_entity("day", before_row),
+            new_details=snapshot_for_entity("day", updated),
+            teacher_user_id=token.user_id,
+            teacher_name=actor_display_name(admin, token.user_id, "admin"),
+        )
+    return success(updated)
 
 @router.delete("/classroom-study-plans/days/{day_id}")
 async def admin_delete_classroom_day(
@@ -1502,9 +1613,23 @@ async def admin_update_classroom_period(
     token: TokenData = Depends(require_admin)
 ):
     admin = get_admin_client()
+    before_res = admin.table("study_plan_periods").select("*").eq("id", period_id).maybe_single().execute()
+    before_row = before_res.data if before_res else None
+
     update_data = {k: v for k, v in body.dict().items() if v is not None}
     res = admin.table("study_plan_periods").update(update_data).eq("id", period_id).execute()
-    return success(res.data[0] if res.data else {})
+    updated = res.data[0] if res.data else {}
+    if before_row and updated:
+        record_teacher_study_plan_change(
+            entity_type="period",
+            entity_id=period_id,
+            change_type="update",
+            previous_details=snapshot_for_entity("period", before_row),
+            new_details=snapshot_for_entity("period", updated),
+            teacher_user_id=token.user_id,
+            teacher_name=actor_display_name(admin, token.user_id, "admin"),
+        )
+    return success(updated)
 
 @router.delete("/classroom-study-plans/periods/{period_id}")
 async def admin_delete_classroom_period(
@@ -1540,6 +1665,9 @@ async def admin_update_classroom_task(
     token: TokenData = Depends(require_admin)
 ):
     admin = get_admin_client()
+    before_res = admin.table("study_plan_tasks").select("*").eq("id", task_id).maybe_single().execute()
+    before_row = before_res.data if before_res else None
+
     update_data = {k: v for k, v in body.dict().items() if v is not None}
     if "task_type" in update_data and update_data["task_type"]:
         update_data["task_type"] = update_data["task_type"].value
@@ -1547,7 +1675,18 @@ async def admin_update_classroom_task(
         update_data["config"] = _merge_task_config(update_data.get("config"), update_data.get("kpi_bucket"))
     update_data.pop("kpi_bucket", None)
     res = admin.table("study_plan_tasks").update(update_data).eq("id", task_id).execute()
-    return success(res.data[0] if res.data else {})
+    updated = res.data[0] if res.data else {}
+    if before_row and updated:
+        record_teacher_study_plan_change(
+            entity_type="task",
+            entity_id=task_id,
+            change_type="update",
+            previous_details=snapshot_for_entity("task", before_row),
+            new_details=snapshot_for_entity("task", updated),
+            teacher_user_id=token.user_id,
+            teacher_name=actor_display_name(admin, token.user_id, "admin"),
+        )
+    return success(updated)
 
 @router.delete("/classroom-study-plans/tasks/{task_id}")
 async def admin_delete_classroom_task(
@@ -1621,18 +1760,85 @@ def _get_import_by_id(admin: Any, tenant_id: str, import_id: str) -> Optional[di
     return result.data if result else None
 
 
-def _get_latest_import_for_class(admin: Any, tenant_id: str, class_id: str) -> Optional[dict]:
+def _get_active_class_study_plan(admin: Any, tenant_id: str, class_id: str) -> Optional[dict]:
+    result = (
+        admin.table("study_plans")
+        .select("id, source_import_id, status")
+        .eq("tenant_id", tenant_id)
+        .eq("class_id", class_id)
+        .neq("status", "archived")
+        .limit(1)
+        .execute()
+    )
+    rows = result.data or []
+    return rows[0] if rows else None
+
+
+def _archive_class_imports(
+    admin: Any,
+    tenant_id: str,
+    class_id: str,
+    *,
+    archived_plan_id: Optional[str] = None,
+    exclude_import_id: Optional[str] = None,
+) -> None:
+    """Archive every import for a class so the upload UI starts fresh after plan removal."""
+    update_data: dict[str, Any] = {
+        "ocr_status": "archived",
+        "applied_plan_id": None,
+        "ocr_job_id": None,
+        "parse_message": "Study plan removed from class and moved to archive",
+    }
+    if archived_plan_id:
+        update_data["archived_plan_id"] = archived_plan_id
+    query = (
+        admin.table("study_plan_pdf_imports")
+        .update(update_data)
+        .eq("tenant_id", tenant_id)
+        .eq("class_id", class_id)
+        .neq("ocr_status", "archived")
+    )
+    if exclude_import_id:
+        query = query.neq("id", exclude_import_id)
+    query.execute()
+
+
+def _get_editable_import_for_class(admin: Any, tenant_id: str, class_id: str) -> Optional[dict]:
+    """
+    Import shown in the AI PDF editor:
+    - in-progress / ready-to-apply imports
+    - applied import only while its study plan is still active on this class
+    """
+    active_plan = _get_active_class_study_plan(admin, tenant_id, class_id)
+    active_source_id = str(active_plan["source_import_id"]) if active_plan and active_plan.get("source_import_id") else None
+
     result = (
         admin.table("study_plan_pdf_imports")
         .select("*")
         .eq("tenant_id", tenant_id)
         .eq("class_id", class_id)
         .order("created_at", desc=True)
-        .limit(1)
+        .limit(25)
         .execute()
     )
-    rows = result.data or []
-    return rows[0] if rows else None
+    for row in result.data or []:
+        status = str(row.get("ocr_status") or "")
+        if status == "archived":
+            continue
+        if row.get("archived_plan_id") and not active_plan:
+            continue
+        if status == "applied":
+            if active_source_id and str(row.get("id")) == active_source_id:
+                return row
+            continue
+        if status in {"pending", "uploading", "processing", "failed", "cancelled", "completed"}:
+            return row
+    return None
+
+
+def _get_latest_import_for_class(admin: Any, tenant_id: str, class_id: str) -> Optional[dict]:
+    """Backward-compatible alias for editable import lookup."""
+    return _get_editable_import_for_class(admin, tenant_id, class_id)
 
 
 def _project_rows(selected_columns: List[str], rows: List[dict]) -> List[dict]:
@@ -1658,6 +1864,9 @@ async def upload_classroom_study_plan_pdf(
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         return error("BAD_REQUEST", "Please upload a PDF file", 400)
 
+    if not await acquire_upload_lock(class_id):
+        return error("CONFLICT", "Another upload is in progress for this class", 409)
+
     try:
         ensure_nexusocr_configured()
     except ValueError as exc:
@@ -1667,6 +1876,7 @@ async def upload_classroom_study_plan_pdf(
     if not file_bytes:
         return error("BAD_REQUEST", "Uploaded PDF is empty", 400)
 
+    import_row = None
     try:
         storage_path = upload_pdf_to_storage(admin, token.tenant_id, class_id, file.filename, file_bytes)
         created = (
@@ -1681,7 +1891,7 @@ async def upload_classroom_study_plan_pdf(
                     "pdf_storage_path": storage_path,
                     "original_filename": file.filename,
                     "file_size_bytes": len(file_bytes),
-                    "ocr_status": "uploading",
+                    "ocr_status": "pending",
                 }
             )
             .execute()
@@ -1690,49 +1900,22 @@ async def upload_classroom_study_plan_pdf(
         if not import_row:
             return error("INTERNAL_ERROR", "Failed to create study-plan import", 500)
 
-        provider_payload = await upload_pdf_to_provider(file_bytes, file.filename)
-        job_id = (
-            provider_payload.get("job_id")
-            or provider_payload.get("id")
-            or (provider_payload.get("job") or {}).get("id")
-        )
-        if not job_id:
-            admin.table("study_plan_pdf_imports").update(
-                {
-                    "ocr_status": "failed",
-                    "parse_message": "NexusOCR did not return a job id",
-                    "latest_payload": provider_payload,
-                }
-            ).eq("id", import_row["id"]).execute()
-            return error("OCR_ERROR", "NexusOCR did not return a job id", 502)
-
-        updated = (
-            admin.table("study_plan_pdf_imports")
-            .update(
-                {
-                    "ocr_job_id": job_id,
-                    "ocr_status": normalize_import_status(provider_payload.get("status")),
-                    "latest_payload": provider_payload,
-                }
-            )
-            .eq("id", import_row["id"])
-            .execute()
-        )
-        saved = updated.data[0] if updated.data else {**import_row, "ocr_job_id": job_id}
-        return success(build_import_payload(saved, admin), status_code=201)
-    except httpx.HTTPError as exc:
-        message = str(exc)
-        if 'import_row' in locals() and import_row:
-            admin.table("study_plan_pdf_imports").update(
-                {"ocr_status": "failed", "parse_message": message}
-            ).eq("id", import_row["id"]).execute()
-        return error("OCR_ERROR", message, 502)
+        import_id = str(import_row["id"])
+        await enqueue_study_plan_upload(import_id)
+        payload = build_import_payload(import_row, admin)
+        await publish_import_event(class_id, import_id=import_id, ocr_status="pending", payload=payload)
+        await invalidate_class_caches(token.tenant_id, class_id)
+        await cache_delete(cache_keys.admin_stats(token.tenant_id))
+        return success(payload, status_code=201)
     except Exception as exc:
-        if 'import_row' in locals() and import_row:
+        if import_row:
             admin.table("study_plan_pdf_imports").update(
                 {"ocr_status": "failed", "parse_message": str(exc)}
             ).eq("id", import_row["id"]).execute()
+            await publish_import_event(class_id, import_id=str(import_row["id"]), ocr_status="failed")
         return error("UPLOAD_ERROR", str(exc), 500)
+    finally:
+        await release_upload_lock(class_id)
 
 
 @router.get("/classrooms/{class_id}/study-plan-imports/current")
@@ -1745,20 +1928,57 @@ async def get_current_classroom_study_plan_import(
     if not classroom:
         return error("NOT_FOUND", "Class not found", 404)
 
-    import_row = _get_latest_import_for_class(admin, token.tenant_id, class_id)
+    import_row = _get_editable_import_for_class(admin, token.tenant_id, class_id)
     if not import_row:
         return success(None)
 
-    try:
-        if import_row.get("ocr_job_id") and (
-            import_row.get("ocr_status") not in {"failed", "cancelled", "applied"}
-            or not import_row.get("extracted_rows")
-        ):
-            import_row = await sync_import_status(admin, import_row)
-    except Exception:
-        pass
-
     return success(build_import_payload(import_row, admin))
+
+
+@router.get("/classrooms/{class_id}/study-plan-imports/events")
+async def study_plan_import_events_sse(
+    class_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    """SSE stream for import status — subscribe after upload instead of polling."""
+    admin = get_admin_client()
+    classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
+    if not classroom:
+        return error("NOT_FOUND", "Class not found", 404)
+
+    redis = get_redis()
+    if not redis:
+        return error("SERVICE_UNAVAILABLE", "Real-time import events require Redis", 503)
+
+    channel = channel_for_class(class_id)
+
+    async def event_stream():
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(channel)
+        try:
+            yield f"data: {json.dumps({'type': 'connected', 'class_id': class_id})}\n\n"
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=25.0)
+                if message is None:
+                    yield ": keepalive\n\n"
+                    continue
+                if message.get("type") == "message":
+                    yield f"data: {message.get('data')}\n\n"
+        except asyncio.CancelledError:
+            raise
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/study-plan-imports/{import_id}")
@@ -1788,7 +2008,16 @@ async def refresh_study_plan_import(
 
     try:
         import_row = await sync_import_status(admin, import_row)
-        return success(build_import_payload(import_row, admin))
+        payload = build_import_payload(import_row, admin)
+        class_id = str(import_row.get("class_id") or "")
+        if class_id:
+            await publish_import_event(
+                class_id,
+                import_id=import_id,
+                ocr_status=str(import_row.get("ocr_status") or ""),
+                payload=payload,
+            )
+        return success(payload)
     except httpx.HTTPError as exc:
         return error("OCR_ERROR", str(exc), 502)
 
@@ -1886,7 +2115,11 @@ async def cancel_study_plan_import(
         .execute()
     )
     saved = updated.data[0] if updated.data else {**import_row, "ocr_status": "cancelled"}
-    return success(build_import_payload(saved, admin))
+    payload = build_import_payload(saved, admin)
+    class_id = str(import_row.get("class_id") or "")
+    if class_id:
+        await publish_import_event(class_id, import_id=import_id, ocr_status="cancelled", payload=payload)
+    return success(payload)
 
 
 @router.post("/study-plan-imports/{import_id}/retry")
@@ -1925,6 +2158,127 @@ async def retry_study_plan_import(
         return error("OCR_ERROR", str(exc), 502)
 
 
+@router.get("/study-plan-imports/{import_id}/apply-check")
+async def check_study_plan_apply(
+    import_id: str,
+    token: TokenData = Depends(require_admin),
+):
+    """Check if applying this import will overwrite an existing plan and what data will be lost."""
+    admin = get_admin_client()
+    import_row = _get_import_by_id(admin, token.tenant_id, import_id)
+    if not import_row:
+        return error("NOT_FOUND", "Study-plan import not found", 404)
+
+    class_id = str(import_row.get("class_id") or "")
+    if not class_id:
+        return success({"has_existing_plan": False, "will_archive": None})
+
+    # Check for existing active plan
+    existing_plan_res = (
+        admin.table("study_plans")
+        .select("id, name, created_at, source_import_id")
+        .eq("tenant_id", token.tenant_id)
+        .eq("class_id", class_id)
+        .neq("status", "archived")
+        .maybe_single()
+        .execute()
+    )
+    existing_plan = existing_plan_res.data if existing_plan_res else None
+
+    if not existing_plan:
+        return success({"has_existing_plan": False, "will_archive": None})
+
+    # Get stats from archive table if an archive exists for this plan
+    existing_archive_res = (
+        admin.table("study_plan_archives")
+        .select("id, total_tasks, total_submissions, total_reviewed, enrolled_student_count, archived_at")
+        .eq("original_plan_id", existing_plan["id"])
+        .order("archived_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    existing_archive = existing_archive_res.data[0] if existing_archive_res.data else None
+
+    # If we have an archive record, use its stats (plan was previously archived)
+    if existing_archive:
+        return success({
+            "has_existing_plan": True,
+            "already_archived": True,
+            "will_archive": {
+                "plan_id": existing_plan["id"],
+                "plan_name": existing_plan.get("name", "Unnamed Plan"),
+                "created_at": existing_plan.get("created_at"),
+                "source_import_id": existing_plan.get("source_import_id"),
+                "total_tasks": existing_archive.get("total_tasks", 0),
+                "total_submissions": existing_archive.get("total_submissions", 0),
+                "total_reviewed": existing_archive.get("total_reviewed", 0),
+                "enrolled_students": existing_archive.get("enrolled_student_count", 0),
+                "previously_archived_at": existing_archive.get("archived_at"),
+            },
+            "warning": f"A previous version of this plan was archived on {existing_archive.get('archived_at', 'unknown date')}. Applying will create a new archive.",
+            "requires_confirmation": True,
+        })
+
+    # Otherwise, calculate current stats from the live plan
+    plan_id = existing_plan["id"]
+
+    # Count tasks in existing plan
+    days_res = (
+        admin.table("study_plan_days")
+        .select("id, periods:study_plan_periods(id, tasks:study_plan_tasks(id))")
+        .eq("plan_id", plan_id)
+        .execute()
+    )
+    total_tasks = 0
+    task_ids = []
+    for day in days_res.data or []:
+        for period in day.get("periods") or []:
+            for task in period.get("tasks") or []:
+                total_tasks += 1
+                task_ids.append(task["id"])
+
+    # Count submissions
+    submissions_count = 0
+    reviewed_count = 0
+    if task_ids:
+        subs_res = (
+            admin.table("study_plan_submissions")
+            .select("id, status")
+            .in_("task_id", task_ids)
+            .execute()
+        )
+        for sub in subs_res.data or []:
+            submissions_count += 1
+            if sub.get("status") == "reviewed":
+                reviewed_count += 1
+
+    # Get enrolled students count
+    enrollments_res = (
+        admin.table("class_enrollments")
+        .select("student_id", count="exact")
+        .eq("class_id", class_id)
+        .execute()
+    )
+    student_count = len(enrollments_res.data or [])
+
+    return success({
+        "has_existing_plan": True,
+        "already_archived": False,
+        "will_archive": {
+            "plan_id": plan_id,
+            "plan_name": existing_plan.get("name", "Unnamed Plan"),
+            "created_at": existing_plan.get("created_at"),
+            "source_import_id": existing_plan.get("source_import_id"),
+            "total_tasks": total_tasks,
+            "total_submissions": submissions_count,
+            "total_reviewed": reviewed_count,
+            "enrolled_students": student_count,
+        },
+        "warning": f"Applying this plan will archive the existing study plan with {total_tasks} tasks, {submissions_count} student submissions, and {reviewed_count} teacher reviews. The complete plan will be preserved in the archives table for record-keeping.",
+        "requires_confirmation": True,
+    })
+
+
 @router.post("/study-plan-imports/{import_id}/apply")
 async def apply_study_plan_import(
     import_id: str,
@@ -1944,6 +2298,26 @@ async def apply_study_plan_import(
     if not selected_columns:
         return error("BAD_REQUEST", "Select at least one column before applying", 400)
 
+    # Check if there's an existing plan that would be archived
+    existing_plan_res = (
+        admin.table("study_plans")
+        .select("id")
+        .eq("tenant_id", token.tenant_id)
+        .eq("class_id", import_row["class_id"])
+        .neq("status", "archived")
+        .maybe_single()
+        .execute()
+    )
+    existing_plan = existing_plan_res.data if existing_plan_res else None
+
+    # Require confirmation if there's an existing plan
+    if existing_plan and not body.confirmed:
+        return error(
+            "CONFIRMATION_REQUIRED",
+            "An existing study plan will be archived. Call /apply-check first and set confirmed=true to proceed.",
+            409,
+        )
+
     source_rows = import_row.get("filtered_rows") or import_row.get("extracted_rows") or []
     if body.rows:
         chosen_rows = body.rows
@@ -1962,129 +2336,63 @@ async def apply_study_plan_import(
         projected_rows,
         body.column_bucket_map or import_row.get("column_bucket_map") or {},
     )
-    try:
-        plan_days = build_plan_rows(
-            selected_columns,
-            projected_rows,
-            column_bucket_map=column_bucket_map,
-            start_date=body.start_date,
-            end_date=body.end_date,
-        )
-    except ValueError as exc:
-        return error("BAD_REQUEST", str(exc), 400)
-
-    if not plan_days:
-        return error("BAD_REQUEST", "No usable study-plan rows were provided", 400)
-
-    archived_plan_id: Optional[str] = None
-    existing_plan_res = (
-        admin.table("study_plans")
-        .select("*")
-        .eq("tenant_id", token.tenant_id)
-        .eq("class_id", import_row["class_id"])
-        .maybe_single()
-        .execute()
-    )
-    existing_plan = existing_plan_res.data if existing_plan_res else None
-    if existing_plan:
-        archived_plan_id = existing_plan["id"]
-        admin.table("study_plans").update(
-            {
-                "status": "archived",
-                "archived_at": datetime.utcnow().isoformat(),
-                "archived_class_id": import_row["class_id"],
-                "class_id": None,
-            }
-        ).eq("id", archived_plan_id).execute()
-
-    plan_name = (body.name or "").strip() or f"{classroom['name']} Study Plan"
-    description = (body.description or "").strip() or f"Imported from {import_row.get('original_filename') or 'PDF study plan'}"
-    plan_res = (
-        admin.table("study_plans")
-        .insert(
-            {
-                "tenant_id": token.tenant_id,
-                "class_id": import_row["class_id"],
-                "name": plan_name,
-                "description": description,
-                "status": "active",
-                "created_by": token.user_id,
-                "source_import_id": import_id,
-            }
-        )
-        .execute()
-    )
-    if not plan_res.data:
-        return error("INTERNAL_ERROR", "Failed to create study plan", 500)
-
-    plan = plan_res.data[0]
-    for day in plan_days:
-        day_res = (
-            admin.table("study_plan_days")
-            .insert(
-                {
-                    "plan_id": plan["id"],
-                    "day_number": day["day_number"],
-                    "scheduled_date": day.get("scheduled_date"),
-                    "is_accessible": day.get("is_accessible", True),
-                }
-            )
-            .execute()
-        )
-        day_id = day_res.data[0]["id"]
-        for period in day["periods"]:
-            period_res = (
-                admin.table("study_plan_periods")
-                .insert(
-                    {
-                        "day_id": day_id,
-                        "title": period["title"],
-                        "duration_minutes": period["duration_minutes"],
-                        "order_index": period["order_index"],
-                    }
-                )
-                .execute()
-            )
-            period_id = period_res.data[0]["id"]
-            for task in period["tasks"]:
-                admin.table("study_plan_tasks").insert(
-                    {
-                        "period_id": period_id,
-                        "tenant_id": token.tenant_id,
-                        "title": task["title"],
-                        "description": task.get("description"),
-                        "task_type": task["task_type"],
-                        "required": task.get("required", True),
-                        "order_index": task["order_index"],
-                        "config": task.get("config") or {},
-                    }
-                ).execute()
 
     updated = (
         admin.table("study_plan_pdf_imports")
         .update(
             {
-                "ocr_status": "applied",
+                "ocr_status": "processing",
                 "selected_columns": selected_columns,
                 "filtered_rows": projected_rows,
-                "applied_rows": projected_rows,
                 "column_bucket_map": column_bucket_map,
-                "applied_plan_id": plan["id"],
-                "archived_plan_id": archived_plan_id,
-                "parse_message": f"Applied to {classroom['name']}",
+                "parse_message": "Applying in background. This may take up to 5 minutes.",
             }
         )
         .eq("id", import_id)
         .execute()
     )
     saved_import = updated.data[0] if updated.data else import_row
+    payload = build_import_payload(saved_import, admin)
+    await publish_import_event(
+        str(classroom["id"]),
+        import_id=import_id,
+        ocr_status="processing",
+        payload=payload,
+    )
+    await enqueue_study_plan_apply(
+        import_id=import_id,
+        tenant_id=str(token.tenant_id),
+        user_id=str(token.user_id),
+        payload=body.model_dump(mode="json"),
+    )
     return success(
         {
-            "plan_id": plan["id"],
-            "import": build_import_payload(saved_import, admin),
-            "day_count": len(plan_days),
+            "queued": True,
+            "import": payload,
+            "archived_plan_id": existing_plan["id"] if existing_plan else None,
+            "message": "Study plan apply started in background. This may take up to 5 minutes.",
         }
     )
+
+
+@router.post("/study-plan-imports/{import_id}/apply-kpi")
+async def apply_study_plan_import_kpi_only(
+    import_id: str,
+    body: sp.StudyPlanImportColumnSelection,
+    token: TokenData = Depends(require_admin),
+):
+    try:
+        result = await apply_import_kpi_mapping(
+            import_id=import_id,
+            tenant_id=str(token.tenant_id),
+            selected_columns=body.selected_columns,
+            column_bucket_map=body.column_bucket_map or {},
+        )
+        return success(result)
+    except ValueError as exc:
+        return error("BAD_REQUEST", str(exc), 400)
+    except Exception as exc:
+        return error("INTERNAL_ERROR", f"Failed to apply KPI mapping: {exc}", 500)
 
 
 @router.get("/classrooms/{class_id}/study-plan-source")
@@ -2097,20 +2405,15 @@ async def get_admin_classroom_study_plan_source(
     if not classroom:
         return error("NOT_FOUND", "Class not found", 404)
 
-    plan_res = (
-        admin.table("study_plans")
-        .select("id, source_import_id")
-        .eq("tenant_id", token.tenant_id)
-        .eq("class_id", class_id)
-        .maybe_single()
-        .execute()
-    )
-    plan = plan_res.data if plan_res else None
+    plan = _get_active_class_study_plan(admin, token.tenant_id, class_id)
     import_row = None
     if plan and plan.get("source_import_id"):
-        import_row = _get_import_by_id(admin, token.tenant_id, plan["source_import_id"])
-    if not import_row:
-        import_row = _get_latest_import_for_class(admin, token.tenant_id, class_id)
-    return success(build_import_payload(import_row, admin) if import_row else None)
+        candidate = _get_import_by_id(admin, token.tenant_id, str(plan["source_import_id"]))
+        if candidate and str(candidate.get("ocr_status") or "") != "archived":
+            import_row = candidate
+    payload, cache_hit = await get_cached_study_plan_source(token.tenant_id, class_id)
+    response = success(payload)
+    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+    return response
 
 

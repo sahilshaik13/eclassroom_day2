@@ -122,4 +122,22 @@ export const competitionApi = {
     const { data } = await api.get<ApiResponse<CompetitionRegistration[]>>('/student/competitions')
     return data
   },
+
+  getExamDraft: async (competitionId: string) => {
+    const { data } = await api.get<
+      ApiResponse<{ responses: unknown[]; phase?: string | null; saved_at?: string | null }>
+    >(`/student/competitions/${competitionId}/exam-draft`)
+    return data
+  },
+
+  saveExamDraft: async (
+    competitionId: string,
+    payload: { responses: unknown[]; phase?: string },
+  ) => {
+    const { data } = await api.put<ApiResponse<{ message: string; saved_at?: string }>>(
+      `/student/competitions/${competitionId}/exam-draft`,
+      payload,
+    )
+    return data
+  },
 }

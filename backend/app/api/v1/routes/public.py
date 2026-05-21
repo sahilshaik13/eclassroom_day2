@@ -1,11 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Any, Optional
 
+from app.core import cache_keys, cache_ttl
+from app.core.cache_service import get_or_set_cache
 from app.db.supabase import get_admin_client
 from app.core.response import success, error
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+_PUBLIC_CACHE = "public, max-age=300, s-maxage=600"
+
 
 class TeacherApplicationSubmit(BaseModel):
     name: str
@@ -21,15 +26,30 @@ class StudentApplicationSubmit(BaseModel):
     notes: Optional[str] = None
 
 @router.get("/tenants/{slug}")
-async def get_tenant_public(slug: str):
+async def get_tenant_public(slug: str, response: Response):
     """Fetch basic tenant info for the recruitment page."""
-    admin = get_admin_client()
-    res = admin.table("tenants").select("id, name, slug").eq("slug", slug).eq("is_active", True).maybe_single().execute()
-    
-    if not res.data:
+    cache_key = cache_keys.public_tenant(slug)
+
+    async def _load() -> Optional[dict[str, Any]]:
+        admin = get_admin_client()
+        res = (
+            admin.table("tenants")
+            .select("id, name, slug")
+            .eq("slug", slug)
+            .eq("is_active", True)
+            .maybe_single()
+            .execute()
+        )
+        return res.data
+
+    data, hit = await get_or_set_cache(cache_key, cache_ttl.PUBLIC_TENANT, _load)
+    if not data:
         return error("NOT_FOUND", "Organization not found", 404)
-        
-    return success(res.data)
+
+    out = success(data)
+    out.headers["Cache-Control"] = _PUBLIC_CACHE
+    out.headers["X-Cache"] = "HIT" if hit else "MISS"
+    return out
 
 @router.post("/tenants/{slug}/apply")
 async def apply_teacher(slug: str, body: TeacherApplicationSubmit):

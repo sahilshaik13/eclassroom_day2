@@ -14,6 +14,7 @@ from gotrue.errors import AuthApiError
 
 from app.db.supabase import get_admin_client
 from app.core.config import settings
+from app.services.student_attendance_service import record_login_attendance
 
 
 def _disposable_auth_client():
@@ -40,28 +41,12 @@ class AuthService:
         user_id: Optional[str],
         tenant_id: Optional[str],
     ) -> None:
-        """
-        Record a student's login attendance once per calendar date.
-        Duplicate logins on the same date are ignored.
-        """
-        if not student_id or not tenant_id:
-            return
-        try:
-            admin = get_admin_client()
-            now_utc = datetime.now(timezone.utc)
-            admin.table("student_login_attendance").upsert(
-                {
-                    "student_id": str(student_id),
-                    "user_id": str(user_id) if user_id else None,
-                    "tenant_id": str(tenant_id),
-                    "login_date": now_utc.date().isoformat(),
-                    "login_at": now_utc.isoformat(),
-                },
-                on_conflict="student_id,login_date",
-            ).execute()
-        except Exception:
-            # Login should never fail because attendance snapshot write failed.
-            pass
+        """Record login log + unique calendar day (first login preserved)."""
+        record_login_attendance(
+            student_id=student_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
 
     # ── OTP (Student phone login) ─────────────────────────────
 
@@ -81,19 +66,22 @@ class AuthService:
 
                 # Fallback: suffix match for format differences (+91XXXXXXXXXX vs XXXXXXXXXX)
                 if not result or not result.data:
-                    digits_only = phone.lstrip('+')
+                    digits_only = phone.lstrip("+")
                     last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
-                    all_q = admin.table("students").select("id, user_id, deactivated_at, tenant_id, phone")
+                    suffix_q = admin.table("students").select(
+                        "id, user_id, deactivated_at, tenant_id, phone"
+                    ).ilike("phone", f"%{last10}")
                     if tenant_id:
-                        all_q = all_q.eq("tenant_id", tenant_id)
-                    all_students = all_q.execute()
+                        suffix_q = suffix_q.eq("tenant_id", tenant_id)
+                    suffix_res = suffix_q.limit(5).execute()
                     matched = [
-                        s for s in (all_students.data or [])
-                        if s.get("phone", "").lstrip('+').endswith(last10)
+                        s
+                        for s in (suffix_res.data or [])
+                        if str(s.get("phone") or "").lstrip("+").endswith(last10)
                     ]
                     if matched:
                         phone = matched[0]["phone"]
-                        result = type('obj', (object,), {'data': matched})()
+                        result = type("obj", (object,), {"data": matched})()
             except Exception as e:
                 raise AuthError("INTERNAL_ERROR", f"Database query failed: {str(e)}", 500)
 
@@ -516,6 +504,20 @@ class AuthService:
             if user_id:
                 admin = get_admin_client()
                 admin.table("users").update({"has_password": True}).eq("id", user_id).execute()
+                pa = (
+                    admin.table("platform_admins")
+                    .select("id")
+                    .eq("id", user_id)
+                    .maybe_single()
+                    .execute()
+                )
+                if pa.data:
+                    try:
+                        admin.table("platform_admins").update({"has_password": True}).eq(
+                            "id", user_id
+                        ).execute()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -796,6 +798,62 @@ class AuthService:
                 error_msg = resp.json().get("msg", resp.text)
                 raise AuthError("RESET_ERROR", error_msg, resp.status_code)
             return {"message": "Password setup email sent", "method": "recovery"}
+
+    @staticmethod
+    async def _email_is_staff_account(email: str) -> bool:
+        """True if email belongs to admin, teacher, or platform super admin."""
+        normalized = email.strip().lower()
+        admin = get_admin_client()
+        user_res = (
+            admin.table("users")
+            .select("role")
+            .eq("email", normalized)
+            .maybe_single()
+            .execute()
+        )
+        if user_res.data:
+            return user_res.data.get("role") in ("admin", "teacher")
+        pa_res = (
+            admin.table("platform_admins")
+            .select("id")
+            .eq("email", normalized)
+            .maybe_single()
+            .execute()
+        )
+        return bool(pa_res.data)
+
+    @staticmethod
+    async def request_password_reset(email: str, redirect_to: Optional[str] = None) -> dict:
+        """
+        Send a password recovery email via Supabase Auth (staff roles only).
+        Always returns a generic success message to avoid email enumeration.
+        """
+        normalized = email.strip().lower()
+        generic = {
+            "message": "If an account exists for this email, you will receive a password reset link shortly."
+        }
+
+        if not normalized or "@" not in normalized:
+            return generic
+
+        if not await AuthService._email_is_staff_account(normalized):
+            return generic
+
+        target = redirect_to or f"{settings.FRONTEND_URL.rstrip('/')}/auth/reset-password"
+        headers = {
+            "apikey": settings.SUPABASE_ANON_KEY,
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{settings.SUPABASE_URL}/auth/v1/recover",
+                json={"email": normalized, "redirect_to": target},
+                headers=headers,
+            )
+        if resp.status_code >= 400:
+            # Do not leak whether the address exists
+            return generic
+        return generic
 
     # ── User Status ───────────────────────────────────────────
 

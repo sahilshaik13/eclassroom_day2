@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Building2, Plus, Search, ToggleLeft, ToggleRight, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { superAdminApi, type Tenant } from '@/services/superAdminApi'
+import {
+    superAdminApi,
+    superAdminQueryOptions,
+    invalidateSuperAdminQueries,
+    type Tenant,
+} from '@/services/superAdminApi'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,8 +33,7 @@ const createTenantSchema = z.object({
 type CreateTenantForm = z.infer<typeof createTenantSchema>
 
 export default function TenantsPage() {
-    const [tenants, setTenants] = useState<Tenant[]>([])
-    const [loading, setLoading] = useState(true)
+    const queryClient = useQueryClient()
     const [search, setSearch] = useState('')
     const [showCreateDialog, setShowCreateDialog] = useState(false)
     const [creating, setCreating] = useState(false)
@@ -38,20 +43,12 @@ export default function TenantsPage() {
         resolver: zodResolver(createTenantSchema),
     })
 
-    const fetchTenants = async () => {
-        try {
-            const res = await superAdminApi.getTenants()
-            setTenants(res.data.data.tenants)
-        } catch (e) {
-            toast.error('Failed to load tenants')
-        } finally {
-            setLoading(false)
-        }
-    }
+    const { data: tenants = [], isPending: loading } = useQuery({
+        ...superAdminQueryOptions.tenants,
+        meta: { errorMessage: 'Failed to load tenants' },
+    })
 
-    useEffect(() => {
-        fetchTenants()
-    }, [])
+    const refreshTenants = () => invalidateSuperAdminQueries(queryClient)
 
     const onCreateTenant = async (data: CreateTenantForm) => {
         setCreating(true)
@@ -60,7 +57,7 @@ export default function TenantsPage() {
             toast.success('Tenant created successfully')
             setShowCreateDialog(false)
             reset()
-            fetchTenants()
+            refreshTenants()
         } catch (e: any) {
             toast.error(e?.response?.data?.error?.message || 'Failed to create tenant')
         } finally {
@@ -73,7 +70,7 @@ export default function TenantsPage() {
         try {
             await superAdminApi.updateTenant(tenant.id, { is_active: !tenant.is_active })
             toast.success(`Tenant ${tenant.is_active ? 'deactivated' : 'activated'}`)
-            fetchTenants()
+            refreshTenants()
         } catch (e) {
             toast.error('Failed to update tenant')
         } finally {

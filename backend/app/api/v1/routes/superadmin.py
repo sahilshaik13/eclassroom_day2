@@ -19,6 +19,13 @@ from app.core.deps import require_super_admin, TokenData
 from app.core.response import success, error, paginated
 from app.db.supabase import get_admin_client
 from app.services.auth_service import AuthService, AuthError
+from app.services.super_admin_service import (
+    bust_platform_dashboard_cache,
+    fetch_platform_stats,
+    fetch_tenants_with_counts,
+    fetch_tenant_teachers_enriched,
+    fetch_tenant_students_enriched,
+)
 from app.core.config import settings
 
 
@@ -62,37 +69,12 @@ class UpdateAdminRequest(BaseModel):
 
 @router.get("/stats")
 async def get_platform_stats(token: TokenData = Depends(require_super_admin)):
-    """Get platform-wide statistics."""
-    admin = get_admin_client()
-    
+    """Get platform-wide statistics (parallel counts + Redis cache)."""
     try:
-        # Count tenants (excluding platform tenant)
-        tenants_res = admin.table("tenants").select("id", count="exact").eq("is_platform_tenant", False).execute()
-        total_tenants = tenants_res.count if tenants_res else 0
-        
-        # Count active tenants (excluding platform tenant)
-        active_tenants_res = admin.table("tenants").select("id", count="exact").eq("is_active", True).eq("is_platform_tenant", False).execute()
-        active_tenants = active_tenants_res.count if active_tenants_res else 0
-        
-        # Count all admins (role = admin in users table)
-        admins_res = admin.table("users").select("id", count="exact").eq("role", "admin").execute()
-        total_admins = admins_res.count if admins_res else 0
-        
-        # Count all teachers
-        teachers_res = admin.table("users").select("id", count="exact").eq("role", "teacher").execute()
-        total_teachers = teachers_res.count if teachers_res else 0
-        
-        # Count all students
-        students_res = admin.table("students").select("id", count="exact").execute()
-        total_students = students_res.count if students_res else 0
-        
-        return success({
-            "total_tenants": total_tenants,
-            "active_tenants": active_tenants,
-            "total_admins": total_admins,
-            "total_teachers": total_teachers,
-            "total_students": total_students,
-        })
+        data, cached = await fetch_platform_stats()
+        response = success(data)
+        response.headers["X-Cache"] = "HIT" if cached else "MISS"
+        return response
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
 
@@ -105,66 +87,31 @@ async def list_audit_logs(
     token: TokenData = Depends(require_super_admin),
 ):
     """
-    Paginated API audit trail from the 7-day hot table only (`audit_log_recent`).
-    Older rows are moved to `audit_log_archive` by `rotate_audit_logs()` and are not returned here.
+    Paginated application log trail from Neon Postgres (DATABASE_URL).
+    HTTP requests, warnings, and errors. Retention trimmed by cron.
     """
-    admin = get_admin_client()
     limit = max(1, min(limit, 200))
     page = max(1, page)
-    offset = (page - 1) * limit
 
     try:
-        q = (
-            admin.table("audit_log_recent")
-            .select(
-                "id, occurred_at, actor_user_id, tenant_id, actor_role, "
-                "http_method, path, status_code, duration_ms, client_ip, user_agent, metadata",
-                count="exact",
-            )
-            .order("occurred_at", desc=True)
-        )
-        if tenant_id:
-            q = q.eq("tenant_id", tenant_id)
-        res = q.range(offset, offset + limit - 1).execute()
-        rows = res.data or []
-        total = res.count if res.count is not None else len(rows)
+        from app.services.audit_log_service import list_audit_events
+
+        rows, total = await list_audit_events(page=page, limit=limit, tenant_id=tenant_id)
         return paginated(rows, page, limit, total)
+    except RuntimeError as e:
+        return error("SERVICE_UNAVAILABLE", str(e), 503)  # DATABASE_URL missing
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
 
 
 @router.get("/tenants")
 async def list_tenants(token: TokenData = Depends(require_super_admin)):
-    """List all tenants with their stats."""
-    admin = get_admin_client()
-    
+    """List all tenants with role/student counts (bulk fetch + Redis cache)."""
     try:
-        # Get all tenants (excluding platform management office)
-        tenants_res = admin.table("tenants").select("*").eq("is_platform_tenant", False).order("created_at", desc=True).execute()
-        tenants = (tenants_res.data if tenants_res else []) or []
-        
-        # Enrich each tenant with counts
-        enriched_tenants = []
-        for tenant in tenants:
-            tenant_id = tenant["id"]
-            
-            # Count admins for this tenant
-            admins_count = admin.table("users").select("id", count="exact").eq("tenant_id", tenant_id).eq("role", "admin").execute()
-            
-            # Count teachers for this tenant
-            teachers_count = admin.table("users").select("id", count="exact").eq("tenant_id", tenant_id).eq("role", "teacher").execute()
-            
-            # Count students for this tenant
-            students_count = admin.table("students").select("id", count="exact").eq("tenant_id", tenant_id).execute()
-            
-            enriched_tenants.append({
-                **tenant,
-                "admin_count": admins_count.count or 0,
-                "teacher_count": teachers_count.count or 0,
-                "student_count": students_count.count or 0,
-            })
-        
-        return success({"tenants": enriched_tenants})
+        enriched, cached = await fetch_tenants_with_counts()
+        response = success({"tenants": enriched})
+        response.headers["X-Cache"] = "HIT" if cached else "MISS"
+        return response
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
 
@@ -234,6 +181,7 @@ async def create_tenant(
             "is_registered": False,
         }).execute()
         
+        await bust_platform_dashboard_cache(str(tenant_id))
         return success({
             "tenant": tenant,
             "admin": {
@@ -267,7 +215,8 @@ async def update_tenant(tenant_id: UUID, body: UpdateTenantRequest, token: Token
         
         if not result.data:
             return error("NOT_FOUND", "Tenant not found", 404)
-        
+
+        await bust_platform_dashboard_cache(str(tenant_id))
         return success({"tenant": result.data[0]})
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
@@ -299,13 +248,11 @@ async def delete_tenant(tenant_id: UUID, token: TokenData = Depends(require_supe
         admin.table("teacher_applications").delete().eq("tenant_id", tid).execute()
         admin.table("student_applications").delete().eq("tenant_id", tid).execute()
 
-        # 4b. Audit log rows for this tenant (hot + archive)
+        # 4b. Audit log rows for this tenant (Redis)
         try:
-            admin.table("audit_log_recent").delete().eq("tenant_id", tid).execute()
-        except Exception:
-            pass
-        try:
-            admin.table("audit_log_archive").delete().eq("tenant_id", tid).execute()
+            from app.services.audit_log_service import purge_tenant_audit_logs
+
+            await purge_tenant_audit_logs(tid)
         except Exception:
             pass
 
@@ -318,6 +265,7 @@ async def delete_tenant(tenant_id: UUID, token: TokenData = Depends(require_supe
         if not result.data:
             return error("NOT_FOUND", "Tenant not found", 404)
 
+        await bust_platform_dashboard_cache(tid)
         return success({"message": "Tenant and all associated data permanently deleted."})
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
@@ -374,7 +322,12 @@ async def list_tenant_admins(tenant_id: UUID, token: TokenData = Depends(require
 
 
 @router.post("/tenants/{tenant_id}/admins")
-async def create_tenant_admin(tenant_id: UUID, body: CreateAdminRequest, token: TokenData = Depends(require_super_admin)):
+async def create_tenant_admin(
+    tenant_id: UUID,
+    body: CreateAdminRequest,
+    request: Request,
+    token: TokenData = Depends(require_super_admin),
+):
     """Set the primary admin for a tenant. Replaces existing list logic with singular enforcement."""
     admin_client = get_admin_client()
     
@@ -463,6 +416,7 @@ async def create_tenant_admin(tenant_id: UUID, body: CreateAdminRequest, token: 
         if invite_warning:
             response_data["invite_warning"] = invite_warning
 
+        await bust_platform_dashboard_cache(str(tenant_id))
         return success(response_data)
     except AuthError as e:
         return error(e.code, e.message, e.status)
@@ -540,35 +494,8 @@ async def resend_admin_invite(admin_id: UUID, request: Request, token: TokenData
 @router.get("/tenants/{tenant_id}/teachers")
 async def list_tenant_teachers(tenant_id: UUID, token: TokenData = Depends(require_super_admin)):
     """List all teachers for a specific tenant (read-only platform view)."""
-    admin_client = get_admin_client()
-
     try:
-        result = admin_client.table("users").select(
-            "id, name, email, is_active, is_registered, deactivated_at, created_at"
-        ).eq("tenant_id", str(tenant_id)).eq("role", "teacher").order("created_at", desc=True).execute()
-
-        teachers = result.data or []
-
-        # Enrich with class and student counts
-        enriched = []
-        for t in teachers:
-            classes_res = admin_client.table("classes").select("id", count="exact").eq("teacher_id", t["id"]).execute()
-            class_count = classes_res.count or 0
-
-            # Count students across all classes for this teacher
-            class_ids_res = admin_client.table("classes").select("id").eq("teacher_id", t["id"]).execute()
-            class_ids = [c["id"] for c in (class_ids_res.data or [])]
-            student_count = 0
-            if class_ids:
-                enrollments_res = admin_client.table("class_enrollments").select("id", count="exact").in_("class_id", class_ids).execute()
-                student_count = enrollments_res.count or 0
-
-            enriched.append({
-                **t,
-                "class_count": class_count,
-                "student_count": student_count,
-            })
-
+        enriched = fetch_tenant_teachers_enriched(str(tenant_id))
         return success({"teachers": enriched})
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
@@ -634,6 +561,7 @@ async def invite_teacher_to_tenant(
                 headers=auth_headers,
             )
 
+        await bust_platform_dashboard_cache(str(tenant_id))
         return success(result, status_code=201)
 
     except AuthError as e:
@@ -647,38 +575,8 @@ async def invite_teacher_to_tenant(
 @router.get("/tenants/{tenant_id}/students")
 async def list_tenant_students(tenant_id: UUID, token: TokenData = Depends(require_super_admin)):
     """List all students for a specific tenant (read-only platform view)."""
-    admin_client = get_admin_client()
-
     try:
-        students_res = admin_client.table("students").select(
-            "id, user_id, name, phone, deactivated_at, created_at"
-        ).eq("tenant_id", str(tenant_id)).order("created_at", desc=True).execute()
-
-        students = students_res.data or []
-
-        # Enrich with class info
-        enriched = []
-        for s in students:
-            enrollment_res = admin_client.table("class_enrollments").select(
-                "classes(id, name, teacher_id, users(name))"
-            ).eq("student_id", s["id"]).limit(1).execute()
-
-            class_name = None
-            teacher_name = None
-            if enrollment_res.data:
-                cls = enrollment_res.data[0].get("classes")
-                if cls:
-                    class_name = cls.get("name")
-                    teacher_name = (cls.get("users") or {}).get("name")
-
-            enriched.append({
-                **s,
-                "is_active": s.get("deactivated_at") is None,
-                "class_name": class_name,
-                "teacher_name": teacher_name,
-                "status": "Inactive" if s.get("deactivated_at") else "Active",
-            })
-
+        enriched = fetch_tenant_students_enriched(str(tenant_id))
         return success({"students": enriched})
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
@@ -756,6 +654,7 @@ async def invite_student_to_tenant(
                 "tenant_id": str(tenant_id),
             }).execute()
 
+        await bust_platform_dashboard_cache(str(tenant_id))
         return success(student, status_code=201)
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)

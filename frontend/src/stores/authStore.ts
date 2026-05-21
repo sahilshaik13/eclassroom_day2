@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { AuthUser, UserRole } from '@/types'
+import { syncSupabaseRealtimeAuth } from '@/lib/supabaseAuth'
 
 interface AuthState {
   user: AuthUser | null
@@ -44,6 +45,7 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true, 
           lastActivityTimestamp: Date.now() 
         })
+        void syncSupabaseRealtimeAuth()
       },
 
       storeTokenOnly: (user, accessToken, refreshToken) => {
@@ -62,6 +64,7 @@ export const useAuthStore = create<AuthState>()(
         localStorage.setItem('access_token', accessToken)
         localStorage.setItem('refresh_token', refreshToken)
         set({ accessToken, refreshToken, lastActivityTimestamp: Date.now() })
+        void syncSupabaseRealtimeAuth()
       },
 
       touchActivity: () => {

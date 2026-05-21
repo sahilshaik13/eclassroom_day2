@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, Copy, Check, MoreVertical, Users, Trash2, ShieldAlert, ChevronDown } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { competitionApi } from '@/services/competitionApi'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
-import type { Competition, CompetitionStatus, CompetitionCategory, Teacher, CompetitionGraderScore } from '@/types'
+import { competitionListQueryOptions, softRefetchCompetitions } from '@/lib/competitionQueries'
+import { patchCompetitionExamStatus } from '@/lib/competitionRealtimePatch'
+import { useAdminCompetitionRealtime } from '@/hooks/useCompetitionRealtime'
+import type { Competition, CompetitionStatus, Teacher, CompetitionGraderScore } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,20 +26,19 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
+import { GraderStatusList } from '@/components/competition/GraderStatusList'
+import { CompetitionTypeBadge } from '@/components/competition/CompetitionTypeBadge'
+import {
+  COMPETITION_FILTER_OPTIONS,
+  type CompetitionFilterType,
+  deriveCompetitionDisplayTag,
+  matchesCompetitionFilter,
+} from '@/lib/competitionExam'
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
   draft: { label: 'Draft', cls: 'text-slate-500 bg-slate-50 border-slate-200' },
   active: { label: 'Active', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
   closed: { label: 'Closed', cls: 'text-amber-700 bg-amber-50 border-amber-200' },
-}
-
-function graderCountsSafe(c: Competition) {
-  const graders = c.graders || []
-  const names = graders.map((g) => g.name.trim()).filter(Boolean)
-  const corrIds = new Set((c.corrected_grader_ids || []).map(String))
-  const corrCount = graders.filter((g) => corrIds.has(String(g.teacher_id))).length
-  const pendCount = Math.max(0, graders.length - corrCount)
-  return { names, corrCount, pendCount }
 }
 
 function NameListDropdown({
@@ -52,20 +54,25 @@ function NameListDropdown({
   if (!list.length) {
     return <span className="text-[11px] text-slate-400">—</span>
   }
+  const summary =
+    list.length <= 2
+      ? list.join(', ')
+      : `${list.slice(0, 2).join(', ')} +${list.length - 2}`
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={clsx(
-            'inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-md px-0.5 py-0.5 text-left text-[11px] text-slate-700 underline decoration-slate-300 underline-offset-2 hover:bg-slate-100/80 hover:decoration-slate-600',
-            className,
-          )}
-        >
-          <span className="truncate">{list.join(', ')}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
-        </button>
-      </DropdownMenuTrigger>
+    <div className="min-w-0 max-w-full">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={clsx(
+              'flex w-full min-w-0 max-w-full items-center gap-0.5 rounded-md px-0.5 py-0.5 text-left text-[11px] text-slate-700 underline decoration-slate-300 underline-offset-2 hover:bg-slate-100/80 hover:decoration-slate-600',
+              className,
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate">{summary}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 text-slate-400" aria-hidden />
+          </button>
+        </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <div className="max-h-64 w-60 overflow-y-auto p-0">
           <div className="border-b border-slate-100 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
@@ -83,7 +90,8 @@ function NameListDropdown({
           </ul>
         </div>
       </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenu>
+    </div>
   )
 }
 
@@ -99,39 +107,44 @@ function SetupTeachersCell({ teachers, dense }: { teachers: { name: string }[]; 
 }
 
 function GradersNamesAndProgress({ c, dense }: { c: Competition; dense?: boolean }) {
-  const { names, corrCount, pendCount } = graderCountsSafe(c)
-  if (!names.length) return <span className={dense ? 'text-[10px] text-slate-400' : 'text-[11px] text-slate-400'}>None</span>
-  return (
-    <div className={dense ? 'space-y-0.5' : 'space-y-1'}>
-      <NameListDropdown label="Graders" names={names} className={dense ? '!py-px !text-[10px]' : undefined} />
-      <div className={clsx('flex flex-wrap', dense ? 'gap-0.5' : 'gap-1')}>
-        <span className={clsx(
-          'rounded bg-emerald-50 font-semibold text-emerald-700 ring-1 ring-emerald-100/80',
-          dense ? 'px-1 py-px text-[9px]' : 'rounded-md px-1.5 py-0.5 text-[10px]',
-        )}>
-          Done {corrCount}
-        </span>
-        <span className={clsx(
-          'rounded bg-amber-50 font-semibold text-amber-800 ring-1 ring-amber-100/80',
-          dense ? 'px-1 py-px text-[9px]' : 'rounded-md px-1.5 py-0.5 text-[10px]',
-        )}>
-          Pending {pendCount}
-        </span>
-      </div>
-    </div>
-  )
+  return <GraderStatusList competition={c} dense={dense} />
 }
 
+/** Payload for create/update — omit empty dates and read-only API fields. */
+function buildCompetitionWritePayload(
+  comp: Partial<Competition>,
+  options?: { requireStartDate?: boolean },
+): Record<string, unknown> | null {
+  if (options?.requireStartDate && !comp.start_date) {
+    return null
+  }
+  const payload: Record<string, unknown> = {
+    title: comp.title,
+    category: 'mixed',
+    status: comp.status ?? 'draft',
+  }
+  if (comp.description?.trim()) payload.description = comp.description.trim()
+  if (comp.start_date) payload.start_date = comp.start_date
+  if (comp.end_date) payload.end_date = comp.end_date
+  if (comp.grader_teacher_ids?.length) payload.grader_teacher_ids = comp.grader_teacher_ids
+  if (comp.setup_teacher_ids?.length) payload.setup_teacher_ids = comp.setup_teacher_ids
+  return payload
+}
+
+type AdminSortOrder = 'newest' | 'oldest'
+
 export default function AdminCompetitionsPage() {
+  useAdminCompetitionRealtime()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [adminSort, setAdminSort] = useState<AdminSortOrder>('newest')
+  const [adminTypeFilter, setAdminTypeFilter] = useState<CompetitionFilterType>('all')
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
   // Form state
   const [showCreate, setShowCreate] = useState(false)
   const [newComp, setNewComp] = useState<Partial<Competition>>({ 
     title: '', 
-    category: 'mcq' as CompetitionCategory,
     description: '', 
     start_date: '', 
     end_date: '', 
@@ -149,12 +162,12 @@ export default function AdminCompetitionsPage() {
   // Registrations state
   const [showRegistrations, setShowRegistrations] = useState(false)
   const [selectedCompForRegs, setSelectedCompForRegs] = useState<Competition | null>(null)
-  const [registrations, setRegistrations] = useState<any[]>([])
-  const [loadingRegs, setLoadingRegs] = useState(false)
+  const selectedCompId = selectedCompForRegs?.id ?? null
 
   const {
     data: competitions = [],
-    isPending: loading,
+    isLoading: loading,
+    isFetching: compsFetching,
     isError: compsError,
   } = useQuery({
     queryKey: queryKeys.admin.competitions(),
@@ -163,8 +176,26 @@ export default function AdminCompetitionsPage() {
       if (!r.success) throw new Error(r.error.message)
       return r.data
     },
-    staleTime: 30_000,
+    ...competitionListQueryOptions(),
   })
+
+  const {
+    data: registrations = [],
+    isLoading: loadingRegsInitial,
+    isFetching: loadingRegsFetching,
+  } = useQuery({
+    queryKey: queryKeys.competitions.registrations(selectedCompId ?? ''),
+    queryFn: async () => {
+      const res = await competitionApi.getCompetitionRegistrations(selectedCompId!)
+      if (!res.success) throw new Error('Failed to load participants')
+      return res.data.registrations
+    },
+    enabled: !!selectedCompId && showRegistrations,
+    ...competitionListQueryOptions(),
+  })
+
+  const loadingRegs = loadingRegsInitial && registrations.length === 0
+  const regsUpdating = loadingRegsFetching && !loadingRegs
 
   const { data: teachers = [] } = useQuery({
     queryKey: queryKeys.admin.teachers(),
@@ -172,8 +203,11 @@ export default function AdminCompetitionsPage() {
   })
 
   const refreshCompetitionsAdmin = () => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.competitions() })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.teachers() })
+    softRefetchCompetitions(queryClient, queryKeys.admin.competitions())
+    softRefetchCompetitions(queryClient, queryKeys.admin.teachers())
+    if (selectedCompId) {
+      softRefetchCompetitions(queryClient, queryKeys.competitions.registrations(selectedCompId))
+    }
   }
 
   useEffect(() => {
@@ -190,10 +224,12 @@ export default function AdminCompetitionsPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
+    const payload = buildCompetitionWritePayload(newComp, { requireStartDate: true })
+    if (!payload) {
+      toast.error('Start date is required')
+      return
+    }
     try {
-      const payload = { ...newComp }
-      if (!payload.grader_teacher_ids?.length) delete payload.grader_teacher_ids
-      if (!payload.setup_teacher_ids?.length) delete payload.setup_teacher_ids
       const res = await competitionApi.createCompetition(payload)
       if (res.success) {
         toast.success("Competition created!")
@@ -204,19 +240,21 @@ export default function AdminCompetitionsPage() {
         // @ts-ignore
         toast.error(res.error?.message || "Failed to create")
       }
-    } catch (e: any) {
-      toast.error('Failed to create competition')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: { message?: string } } } }
+      toast.error(err?.response?.data?.error?.message || 'Failed to create competition')
     }
   }
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingComp) return
+    const payload = buildCompetitionWritePayload(editingComp, { requireStartDate: true })
+    if (!payload) {
+      toast.error('Start date is required')
+      return
+    }
     try {
-      const payload: Partial<Competition> = { ...editingComp }
-      delete (payload as { graders?: unknown }).graders
-      delete (payload as { setup_teachers?: unknown }).setup_teachers
-      delete (payload as { assigned_teacher?: unknown }).assigned_teacher
       const res = await competitionApi.updateCompetition(editingComp.id, payload)
       if (res.success) {
         toast.success("Competition updated!")
@@ -268,7 +306,10 @@ export default function AdminCompetitionsPage() {
         toast.success('Competition results published to students')
         refreshCompetitionsAdmin()
         if (selectedCompForRegs?.id === competition.id) {
-          fetchRegistrations(competition.id)
+          softRefetchCompetitions(
+            queryClient,
+            queryKeys.competitions.registrations(competition.id),
+          )
         }
       } else {
         // @ts-ignore
@@ -282,19 +323,6 @@ export default function AdminCompetitionsPage() {
   const openRegistrations = (comp: Competition) => {
     setSelectedCompForRegs(comp)
     setShowRegistrations(true)
-    fetchRegistrations(comp.id)
-  }
-
-  const fetchRegistrations = async (id: string) => {
-    setLoadingRegs(true)
-    try {
-      const res = await competitionApi.getCompetitionRegistrations(id)
-      if (res.success) setRegistrations(res.data.registrations)
-    } catch (e) {
-      toast.error('Failed to load participants')
-    } finally {
-      setLoadingRegs(false)
-    }
   }
 
   const handleRemoveRegistration = async (regId: string) => {
@@ -305,27 +333,59 @@ export default function AdminCompetitionsPage() {
       const res = await competitionApi.deleteRegistration(selectedCompForRegs.id, regId)
       if (res.success) {
         toast.success("Participant removed")
-        fetchRegistrations(selectedCompForRegs.id)
+        softRefetchCompetitions(
+          queryClient,
+          queryKeys.competitions.registrations(selectedCompForRegs.id),
+        )
       }
     } catch (e) {
       toast.error('Failed to remove participant')
     }
   }
 
-  const filtered = competitions.filter((c) =>
-    c.title.toLowerCase().includes(search.toLowerCase()),
-  )
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    let list = competitions.filter((c) => {
+      if (needle) {
+        const title = c.title.toLowerCase()
+        const start = c.start_date
+          ? new Date(
+              c.start_date.length <= 10 ? `${c.start_date}T12:00:00` : c.start_date,
+            )
+              .toLocaleDateString()
+              .toLowerCase()
+          : ''
+        if (!title.includes(needle) && !start.includes(needle)) return false
+      }
+      const tag = deriveCompetitionDisplayTag(c.content, c.category)
+      return matchesCompetitionFilter(tag, adminTypeFilter)
+    })
+    list = [...list].sort((a, b) => {
+      const da = a.start_date
+        ? Date.parse(a.start_date.length <= 10 ? `${a.start_date}T12:00:00` : a.start_date)
+        : 0
+      const db = b.start_date
+        ? Date.parse(b.start_date.length <= 10 ? `${b.start_date}T12:00:00` : b.start_date)
+        : 0
+      return adminSort === 'newest' ? db - da : da - db
+    })
+    return list
+  }, [competitions, search, adminSort, adminTypeFilter])
 
   const handleToggleExam = async (c: Competition, nextActive: boolean) => {
+    const prevActive = !!c.is_exam_active
+    patchCompetitionExamStatus(queryClient, c.id, { is_exam_active: nextActive })
     try {
       const res = await competitionApi.updateCompetition(c.id, { is_exam_active: nextActive })
       if (res.success) {
         toast.success(nextActive ? 'Exam window opened for students' : 'Exam window closed')
         refreshCompetitionsAdmin()
       } else {
+        patchCompetitionExamStatus(queryClient, c.id, { is_exam_active: prevActive })
         toast.error(res.error.message || 'Could not update exam')
       }
     } catch {
+      patchCompetitionExamStatus(queryClient, c.id, { is_exam_active: prevActive })
       toast.error('Could not update exam')
     }
   }
@@ -452,7 +512,9 @@ export default function AdminCompetitionsPage() {
   return (
     <DashboardPageLayout
       title="Competitions"
-      description={`Manage and monitor ${competitions.length} competitions.`}
+      description={`Manage and monitor ${competitions.length} competitions.${
+        compsFetching && !loading ? ' Updating…' : ''
+      }`}
       className="space-y-3 pb-28 sm:space-y-4 md:pb-8"
       actions={
         <Button
@@ -471,21 +533,12 @@ export default function AdminCompetitionsPage() {
           <h2 className="text-lg font-bold mb-4">Create Competition</h2>
           <form onSubmit={handleCreate} className="space-y-4 max-w-2xl">
             <div className="grid grid-cols-2 gap-4">
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-1 uppercase text-[10px] text-slate-400 font-bold">Category</label>
-                <select 
-                  className="w-full border-slate-200 rounded-md p-2 border sm:text-sm"
-                  value={newComp.category} 
-                  onChange={e => setNewComp({...newComp, category: e.target.value as CompetitionCategory})}
-                >
-                  <option value="mcq">MCQ (Auto-Graded)</option>
-                  <option value="hifz">Hifz (Audio Recording)</option>
-                  <option value="khirat">Khirat (Audio Recording)</option>
-                </select>
-              </div>
-              <div className="flex-1">
+              <div className="col-span-2">
                 <label className="block text-sm font-medium mb-1 uppercase text-[10px] text-slate-400 font-bold">Title</label>
                 <Input required value={newComp.title} onChange={e => setNewComp({...newComp, title: e.target.value})} />
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Setup teachers choose question types per item in the exam builder.
+                </p>
               </div>
             </div>
             <div>
@@ -498,12 +551,23 @@ export default function AdminCompetitionsPage() {
             </div>
             <div className="flex gap-4">
               <div className="flex-1">
-                <label className="block text-sm font-medium mb-1">Start Date</label>
-                <Input type="date" value={newComp.start_date} onChange={e => setNewComp({...newComp, start_date: e.target.value})} />
+                <label className="block text-sm font-medium mb-1">
+                  Start date <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="date"
+                  required
+                  value={newComp.start_date}
+                  onChange={e => setNewComp({ ...newComp, start_date: e.target.value })}
+                />
               </div>
               <div className="flex-1">
-                <label className="block text-sm font-medium mb-1">End Date</label>
-                <Input type="date" value={newComp.end_date} onChange={e => setNewComp({...newComp, end_date: e.target.value})} />
+                <label className="block text-sm font-medium mb-1">End date (optional)</label>
+                <Input
+                  type="date"
+                  value={newComp.end_date}
+                  onChange={e => setNewComp({ ...newComp, end_date: e.target.value })}
+                />
               </div>
             </div>
             <div>
@@ -586,17 +650,43 @@ export default function AdminCompetitionsPage() {
       )}
 
       <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm md:rounded-xl">
-        <div className="flex flex-col gap-1.5 border-b border-slate-100 p-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:p-3 md:p-3">
-          <h2 className="text-xs font-bold text-slate-800 sm:text-sm md:text-base">All Competitions</h2>
-          <div className="relative w-full sm:w-auto sm:min-w-[200px]">
+        <div className="grid grid-cols-1 gap-2 border-b border-slate-100 p-2 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:p-3">
+          <div className="flex items-center justify-between gap-2 sm:col-span-2">
+            <h2 className="text-xs font-bold text-slate-800 sm:text-sm">All Competitions</h2>
+            {!loading && competitions.length > 0 && (
+              <span className="text-[10px] text-slate-400">
+                {filtered.length} of {competitions.length}
+              </span>
+            )}
+          </div>
+          <div className="relative min-w-0 flex-1 sm:min-w-[180px]">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
-              className="h-8 w-full rounded-md border-slate-200 pl-7 text-xs sm:h-9 sm:rounded-lg sm:pl-8 sm:text-sm"
+              placeholder="Search name or date…"
+              className="h-8 w-full rounded-md border-slate-200 pl-7 text-xs"
             />
           </div>
+          <select
+            value={adminSort}
+            onChange={(e) => setAdminSort(e.target.value as AdminSortOrder)}
+            className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+          <select
+            value={adminTypeFilter}
+            onChange={(e) => setAdminTypeFilter(e.target.value as CompetitionFilterType)}
+            className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
+          >
+            {COMPETITION_FILTER_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {loading ? (
@@ -616,9 +706,7 @@ export default function AdminCompetitionsPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold leading-tight text-slate-900">{c.title}</p>
-                        <span className="mt-0.5 inline-block rounded bg-blue-50 px-1 py-0.5 text-[8px] font-black uppercase tracking-wide text-blue-600">
-                          {c.category}
-                        </span>
+                        <CompetitionTypeBadge competition={c} dense className="mt-0.5" />
                       </div>
                       <span
                         className={clsx(
@@ -671,25 +759,25 @@ export default function AdminCompetitionsPage() {
             </div>
 
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full border-collapse text-left">
+              <table className="w-full table-fixed border-collapse text-left">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <th className="w-[22%] border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
                       Title
                     </th>
-                    <th className="border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <th className="w-[16%] border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
                       Exam setup
                     </th>
-                    <th className="border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <th className="w-[16%] border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
                       Graders
                     </th>
-                    <th className="border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <th className="w-[14%] border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
                       Dates
                     </th>
-                    <th className="border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <th className="w-[8%] border-b border-slate-100 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">
                       Status
                     </th>
-                    <th className="border-b border-slate-100 px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    <th className="w-[24%] border-b border-slate-100 px-3 py-2 text-right text-[10px] font-bold uppercase tracking-wide text-slate-400">
                       Actions
                     </th>
                   </tr>
@@ -699,28 +787,26 @@ export default function AdminCompetitionsPage() {
                     const statusStyle = STATUS_MAP[c.status] || STATUS_MAP.draft
                     return (
                       <tr key={c.id} className="group transition-colors hover:bg-slate-50/70">
-                        <td className="max-w-[220px] px-3 py-2 align-top">
-                          <p className="text-xs font-semibold text-slate-900">{c.title}</p>
+                        <td className="min-w-0 overflow-hidden px-3 py-2 align-top">
+                          <p className="truncate text-xs font-semibold text-slate-900">{c.title}</p>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                            <span className="rounded bg-blue-50 px-1 py-0.5 text-[9px] font-black uppercase tracking-wide text-blue-600">
-                              {c.category}
-                            </span>
+                            <CompetitionTypeBadge competition={c} dense />
                             {c.description && (
                               <span className="line-clamp-1 text-[10px] text-slate-400">— {c.description}</span>
                             )}
                           </div>
                         </td>
-                        <td className="max-w-[168px] px-3 py-2 align-top">
+                        <td className="min-w-0 overflow-hidden px-3 py-2 align-top">
                           {c.setup_teachers && c.setup_teachers.length > 0 ? (
                             <SetupTeachersCell teachers={c.setup_teachers} />
                           ) : (
                             <span className="text-[11px] text-slate-400">—</span>
                           )}
                         </td>
-                        <td className="max-w-[148px] px-3 py-2 align-top">
+                        <td className="min-w-0 overflow-hidden px-3 py-2 align-top">
                           <GradersNamesAndProgress c={c} />
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 align-top text-[11px] text-slate-600">
+                        <td className="min-w-0 overflow-hidden whitespace-nowrap px-3 py-2 align-top text-[11px] text-slate-600">
                           {c.start_date ? new Date(c.start_date).toLocaleDateString() : 'TBD'} —{' '}
                           {c.end_date ? new Date(c.end_date).toLocaleDateString() : 'TBD'}
                         </td>
@@ -753,23 +839,9 @@ export default function AdminCompetitionsPage() {
           </DialogHeader>
           {editingComp && (
             <form onSubmit={handleUpdate} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">Category</label>
-                  <select 
-                    className="w-full border-slate-200 rounded-md p-2 border sm:text-sm"
-                    value={editingComp.category} 
-                    onChange={e => setEditingComp({...editingComp, category: e.target.value as CompetitionCategory})}
-                  >
-                    <option value="mcq">MCQ</option>
-                    <option value="hifz">Hifz</option>
-                    <option value="khirat">Khirat</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">Title</label>
-                  <Input required value={editingComp.title} onChange={e => setEditingComp({...editingComp, title: e.target.value})} />
-                </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">Title</label>
+                <Input required value={editingComp.title} onChange={e => setEditingComp({...editingComp, title: e.target.value})} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1 text-slate-700">Description</label>
@@ -782,12 +854,23 @@ export default function AdminCompetitionsPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">Start Date</label>
-                  <Input type="date" value={editingComp.start_date || ''} onChange={e => setEditingComp({...editingComp, start_date: e.target.value})} />
+                  <label className="block text-sm font-medium mb-1 text-slate-700">
+                    Start date <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    type="date"
+                    required
+                    value={editingComp.start_date || ''}
+                    onChange={e => setEditingComp({ ...editingComp, start_date: e.target.value })}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-700">End Date</label>
-                  <Input type="date" value={editingComp.end_date || ''} onChange={e => setEditingComp({...editingComp, end_date: e.target.value})} />
+                  <label className="block text-sm font-medium mb-1 text-slate-700">End date (optional)</label>
+                  <Input
+                    type="date"
+                    value={editingComp.end_date || ''}
+                    onChange={e => setEditingComp({ ...editingComp, end_date: e.target.value })}
+                  />
                 </div>
               </div>
               <div>
@@ -925,6 +1008,9 @@ export default function AdminCompetitionsPage() {
               </div>
               <span className="text-sm font-normal text-slate-400">
                 {registrations.length} Total
+                {regsUpdating && (
+                  <span className="ml-1 text-[10px]">· Updating…</span>
+                )}
               </span>
             </DialogTitle>
             <p className="text-xs text-slate-400 mt-1 uppercase font-bold tracking-wider">

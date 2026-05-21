@@ -4,10 +4,18 @@ export function createAppQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 60_000,
+        staleTime: 30_000,
         gcTime: 5 * 60_000,
-        retry: 1,
-        refetchOnWindowFocus: true,
+        retry: (failureCount, error) => {
+          const status =
+            error && typeof error === 'object' && 'status' in error
+              ? (error as { status?: number }).status
+              : undefined
+          if (status === 401) return false
+          return failureCount < 1
+        },
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: true,
       },
     },
   })

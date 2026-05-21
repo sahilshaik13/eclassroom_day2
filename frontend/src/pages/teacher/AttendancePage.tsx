@@ -5,6 +5,7 @@ import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
+import { studyPlanQueryOptions } from '@/lib/studyPlanQueries'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -31,17 +32,19 @@ export default function AttendancePage() {
   const { data: classes = [] } = useQuery({
     queryKey: queryKeys.teacher.classes(),
     queryFn: async () => (await api.get('/teacher/classes')).data.data as ClassItem[],
+    ...studyPlanQueryOptions(),
   })
 
   useEffect(() => {
     if (classes.length > 0 && !classId) setClassId(classes[0].id)
   }, [classes, classId])
 
-  const { data: roster = [], isPending: loading, isError: rosterError } = useQuery({
+  const { data: roster = [], isLoading: loading, isError: rosterError } = useQuery({
     queryKey: queryKeys.teacher.studentsByClass(classId),
     queryFn: async () =>
       (await api.get(`/teacher/students?class_id=${classId}`)).data.data as Student[],
     enabled: !!classId,
+    ...studyPlanQueryOptions(),
   })
 
   useEffect(() => {

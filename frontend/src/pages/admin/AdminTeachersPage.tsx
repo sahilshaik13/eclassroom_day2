@@ -121,6 +121,7 @@ export default function AdminTeachersPage() {
     })
     void queryClient.invalidateQueries({ queryKey: queryKeys.admin.classes() })
     void queryClient.invalidateQueries({ queryKey: ['admin', 'students'] })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.stats() })
   }
 
   useEffect(() => {

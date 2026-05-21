@@ -1,13 +1,24 @@
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 from typing import List, Optional, Any
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.core.deps import get_current_user, TokenData, RequireRole, RequireActiveTenant
 from app.core.response import success, error
+from app.core import cache_keys, cache_ttl
+from app.core.cache_service import get_or_set_cache, cache_delete
+from app.core.db_async import run_sync
 from app.db.supabase import get_user_client
+from app.db.supabase_execute import execute_with_retry
+from app.services.realtime_events import (
+    broadcast_competition_created,
+    broadcast_competition_exam_active_changed,
+    broadcast_competition_registration,
+    broadcast_competition_score_entered,
+    broadcast_competition_submitted,
+)
 
 router = APIRouter(prefix="", tags=["competitions"])
 
@@ -52,45 +63,71 @@ def _refresh_competition_lead_teacher(admin: Any, competition_id: str) -> None:
 
 def _sync_competition_graders(admin: Any, competition_id: str, tenant_id: str, teacher_ids: List[str]) -> None:
     admin.table("competition_graders").delete().eq("competition_id", competition_id).execute()
-    for tid in teacher_ids:
-        if not tid:
-            continue
-        admin.table("competition_graders").insert(
-            {"competition_id": competition_id, "tenant_id": tenant_id, "teacher_id": tid}
-        ).execute()
+    rows = [
+        {"competition_id": competition_id, "tenant_id": tenant_id, "teacher_id": tid}
+        for tid in teacher_ids
+        if tid
+    ]
+    if rows:
+        admin.table("competition_graders").insert(rows).execute()
     _refresh_competition_lead_teacher(admin, competition_id)
 
 
 def _sync_competition_setup_teachers(admin: Any, competition_id: str, tenant_id: str, teacher_ids: List[str]) -> None:
     try:
         admin.table("competition_setup_teachers").delete().eq("competition_id", competition_id).execute()
-        for tid in teacher_ids:
-            if not tid:
-                continue
-            admin.table("competition_setup_teachers").insert(
-                {"competition_id": competition_id, "tenant_id": tenant_id, "teacher_id": tid}
-            ).execute()
+        rows = [
+            {"competition_id": competition_id, "tenant_id": tenant_id, "teacher_id": tid}
+            for tid in teacher_ids
+            if tid
+        ]
+        if rows:
+            admin.table("competition_setup_teachers").insert(rows).execute()
     except Exception as exc:
         if not _is_postgrest_unknown_table_error(exc):
             raise
     _refresh_competition_lead_teacher(admin, competition_id)
 
 
-def _expected_grader_user_ids(admin: Any, competition_id: str) -> List[str]:
-    grs = admin.table("competition_graders").select("teacher_id").eq("competition_id", competition_id).execute()
-    ids = [str(g["teacher_id"]) for g in (grs.data or [])]
-    if ids:
-        return ids
-    comp = (
-        admin.table("competitions")
-        .select("assigned_teacher_id")
-        .eq("id", competition_id)
-        .maybe_single()
-        .execute()
+def _batch_expected_grader_user_ids(admin: Any, competition_ids: List[str]) -> dict[str, List[str]]:
+    """One round-trip for graders + fallback assigned_teacher_id per competition."""
+    if not competition_ids:
+        return {}
+    cids = list(dict.fromkeys(str(x) for x in competition_ids))
+    out: dict[str, List[str]] = {cid: [] for cid in cids}
+    gr = execute_with_retry(
+        admin.table("competition_graders")
+        .select("competition_id, teacher_id")
+        .in_("competition_id", cids),
+        label="batch_expected_graders",
     )
-    if comp.data and comp.data.get("assigned_teacher_id"):
-        return [str(comp.data["assigned_teacher_id"])]
-    return []
+    by_comp: dict[str, List[str]] = {}
+    for row in gr.data or []:
+        cid = str(row["competition_id"])
+        by_comp.setdefault(cid, []).append(str(row["teacher_id"]))
+    need_fallback = [cid for cid in cids if not by_comp.get(cid)]
+    assigned: dict[str, str] = {}
+    if need_fallback:
+        cr = execute_with_retry(
+            admin.table("competitions")
+            .select("id, assigned_teacher_id")
+            .in_("id", need_fallback),
+            label="batch_comp_assigned_teacher",
+        )
+        for row in cr.data or []:
+            aid = row.get("assigned_teacher_id")
+            if aid:
+                assigned[str(row["id"])] = str(aid)
+    for cid in cids:
+        if by_comp.get(cid):
+            out[cid] = by_comp[cid]
+        elif assigned.get(cid):
+            out[cid] = [assigned[cid]]
+    return out
+
+
+def _expected_grader_user_ids(admin: Any, competition_id: str) -> List[str]:
+    return _batch_expected_grader_user_ids(admin, [competition_id]).get(str(competition_id), [])
 
 
 def _all_expected_graders_scored(
@@ -137,30 +174,23 @@ def _registration_publish_ready(
     return bool(res.data)
 
 
-def _competition_publish_summary(admin: Any, competition_id: str) -> dict:
-    expected = _expected_grader_user_ids(admin, competition_id)
+def _publish_summary_from_data(
+    expected: List[str],
+    regs: List[dict],
+    score_rows: List[dict],
+    result_reg_ids: set[str],
+) -> dict:
     expected_set = set(expected)
-    regs = (
-        admin.table("competition_registrations")
-        .select("id, is_submitted, results_released")
-        .eq("competition_id", competition_id)
-        .execute()
-    )
-    submitted = [r for r in (regs.data or []) if r.get("is_submitted")]
-    scores = (
-        admin.table("competition_grader_scores")
-        .select("registration_id, grader_user_id")
-        .eq("competition_id", competition_id)
-        .execute()
-    )
+    submitted = [r for r in regs if r.get("is_submitted")]
     by_grader: dict[str, set[str]] = {gid: set() for gid in expected}
-    for row in scores.data or []:
+    for row in score_rows:
         grader_id = str(row.get("grader_user_id"))
         if grader_id in expected_set:
             by_grader.setdefault(grader_id, set()).add(str(row["registration_id"]))
     ready = 0
     unpublished_ready = 0
     pending = 0
+    unpublished_ready_ids: List[str] = []
     submitted_ids = {str(reg["id"]) for reg in submitted}
     corrected_graders = [
         grader_id
@@ -170,11 +200,15 @@ def _competition_publish_summary(admin: Any, competition_id: str) -> dict:
     pending_graders = [grader_id for grader_id in expected if grader_id not in corrected_graders]
     for reg in submitted:
         reg_id = str(reg["id"])
-        is_ready = _registration_publish_ready(admin, competition_id, reg_id, expected)
+        if len(expected) >= 2:
+            is_ready = all(reg_id in by_grader.get(gid, set()) for gid in expected)
+        else:
+            is_ready = reg_id in result_reg_ids
         if is_ready:
             ready += 1
             if not reg.get("results_released"):
                 unpublished_ready += 1
+                unpublished_ready_ids.append(reg_id)
         else:
             pending += 1
     return {
@@ -185,24 +219,179 @@ def _competition_publish_summary(admin: Any, competition_id: str) -> dict:
         "corrected_grader_ids": corrected_graders,
         "pending_grader_ids": pending_graders,
         "can_publish_results": len(submitted) > 0 and pending == 0 and unpublished_ready > 0,
+        "unpublished_ready_registration_ids": unpublished_ready_ids,
     }
+
+
+def _batch_publish_summaries(admin: Any, competition_ids: List[str]) -> dict[str, dict]:
+    if not competition_ids:
+        return {}
+    cids = list(dict.fromkeys(str(x) for x in competition_ids))
+    expected_map = _batch_expected_grader_user_ids(admin, cids)
+    regs_res = execute_with_retry(
+        admin.table("competition_registrations")
+        .select("id, competition_id, is_submitted, results_released")
+        .in_("competition_id", cids),
+        label="batch_competition_regs_summary",
+    )
+    scores_res = execute_with_retry(
+        admin.table("competition_grader_scores")
+        .select("competition_id, registration_id, grader_user_id")
+        .in_("competition_id", cids),
+        label="batch_competition_grader_scores_summary",
+    )
+    results_res = execute_with_retry(
+        admin.table("competition_results")
+        .select("competition_id, registration_id")
+        .in_("competition_id", cids),
+        label="batch_competition_results_summary",
+    )
+    regs_by: dict[str, List[dict]] = {cid: [] for cid in cids}
+    for row in regs_res.data or []:
+        regs_by.setdefault(str(row["competition_id"]), []).append(row)
+    scores_by: dict[str, List[dict]] = {cid: [] for cid in cids}
+    for row in scores_res.data or []:
+        scores_by.setdefault(str(row["competition_id"]), []).append(row)
+    results_by: dict[str, set[str]] = {cid: set() for cid in cids}
+    for row in results_res.data or []:
+        results_by.setdefault(str(row["competition_id"]), set()).add(str(row["registration_id"]))
+    summaries: dict[str, dict] = {}
+    for cid in cids:
+        expected = expected_map.get(cid, [])
+        result_ids = results_by.get(cid, set()) if len(expected) < 2 else set()
+        summaries[cid] = _publish_summary_from_data(
+            expected,
+            regs_by.get(cid, []),
+            scores_by.get(cid, []),
+            result_ids,
+        )
+    return summaries
+
+
+def _public_publish_summary(summary: dict) -> dict:
+    out = dict(summary)
+    out.pop("unpublished_ready_registration_ids", None)
+    return out
+
+
+def _competition_publish_summary(admin: Any, competition_id: str) -> dict:
+    cid = str(competition_id)
+    batch = _batch_publish_summaries(admin, [cid])
+    return _public_publish_summary(batch.get(cid, {}))
 
 
 def _repair_stale_collaborative_release_for_registration(
     admin: Any, competition_id: str, registration_id: str, row: dict
 ) -> None:
     """Clear premature Publish: multi-grader + results_released but not all graders scored yet."""
-    expected = _expected_grader_user_ids(admin, competition_id)
-    if len(expected) < 2:
+    _batch_repair_stale_collaborative_releases(admin, [row])
+
+
+def _batch_repair_stale_collaborative_releases(admin: Any, regs: List[dict]) -> None:
+    if not regs:
         return
-    if not row.get("results_released"):
+    cids = list({str(r["competition_id"]) for r in regs if r.get("competition_id")})
+    expected_map = _batch_expected_grader_user_ids(admin, cids)
+    candidates: List[tuple[str, str, List[str]]] = []
+    for r in regs:
+        cid = str(r.get("competition_id") or "")
+        if not cid:
+            continue
+        expected = expected_map.get(cid, [])
+        if len(expected) < 2 or not r.get("results_released"):
+            continue
+        candidates.append((cid, str(r["id"]), expected))
+    if not candidates:
         return
-    if _all_expected_graders_scored(admin, competition_id, registration_id, expected):
+    repair_cids = list({c for c, _, _ in candidates})
+    scores_res = execute_with_retry(
+        admin.table("competition_grader_scores")
+        .select("competition_id, registration_id, grader_user_id")
+        .in_("competition_id", repair_cids),
+        label="batch_repair_grader_scores",
+    )
+    scored: dict[tuple[str, str], set[str]] = {}
+    for row in scores_res.data or []:
+        key = (str(row["competition_id"]), str(row["registration_id"]))
+        scored.setdefault(key, set()).add(str(row["grader_user_id"]))
+    stale_ids: List[str] = []
+    for cid, reg_id, expected in candidates:
+        have = scored.get((cid, reg_id), set())
+        if all(e in have for e in expected):
+            continue
+        stale_ids.append(reg_id)
+    if not stale_ids:
         return
-    admin.table("competition_registrations").update({"results_released": False}).eq("id", registration_id).eq(
-        "competition_id", competition_id
-    ).execute()
-    row["results_released"] = False
+    execute_with_retry(
+        admin.table("competition_registrations")
+        .update({"results_released": False})
+        .in_("id", stale_ids),
+        label="batch_repair_results_released",
+    )
+    stale_set = set(stale_ids)
+    for r in regs:
+        if str(r.get("id")) in stale_set:
+            r["results_released"] = False
+
+
+def _batch_teacher_competition_permissions(
+    admin: Any, competition_ids: List[str], teacher_user_id: str
+) -> dict[str, tuple[bool, bool]]:
+    """Batch my_can_grade / my_can_setup for teacher competition list."""
+    if not competition_ids:
+        return {}
+    uid = str(teacher_user_id)
+    cids = list(dict.fromkeys(str(x) for x in competition_ids))
+    grade_mine: set[str] = set()
+    grade_any: set[str] = set()
+    gr = execute_with_retry(
+        admin.table("competition_graders")
+        .select("competition_id, teacher_id")
+        .in_("competition_id", cids),
+        label="batch_teacher_graders",
+    )
+    for row in gr.data or []:
+        cid = str(row["competition_id"])
+        grade_any.add(cid)
+        if str(row["teacher_id"]) == uid:
+            grade_mine.add(cid)
+    setup_mine: set[str] = set()
+    setup_any: set[str] = set()
+    try:
+        su = execute_with_retry(
+            admin.table("competition_setup_teachers")
+            .select("competition_id, teacher_id")
+            .in_("competition_id", cids),
+            label="batch_teacher_setup",
+        )
+        for row in su.data or []:
+            cid = str(row["competition_id"])
+            setup_any.add(cid)
+            if str(row["teacher_id"]) == uid:
+                setup_mine.add(cid)
+    except Exception as exc:
+        if not _is_postgrest_unknown_table_error(exc):
+            raise
+    assigned: dict[str, str] = {}
+    cr = execute_with_retry(
+        admin.table("competitions").select("id, assigned_teacher_id").in_("id", cids),
+        label="batch_teacher_comp_assigned",
+    )
+    for row in cr.data or []:
+        aid = row.get("assigned_teacher_id")
+        if aid:
+            assigned[str(row["id"])] = str(aid)
+    out: dict[str, tuple[bool, bool]] = {}
+    for cid in cids:
+        can_grade = cid in grade_mine or (cid not in grade_any and assigned.get(cid) == uid)
+        if cid in setup_mine:
+            can_setup = True
+        elif cid in setup_any:
+            can_setup = False
+        else:
+            can_setup = can_grade
+        out[cid] = (can_grade, can_setup)
+    return out
 
 
 def _teacher_can_setup_competition(admin: Any, competition_id: str, teacher_user_id: str) -> bool:
@@ -309,16 +498,19 @@ def _enrich_competitions_with_graders(admin: Any, competitions: List[dict]) -> N
     if not competitions:
         return
     ids = [c["id"] for c in competitions]
-    gr = (
+    gr = execute_with_retry(
         admin.table("competition_graders")
         .select("competition_id, teacher_id")
-        .in_("competition_id", ids)
-        .execute()
+        .in_("competition_id", ids),
+        label="competition_graders_batch",
     )
     user_ids = list({str(g["teacher_id"]) for g in (gr.data or [])})
     names: dict[str, str] = {}
     if user_ids:
-        ur = admin.table("users").select("id, name").in_("id", user_ids).execute()
+        ur = execute_with_retry(
+            admin.table("users").select("id, name").in_("id", user_ids),
+            label="competition_grader_users",
+        )
         for u in ur.data or []:
             names[str(u["id"])] = (u.get("name") or "").strip() or "Teacher"
     by_comp: dict[str, List[dict]] = {}
@@ -335,11 +527,11 @@ def _enrich_competitions_with_setup_teachers(admin: Any, competitions: List[dict
         return
     ids = [c["id"] for c in competitions]
     try:
-        gr = (
+        gr = execute_with_retry(
             admin.table("competition_setup_teachers")
             .select("competition_id, teacher_id")
-            .in_("competition_id", ids)
-            .execute()
+            .in_("competition_id", ids),
+            label="competition_setup_teachers_batch",
         )
     except Exception as exc:
         if not _is_postgrest_unknown_table_error(exc):
@@ -350,7 +542,10 @@ def _enrich_competitions_with_setup_teachers(admin: Any, competitions: List[dict
     user_ids = list({str(g["teacher_id"]) for g in (gr.data or [])})
     names: dict[str, str] = {}
     if user_ids:
-        ur = admin.table("users").select("id, name").in_("id", user_ids).execute()
+        ur = execute_with_retry(
+            admin.table("users").select("id, name").in_("id", user_ids),
+            label="competition_setup_users",
+        )
         for u in ur.data or []:
             names[str(u["id"])] = (u.get("name") or "").strip() or "Teacher"
     by_comp: dict[str, List[dict]] = {}
@@ -363,17 +558,33 @@ def _enrich_competitions_with_setup_teachers(admin: Any, competitions: List[dict
 
 
 def _enrich_competitions_with_publish_state(admin: Any, competitions: List[dict]) -> None:
+    if not competitions:
+        return
+    summaries = _batch_publish_summaries(admin, [str(c["id"]) for c in competitions])
     for c in competitions:
-        c.update(_competition_publish_summary(admin, str(c["id"])))
+        c.update(_public_publish_summary(summaries.get(str(c["id"]), {})))
 
 
 # ── Schemas ────────────────────────────────────────────────────────
 
+def _coerce_optional_date(v: Any) -> Optional[date]:
+    if v is None or v == "":
+        return None
+    return v
+
+
+def _require_start_date(v: Any) -> date:
+    parsed = _coerce_optional_date(v)
+    if parsed is None:
+        raise ValueError("start_date is required")
+    return parsed
+
+
 class CompetitionCreate(BaseModel):
     title: str
-    category: str = "mcq" # mcq, hifz, khirat
+    category: str = "mixed"  # legacy: mcq | hifz | khirat; new exams use per-question types in content
     description: Optional[str] = None
-    start_date: Optional[date] = None
+    start_date: date
     end_date: Optional[date] = None
     assigned_teacher_id: Optional[UUID] = None
     grader_teacher_ids: Optional[List[UUID]] = None
@@ -381,6 +592,16 @@ class CompetitionCreate(BaseModel):
     status: str = "draft"
     content: Optional[List] = None
     settings: Optional[dict] = None
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def require_start_date(cls, v: Any) -> date:
+        return _require_start_date(v)
+
+    @field_validator("end_date", mode="before")
+    @classmethod
+    def empty_end_date_to_none(cls, v: Any) -> Any:
+        return _coerce_optional_date(v)
 
 
 class CompetitionUpdate(BaseModel):
@@ -396,6 +617,18 @@ class CompetitionUpdate(BaseModel):
     content: Optional[List] = None
     settings: Optional[dict] = None
     is_exam_active: Optional[bool] = None
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def require_start_date_on_update(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        return _require_start_date(v)
+
+    @field_validator("end_date", mode="before")
+    @classmethod
+    def empty_end_date_to_none(cls, v: Any) -> Any:
+        return _coerce_optional_date(v)
 
 
 class CompetitionRegister(BaseModel):
@@ -419,6 +652,157 @@ class ExamSubmission(BaseModel):
     responses: List[dict] # [{index: 0, answer: 1}, {index: 1, audio_url: '...'}]
     metadata: Optional[dict] = None
 
+
+class ExamDraftSave(BaseModel):
+    """In-progress exam answers (stored on registration until final submit)."""
+    responses: List[dict] = []
+    phase: Optional[str] = None
+
+
+def _registration_select_with_embeds(include_grader_scores: bool = True) -> str:
+    base = "*, competitions(*), competition_results(*)"
+    if include_grader_scores:
+        return f"{base}, competition_grader_scores(*)"
+    return base
+
+
+def _competition_cache_keys_for_exam_change(
+    admin: Any, competition_id: str, tenant_id: str
+) -> List[str]:
+    """Admin list, public info, and each registered student's competition cache."""
+    keys = [
+        cache_keys.competitions_list(tenant_id),
+        cache_keys.competition_info(competition_id),
+    ]
+    try:
+        regs = (
+            admin.table("competition_registrations")
+            .select("students(user_id)")
+            .eq("competition_id", competition_id)
+            .execute()
+        )
+        for row in regs.data or []:
+            students = row.get("students") or {}
+            uid = students.get("user_id")
+            if uid:
+                keys.append(cache_keys.student_competitions(str(uid)))
+    except Exception:
+        pass
+    return keys
+
+
+def _query_registrations_embedded(admin: Any, column: str, value: str) -> List[dict]:
+    try:
+        res = (
+            admin.table("competition_registrations")
+            .select(_registration_select_with_embeds(True))
+            .eq(column, value)
+            .execute()
+        )
+        return list(res.data or [])
+    except Exception as exc:
+        if not (
+            _is_postgrest_unknown_table_error(exc)
+            or "competition_grader_scores" in str(exc).lower()
+        ):
+            raise
+        res = (
+            admin.table("competition_registrations")
+            .select(_registration_select_with_embeds(False))
+            .eq(column, value)
+            .execute()
+        )
+        rows = list(res.data or [])
+        for r in rows:
+            r.setdefault("competition_grader_scores", [])
+        return rows
+
+
+def _student_identity(admin: Any, user_id: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return (user_phone, student_id, student_phone)."""
+    user_phone: Optional[str] = None
+    student_id: Optional[str] = None
+    student_phone: Optional[str] = None
+    try:
+        ur = admin.table("users").select("phone").eq("id", user_id).limit(1).execute()
+        if ur.data:
+            user_phone = ur.data[0].get("phone")
+    except Exception:
+        pass
+    try:
+        sr = admin.table("students").select("id, phone").eq("user_id", user_id).limit(1).execute()
+        if sr.data:
+            student_id = str(sr.data[0]["id"])
+            student_phone = sr.data[0].get("phone")
+    except Exception:
+        pass
+    return user_phone, student_id, student_phone
+
+
+def _find_student_registration(
+    admin: Any, competition_id: str, user_id: str
+) -> Optional[dict]:
+    user_phone, student_id, student_phone = _student_identity(admin, user_id)
+    if student_id:
+        r = (
+            admin.table("competition_registrations")
+            .select("id, competition_id, is_submitted, responses")
+            .eq("competition_id", competition_id)
+            .eq("student_id", student_id)
+            .limit(1)
+            .execute()
+        )
+        if r.data:
+            return r.data[0]
+    for phone in (user_phone, student_phone):
+        if not phone:
+            continue
+        r = (
+            admin.table("competition_registrations")
+            .select("id, competition_id, is_submitted, responses")
+            .eq("competition_id", competition_id)
+            .eq("phone", phone)
+            .limit(1)
+            .execute()
+        )
+        if r.data:
+            return r.data[0]
+    return None
+
+
+def _parse_exam_draft_payload(stored: Any) -> Optional[dict]:
+    if not stored:
+        return None
+    if isinstance(stored, dict) and stored.get("_exam_draft"):
+        return stored
+    return None
+
+
+def _load_student_competitions_list(admin: Any, user_id: str) -> List[dict]:
+    user_phone, student_id, student_phone = _student_identity(admin, user_id)
+    all_regs: List[dict] = []
+    seen_ids: set[str] = set()
+
+    def _merge(rows: List[dict]) -> None:
+        for r in rows:
+            rid = str(r.get("id"))
+            if rid and rid not in seen_ids:
+                seen_ids.add(rid)
+                all_regs.append(r)
+
+    if student_id:
+        _merge(_query_registrations_embedded(admin, "student_id", student_id))
+    if user_phone:
+        _merge(_query_registrations_embedded(admin, "phone", user_phone))
+    if student_phone and student_phone != user_phone:
+        _merge(_query_registrations_embedded(admin, "phone", student_phone))
+
+    try:
+        _batch_repair_stale_collaborative_releases(admin, all_regs)
+    except Exception:
+        pass
+    return all_regs
+
 class TeacherEvaluationSubmit(BaseModel):
     score: int
     remarks: Optional[str] = None
@@ -430,21 +814,29 @@ class TeacherEvaluationSubmit(BaseModel):
 
 @router.get("/competitions/{competition_id}/info")
 async def get_competition_info(competition_id: UUID):
-    # Public endpoint, no auth required, so we use admin client but strictly limit fields
     from app.db.supabase import get_admin_client
-    admin = get_admin_client()
-    
-    res = (
-        admin.table("competitions")
-        .select("id, title, description, start_date, end_date, status, tenant_id, category, content, settings, is_exam_active")
-        .eq("id", str(competition_id))
-        .maybe_single()
-        .execute()
-    )
-    if not res.data:
+    cid = str(competition_id)
+    cache_key = cache_keys.competition_info(cid)
+
+    def _load():
+        admin = get_admin_client()
+        res = (
+            admin.table("competitions")
+            .select(
+                "id, title, description, start_date, end_date, status, tenant_id, category, content, settings, is_exam_active"
+            )
+            .eq("id", cid)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        return res.data[0]
+
+    payload, _hit = await get_or_set_cache(cache_key, cache_ttl.COMPETITION_INFO, lambda: run_sync(_load))
+    if payload is None:
         return error("NOT_FOUND", "Competition not found", 404)
-        
-    return success(res.data)
+    return success(payload)
 
 
 # ── Post-OTP Registrant Endpoint ───────────────────────────────────
@@ -496,6 +888,18 @@ async def register_competition(
             "student_id": student_id,
             "status": "registered"
         }, on_conflict="competition_id, phone").execute()
+
+        # Broadcast real-time event for new registration
+        if res.data and len(res.data) > 0:
+            reg = res.data[0]
+            await broadcast_competition_registration(
+                tenant_id=tenant_id_str,
+                competition_id=comp_id_str,
+                student_id=student_id or str(token.user_id),
+                registration_id=reg["id"],
+                student_name=body.name,
+            )
+
         return success(res.data[0] if res.data else {"message": "Registered"})
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
@@ -551,8 +955,7 @@ async def get_competition_registrations(
         for s in r.get("competition_grader_scores") or []:
             s["grader_name"] = gnames.get(str(s.get("grader_user_id")), "Evaluator")
     cid = str(competition_id)
-    for r in rows:
-        _repair_stale_collaborative_release_for_registration(admin, cid, str(r["id"]), r)
+    _batch_repair_stale_collaborative_releases(admin, rows)
     exp = _expected_grader_user_ids(admin, cid)
     meta = {
         "expected_grader_count": len(exp),
@@ -654,14 +1057,34 @@ async def submit_result(
     _recompute_official_competition_result(admin, cid, rid, tenant_id_str)
     released = _resolve_registration_release_flag(admin, cid, rid, False)
     admin.table("competition_registrations").update({"results_released": released}).eq("id", rid).eq("competition_id", cid).execute()
+
+    # Get the result for broadcasting
     res = (
         admin.table("competition_results")
-        .select("*")
+        .select("*, competition_registrations(student_id, student:students(id, name))")
         .eq("competition_id", cid)
         .eq("registration_id", rid)
         .maybe_single()
         .execute()
     )
+
+    # Broadcast real-time score update
+    if res.data:
+        result = res.data
+        reg = result.get("competition_registrations", {}) or {}
+        student_id = reg.get("student_id") if isinstance(reg, dict) else None
+
+        if student_id:
+            await broadcast_competition_score_entered(
+                tenant_id=tenant_id_str,
+                competition_id=cid,
+                student_id=student_id,
+                registration_id=rid,
+                score=result.get("score", 0),
+                total=result.get("total", 100),
+                graded_by=str(token.user_id),
+            )
+
     return success(res.data if res.data else {"message": "Result recorded"})
 
 
@@ -714,8 +1137,23 @@ async def create_competition(body: CompetitionCreate, token: TokenData = Depends
     
     data["tenant_id"] = str(token.tenant_id)
     data["created_by"] = str(token.user_id)
-    
-    res = admin.table("competitions").insert(data).execute()
+
+    try:
+        res = admin.table("competitions").insert(data).execute()
+    except Exception as exc:
+        err = str(exc)
+        if data.get("category") == "mixed" and "category" in err.lower():
+            data["category"] = "mcq"
+            settings = dict(data.get("settings") or {})
+            settings["exam_format"] = "form_builder"
+            data["settings"] = settings
+            try:
+                res = admin.table("competitions").insert(data).execute()
+            except Exception as retry_exc:
+                return error("INTERNAL", str(retry_exc), 500)
+        else:
+            return error("INTERNAL", err, 500)
+
     row = res.data[0] if res.data else None
     if not row:
         return success({"message": "Created"})
@@ -731,19 +1169,43 @@ async def create_competition(body: CompetitionCreate, token: TokenData = Depends
         _sync_competition_setup_teachers(admin, cid, tid, [str(u) for u in body.grader_teacher_ids])
     elif body.assigned_teacher_id and not has_explicit_graders:
         _sync_competition_setup_teachers(admin, cid, tid, [str(body.assigned_teacher_id)])
+    await cache_delete(cache_keys.competitions_list(str(token.tenant_id)))
+
+    # Broadcast real-time event for new competition
+    if row:
+        await broadcast_competition_created(
+            tenant_id=tid,
+            competition_id=cid,
+            competition_name=row.get("name", "New Competition"),
+            created_by=str(token.user_id),
+        )
+
     return success(row)
 
 
 @router.get("/admin/competitions", dependencies=[Depends(RequireRole(["admin"]))])
 async def list_admin_competitions(token: TokenData = Depends(get_current_user)):
     from app.db.supabase import get_admin_client
-    admin = get_admin_client()
-    res = admin.table("competitions").select("*, assigned_teacher:users!assigned_teacher_id(name)").eq("tenant_id", str(token.tenant_id)).order("created_at", desc=True).execute()
-    rows = res.data or []
-    _enrich_competitions_with_graders(admin, rows)
-    _enrich_competitions_with_setup_teachers(admin, rows)
-    _enrich_competitions_with_publish_state(admin, rows)
-    return success(rows)
+    tid = str(token.tenant_id)
+    cache_key = cache_keys.competitions_list(tid)
+
+    def _load():
+        admin = get_admin_client()
+        res = (
+            admin.table("competitions")
+            .select("*, assigned_teacher:users!assigned_teacher_id(name)")
+            .eq("tenant_id", tid)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        rows = res.data or []
+        _enrich_competitions_with_graders(admin, rows)
+        _enrich_competitions_with_setup_teachers(admin, rows)
+        _enrich_competitions_with_publish_state(admin, rows)
+        return rows
+
+    rows, _hit = await get_or_set_cache(cache_key, cache_ttl.ADMIN_COMPETITIONS, lambda: run_sync(_load))
+    return success(rows or [])
 
 
 @router.patch("/admin/competitions/{competition_id}", dependencies=[Depends(RequireRole(["admin"])), Depends(RequireActiveTenant())])
@@ -778,6 +1240,19 @@ async def modify_competition(competition_id: UUID, body: CompetitionUpdate, toke
     
     cid = str(competition_id)
     tenant_id_str = str(token.tenant_id)
+    exam_toggle = "is_exam_active" in provided
+    prev_row: Optional[dict] = None
+    if exam_toggle:
+        prev_res = (
+            admin.table("competitions")
+            .select("is_exam_active, title, name")
+            .eq("id", cid)
+            .eq("tenant_id", tenant_id_str)
+            .maybe_single()
+            .execute()
+        )
+        prev_row = prev_res.data if prev_res else None
+
     if update_data:
         res = admin.table("competitions").update(update_data).eq("id", cid).eq("tenant_id", tenant_id_str).execute()
         out = res.data[0] if res.data else {"message": "Updated"}
@@ -802,6 +1277,28 @@ async def modify_competition(competition_id: UUID, body: CompetitionUpdate, toke
     if has_explicit_setup:
         _sync_competition_setup_teachers(admin, cid, tenant_id_str, [str(u) for u in (body.setup_teacher_ids or [])])
 
+    if exam_toggle:
+        await cache_delete(*_competition_cache_keys_for_exam_change(admin, cid, tenant_id_str))
+        next_active = bool(
+            update_data.get("is_exam_active")
+            if "is_exam_active" in update_data
+            else (out.get("is_exam_active") if isinstance(out, dict) else False)
+        )
+        comp_name = (
+            (out.get("title") or out.get("name") if isinstance(out, dict) else None)
+            or (prev_row or {}).get("title")
+            or (prev_row or {}).get("name")
+            or "Competition"
+        )
+        if prev_row is None or bool(prev_row.get("is_exam_active")) != next_active:
+            await broadcast_competition_exam_active_changed(
+                tenant_id_str, cid, str(comp_name), next_active
+            )
+    else:
+        await cache_delete(
+            cache_keys.competitions_list(tenant_id_str),
+            cache_keys.competition_info(cid),
+        )
     return success(out)
 
 
@@ -823,31 +1320,26 @@ async def publish_competition_results(competition_id: UUID, token: TokenData = D
     if not comp.data:
         return error("NOT_FOUND", "Competition not found", 404)
 
-    summary = _competition_publish_summary(admin, cid)
-    if not summary["can_publish_results"]:
+    detail = _batch_publish_summaries(admin, [cid]).get(cid, {})
+    summary = _public_publish_summary(detail)
+    if not summary.get("can_publish_results"):
         return error("BAD_REQUEST", "Competition results are not ready to publish", 400)
 
-    expected = _expected_grader_user_ids(admin, cid)
-    regs = (
-        admin.table("competition_registrations")
-        .select("id, is_submitted, results_released")
-        .eq("competition_id", cid)
-        .execute()
-    )
+    ready_ids = list(detail.get("unpublished_ready_registration_ids") or [])
     published = 0
-    for reg in regs.data or []:
-        reg_id = str(reg["id"])
-        if not reg.get("is_submitted") or reg.get("results_released"):
-            continue
-        if _registration_publish_ready(admin, cid, reg_id, expected):
-            admin.table("competition_registrations").update({"results_released": True}).eq("id", reg_id).eq(
-                "competition_id", cid
-            ).execute()
-            published += 1
+    if ready_ids:
+        execute_with_retry(
+            admin.table("competition_registrations")
+            .update({"results_released": True})
+            .in_("id", ready_ids)
+            .eq("competition_id", cid),
+            label="publish_competition_results_batch",
+        )
+        published = len(ready_ids)
 
     return success({
         "published": published,
-        **_competition_publish_summary(admin, cid),
+        **(_competition_publish_summary(admin, cid)),
     })
 
 
@@ -918,30 +1410,68 @@ async def submit_competition_exam(
     }
     
     res = admin.table("competition_registrations").update(update_data).eq("id", reg.data["id"]).execute()
+
+    uid = str(token.user_id)
+    cid = str(competition_id)
+    await cache_delete(
+        cache_keys.student_exam_draft(uid, cid),
+        cache_keys.student_competitions(uid),
+    )
     
-    # MCQ AUTO GRADING
+    # MCQ AUTO GRADING (per-question type in content, or legacy all-mcq competitions)
     comp = admin.table("competitions").select("category, content").eq("id", str(competition_id)).maybe_single().execute()
-    if comp.data and comp.data["category"] == "mcq":
-        correct_answers = 0
-        questions = comp.data["content"] or []
+    if comp.data:
+        questions = comp.data.get("content") or []
+        mcq_items: list[tuple[int, dict]] = []
         for q_idx, question in enumerate(questions):
-            student_ans = next((r["answer"] for r in body.responses if r.get("index") == q_idx), None)
-            if student_ans is not None and student_ans == question.get("correct_option"):
-                correct_answers += 1
-        
-        # Calculate percentage
-        total_questions = len(questions)
-        score = int((correct_answers / total_questions) * 100) if total_questions > 0 else 0
-        
-        # Record automated result
-        admin.table("competition_results").upsert({
-            "competition_id": str(competition_id),
-            "tenant_id": str(token.tenant_id),
-            "registration_id": reg.data["id"],
-            "score": score,
-            "remarks": f"Automated Score: {correct_answers}/{total_questions}",
-            "recorded_by": str(token.user_id) # recorded by the system action
-        }, on_conflict="competition_id, registration_id").execute()
+            if not isinstance(question, dict):
+                continue
+            qtype = question.get("type")
+            if qtype == "description":
+                continue
+            if qtype == "mcq" or (qtype is None and "options" in question):
+                mcq_items.append((q_idx, question))
+
+        if mcq_items:
+            correct_answers = 0
+            for q_idx, question in mcq_items:
+                qid = question.get("id")
+                student_ans = None
+                for r in body.responses:
+                    if qid and r.get("question_id") == qid:
+                        student_ans = r.get("answer")
+                        break
+                    if r.get("index") == q_idx:
+                        student_ans = r.get("answer")
+                        break
+                if student_ans is None:
+                    continue
+                if question.get("allow_multiple"):
+                    expected = sorted(question.get("correct_options") or [])
+                    got = sorted(student_ans) if isinstance(student_ans, list) else []
+                    if expected == got:
+                        correct_answers += 1
+                elif student_ans == question.get("correct_option"):
+                    correct_answers += 1
+
+            total_questions = len(mcq_items)
+            score = int((correct_answers / total_questions) * 100) if total_questions > 0 else 0
+            admin.table("competition_results").upsert({
+                "competition_id": str(competition_id),
+                "tenant_id": str(token.tenant_id),
+                "registration_id": reg.data["id"],
+                "score": score,
+                "remarks": f"Automated MCQ: {correct_answers}/{total_questions}",
+                "recorded_by": str(token.user_id),
+            }, on_conflict="competition_id, registration_id").execute()
+
+    # Broadcast real-time event for exam submission
+    await broadcast_competition_submitted(
+        tenant_id=str(token.tenant_id),
+        competition_id=str(competition_id),
+        student_id=student_id or str(token.user_id),
+        registration_id=reg.data["id"],
+    )
 
     return success({"message": "Successfully submitted"})
 
@@ -1001,10 +1531,11 @@ async def list_teacher_competitions(token: TokenData = Depends(get_current_user)
         return success([])
     res = admin.table("competitions").select("*").in_("id", cids).eq("tenant_id", tid).execute()
     rows = res.data or []
+    perms = _batch_teacher_competition_permissions(admin, [str(c["id"]) for c in rows], uid)
     for c in rows:
-        cid = str(c["id"])
-        c["my_can_grade"] = _teacher_can_grade_competition(admin, cid, uid)
-        c["my_can_setup"] = _teacher_can_setup_competition(admin, cid, uid)
+        can_grade, can_setup = perms.get(str(c["id"]), (False, False))
+        c["my_can_grade"] = can_grade
+        c["my_can_setup"] = can_setup
     return success(rows)
 
 
@@ -1019,13 +1550,31 @@ async def save_teacher_exam_content(competition_id: UUID, body: CompetitionUpdat
     update_data = body.model_dump(exclude_unset=True)
     # Only allow content and settings updates from teacher
     allowed = {}
-    if "content" in update_data: allowed["content"] = update_data["content"]
-    if "settings" in update_data: allowed["settings"] = update_data["settings"]
+    if "content" in update_data:
+        allowed["content"] = update_data["content"]
+        allowed["category"] = "mixed"
+        settings = dict(allowed.get("settings") or update_data.get("settings") or {})
+        settings.setdefault("exam_format", "form_builder")
+        allowed["settings"] = settings
+    if "settings" in update_data:
+        allowed["settings"] = update_data["settings"]
 
     if not allowed:
         return error("BAD_REQUEST", "Nothing to update", 400)
 
-    res = admin.table("competitions").update(allowed).eq("id", str(competition_id)).execute()
+    try:
+        res = admin.table("competitions").update(allowed).eq("id", str(competition_id)).execute()
+    except Exception as exc:
+        err = str(exc)
+        if allowed.get("category") == "mixed" and "category" in err.lower():
+            allowed["category"] = "mcq"
+            settings = dict(allowed.get("settings") or {})
+            settings["exam_format"] = "form_builder"
+            allowed["settings"] = settings
+            res = admin.table("competitions").update(allowed).eq("id", str(competition_id)).execute()
+        else:
+            return error("INTERNAL", err, 500)
+
     return success(res.data[0] if res.data else {"message": "Content saved"})
 
 
@@ -1045,46 +1594,78 @@ async def toggle_competition_exam_disabled_for_teachers(competition_id: UUID, bo
 @router.get("/student/competitions", dependencies=[Depends(RequireRole(["student"]))])
 async def list_student_competitions(token: TokenData = Depends(get_current_user)):
     from app.db.supabase import get_admin_client
-    admin = get_admin_client()
-    
-    # Look up both identifiers
-    user_res = admin.table("users").select("phone").eq("id", str(token.user_id)).maybe_single().execute()
-    phone = user_res.data["phone"] if user_res and user_res.data else None
-    
-    stu_res = admin.table("students").select("id, phone").eq("user_id", str(token.user_id)).maybe_single().execute()
-    student_id = stu_res.data["id"] if stu_res and stu_res.data else None
-    student_phone = stu_res.data["phone"] if stu_res and stu_res.data else None
-    
-    all_regs = []
-    seen_ids = set()
-    
-    # Search by student_id
-    if student_id:
-        regs = admin.table("competition_registrations").select("*, competitions(*), competition_results(*), competition_grader_scores(*)").eq("student_id", student_id).execute()
-        for r in (regs.data or []):
-            if r["id"] not in seen_ids:
-                seen_ids.add(r["id"])
-                all_regs.append(r)
-    
-    # Also search by phone (catches registrations where student_id wasn't linked)
-    if phone:
-        regs = admin.table("competition_registrations").select("*, competitions(*), competition_results(*), competition_grader_scores(*)").eq("phone", phone).execute()
-        for r in (regs.data or []):
-            if r["id"] not in seen_ids:
-                seen_ids.add(r["id"])
-                all_regs.append(r)
-    
-    # Also search by student phone if different from user phone
-    if student_phone and student_phone != phone:
-        regs = admin.table("competition_registrations").select("*, competitions(*), competition_results(*), competition_grader_scores(*)").eq("phone", student_phone).execute()
-        for r in (regs.data or []):
-            if r["id"] not in seen_ids:
-                seen_ids.add(r["id"])
-                all_regs.append(r)
 
-    for r in all_regs:
-        _repair_stale_collaborative_release_for_registration(
-            admin, str(r["competition_id"]), str(r["id"]), r
+    uid = str(token.user_id)
+    cache_key = cache_keys.student_competitions(uid)
+
+    try:
+        rows, _hit = await get_or_set_cache(
+            cache_key,
+            cache_ttl.STUDENT_COMPETITIONS,
+            lambda: run_sync(lambda: _load_student_competitions_list(get_admin_client(), uid)),
         )
+        return success(rows or [])
+    except Exception as exc:
+        return error("INTERNAL", str(exc), 500)
 
-    return success(all_regs)
+
+@router.get(
+    "/student/competitions/{competition_id}/exam-draft",
+    dependencies=[Depends(RequireRole(["student"]))],
+)
+async def get_student_exam_draft(
+    competition_id: UUID, token: TokenData = Depends(get_current_user)
+):
+    from app.db.supabase import get_admin_client
+
+    uid = str(token.user_id)
+    cid = str(competition_id)
+    cache_key = cache_keys.student_exam_draft(uid, cid)
+
+    def _load():
+        admin = get_admin_client()
+        reg = _find_student_registration(admin, cid, uid)
+        if not reg or reg.get("is_submitted"):
+            return {"responses": [], "phase": None, "saved_at": None}
+        draft = _parse_exam_draft_payload(reg.get("responses"))
+        if not draft:
+            return {"responses": [], "phase": None, "saved_at": None}
+        return {
+            "responses": draft.get("responses") or [],
+            "phase": draft.get("phase"),
+            "saved_at": draft.get("updated_at"),
+        }
+
+    payload, _hit = await get_or_set_cache(cache_key, cache_ttl.STUDENT_COMPETITIONS, lambda: run_sync(_load))
+    return success(payload)
+
+
+@router.put(
+    "/student/competitions/{competition_id}/exam-draft",
+    dependencies=[Depends(RequireRole(["student"]))],
+)
+async def save_student_exam_draft(
+    competition_id: UUID,
+    body: ExamDraftSave,
+    token: TokenData = Depends(get_current_user),
+):
+    from app.db.supabase import get_admin_client
+
+    admin = get_admin_client()
+    uid = str(token.user_id)
+    cid = str(competition_id)
+    reg = _find_student_registration(admin, cid, uid)
+    if not reg:
+        return error("NOT_FOUND", "Registration not found", 404)
+    if reg.get("is_submitted"):
+        return error("BAD_REQUEST", "Exam already submitted", 400)
+
+    stored = {
+        "_exam_draft": True,
+        "updated_at": datetime.utcnow().isoformat(),
+        "phase": body.phase,
+        "responses": body.responses,
+    }
+    admin.table("competition_registrations").update({"responses": stored}).eq("id", reg["id"]).execute()
+    await cache_delete(cache_keys.student_exam_draft(uid, cid))
+    return success({"message": "Draft saved", "saved_at": stored["updated_at"]})

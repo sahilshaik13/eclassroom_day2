@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Save, CheckCircle, SaveAll, Mic, FileText, BadgeCheck, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -11,6 +11,8 @@ import { competitionApi } from '@/services/competitionApi'
 import type { Competition, CompetitionRegistration, CompetitionRegistrationsMeta } from '@/types'
 import clsx from 'clsx'
 import { useAuthStore } from '@/stores/authStore'
+import { useCompetitionGradingRealtime } from '@/hooks/useCompetitionRealtime'
+import { isAutoGradableMcq, migrateExamContent } from '@/lib/competitionExam'
 
 export default function TeacherParticipantPortal() {
   const { competition_id, registration_id } = useParams<{ competition_id: string; registration_id: string }>()
@@ -22,19 +24,15 @@ export default function TeacherParticipantPortal() {
   const [registration, setRegistration] = useState<CompetitionRegistration | null>(null)
 
   // Evaluation state
-  const [score, setScore] = useState<number>(0)
+  const [score, setScore] = useState<number | null>(null)
   const [remarks, setRemarks] = useState<string>('')
   const [responses, setResponses] = useState<any[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [evalMeta, setEvalMeta] = useState<CompetitionRegistrationsMeta | null>(null)
 
-  useEffect(() => {
-    fetchData()
-  }, [competition_id, registration_id, user?.id])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
     if (!competition_id || !registration_id) return
-    setLoading(true)
+    if (!opts?.silent) setLoading(true)
     try {
       const [compRes, regsRes] = await Promise.all([
         competitionApi.getCompetitionInfo(competition_id),
@@ -60,7 +58,7 @@ export default function TeacherParticipantPortal() {
             setScore(reg.competition_results[0].score)
             setRemarks('')
           } else {
-            setScore(0)
+            setScore(null)
             setRemarks('')
           }
         } else {
@@ -69,11 +67,19 @@ export default function TeacherParticipantPortal() {
         }
       }
     } catch (err) {
-      toast.error('Failed to load evaluation data')
+      if (!opts?.silent) toast.error('Failed to load evaluation data')
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
-  }
+  }, [competition_id, registration_id, user?.id, navigate])
+
+  useEffect(() => {
+    void fetchData()
+  }, [fetchData])
+
+  useCompetitionGradingRealtime(competition_id, () => {
+    void fetchData({ silent: true })
+  })
 
   const handleUpdateResponse = (index: number, updates: any) => {
     const newResponses = [...responses]
@@ -87,6 +93,10 @@ export default function TeacherParticipantPortal() {
 
   const handleSave = async (releaseResults: boolean) => {
     if (!competition_id || !registration_id) return
+    if (score === null) {
+      toast.error('Please enter a score before saving')
+      return
+    }
     const collaborative = evalMeta?.collaborative_grading ?? false
     const effectiveRelease = collaborative ? false : releaseResults
     setIsSaving(true)
@@ -133,7 +143,7 @@ export default function TeacherParticipantPortal() {
     )
   }
 
-  const isMcq = competition.category === 'mcq'
+  const examQuestions = migrateExamContent(competition.content, competition.category)
   const isReleased = registration.results_released
   const graderScores = registration.competition_grader_scores || []
   const official = registration.competition_results?.[0]
@@ -186,7 +196,7 @@ export default function TeacherParticipantPortal() {
               <Button
                 variant="outline"
                 onClick={() => handleSave(false)}
-                disabled={isSaving}
+                disabled={isSaving || score === null}
                 size="sm"
                 className="h-10 min-h-10 w-full gap-1.5 font-semibold sm:w-auto sm:min-w-[8.5rem]"
               >
@@ -196,7 +206,7 @@ export default function TeacherParticipantPortal() {
               {!collaborative && (
                 <Button
                   onClick={() => handleSave(true)}
-                  disabled={isSaving}
+                  disabled={isSaving || score === null}
                   size="sm"
                   className="h-10 min-h-10 w-full gap-1.5 font-semibold sm:w-auto sm:min-w-[8.5rem] bg-blue-600 hover:bg-blue-700"
                 >
@@ -277,8 +287,8 @@ export default function TeacherParticipantPortal() {
                   max="100"
                   disabled={!registration.is_submitted || isReleased}
                   className="h-14 rounded-xl border-white/20 bg-white/10 text-center text-2xl font-black text-white placeholder:text-blue-200/50 focus-visible:ring-white/30 disabled:opacity-50 lg:h-16 lg:text-3xl"
-                  value={score}
-                  onChange={(e) => setScore(Number(e.target.value))}
+                  value={score ?? ''}
+                  onChange={(e) => setScore(e.target.value === '' ? null : Number(e.target.value))}
                 />
               </div>
 
@@ -299,7 +309,7 @@ export default function TeacherParticipantPortal() {
                 <Button
                   className="h-11 w-full rounded-xl bg-white font-black text-blue-700 hover:bg-blue-50"
                   onClick={() => handleSave(true)}
-                  disabled={!registration.is_submitted || isSaving}
+                  disabled={!registration.is_submitted || isSaving || score === null}
                 >
                   {isSaving ? 'Processing…' : 'Publish results'}
                 </Button>
@@ -308,7 +318,7 @@ export default function TeacherParticipantPortal() {
                 <Button
                   className="h-11 w-full rounded-xl bg-white font-black text-blue-700 hover:bg-blue-50"
                   onClick={() => handleSave(false)}
-                  disabled={!registration.is_submitted || isSaving}
+                  disabled={!registration.is_submitted || isSaving || score === null}
                 >
                   {isSaving ? 'Saving…' : 'Save your score'}
                 </Button>
@@ -334,10 +344,10 @@ export default function TeacherParticipantPortal() {
                 </div>
               ) : (
                 <div className="space-y-6 sm:space-y-8">
-                  {(competition.content || []).map((item, index) => {
+                  {examQuestions.map((item, index) => {
                     const response = responses.find(r => r.index === index)
 
-                    if (isMcq) {
+                    if (isAutoGradableMcq(item) && Array.isArray(item.options)) {
                       const isCorrectAuto = response?.answer === item.correct_option
                       const teacherOverride = response?.teacher_override // 'correct' | 'wrong' | undefined
 
@@ -348,7 +358,7 @@ export default function TeacherParticipantPortal() {
                         <div key={index} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
                           <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                             <h4 className="min-w-0 flex-1 text-sm font-bold leading-snug text-slate-900 sm:text-base">
-                              Q{index + 1}. {item.question}
+                              Q{index + 1}. {item.prompt}
                             </h4>
                             <div className={clsx(
                               'inline-flex w-fit shrink-0 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide sm:text-xs',
@@ -359,7 +369,7 @@ export default function TeacherParticipantPortal() {
                           </div>
 
                           <div className="mb-4 space-y-2">
-                            {item.options.map((opt: string, optIdx: number) => {
+                            {(item.options ?? []).map((opt: string, optIdx: number) => {
                               const isSelected = response?.answer === optIdx
                               const isCorrectOpt = item.correct_option === optIdx
 
@@ -439,7 +449,7 @@ export default function TeacherParticipantPortal() {
                       <div key={index} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
                         <h4 className="mb-2 text-sm font-bold text-slate-800 sm:text-base">Passage {index + 1}</h4>
                         <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm font-medium leading-relaxed text-slate-700">
-                          {item.text}
+                          {item.prompt}
                         </div>
 
                         <div className="mb-4">

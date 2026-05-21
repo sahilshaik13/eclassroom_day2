@@ -5,6 +5,12 @@
 !.env.sample
 !.env.template
 !.env.*.example
+backend/.env
+frontend/.env
+.slowapi.env
+**/.slowapi.env
+*.secrets.env
+*.local.secrets
 
 # Tool-specific env loaders that often hold secrets
 .envrc
@@ -19,6 +25,8 @@ credentials.json
 **/credentials.json
 service-account*.json
 **/service-account*.json
+client_secret_*.json
+thinktarteeb-*.json
 *.keystore
 *.jks
 
@@ -27,6 +35,24 @@ service-account*.json
 *.env.bak
 
 rediscli.txt
+commit.txt
+Book1.csv
+walkthrough*/
+
+# DB sync dumps / local Supabase experiments (never commit)
+*.dump
+.cloud-sync-staging/
+scratch/
+tmp/
+backend_addition/
+scripts/sync-cloud-*.ps1
+
+# TypeScript incremental build
+*.tsbuildinfo
+
+# Supabase CLI cache (migrations live under backend/supabase/)
+backend/supabase/.temp/
+supabase/
 
 # Python
 __pycache__/
@@ -45,7 +71,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# AI / Agents / IDEs
+# AI / Agents / IDEs (not part of the app)
 .agents/
 .claude/
 .gitnexus/
@@ -53,6 +79,8 @@ yarn-error.log*
 .windsurf/
 .vscode/
 .idea/
+docs/gitnexus-*
+envsec/
 
 # Documents
 *.md

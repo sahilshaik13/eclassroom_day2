@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react'
-import { NavLink, useNavigate, Outlet } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate, Outlet } from 'react-router-dom'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import { useMediaQuery } from 'react-responsive'
 import {
   BookOpen, LayoutDashboard, GraduationCap, MessageCircle, UserCircle,
-  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, TrendingUp, FileText
+  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, FileText
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
+import { useStudyPlanSyncStore } from '@/stores/studyPlanSyncStore'
+import { confirmLeaveStudyPlan } from '@/lib/studyPlanLeaveGuard'
+import { useStudentPortalAttendance, recordStudentPortalOut } from '@/hooks/useStudentPortalAttendance'
+import { StudyPlanUnsyncedDialog } from '@/components/teacher/StudyPlanUnsyncedDialog'
 import { authApi } from '@/services/authApi'
 import type { UserRole } from '@/types'
 
@@ -20,7 +24,6 @@ interface NavItem {
 const NAV_ITEMS: Record<UserRole, NavItem[]> = {
   student: [
     { label: 'Dashboard', href: '/student', icon: LayoutDashboard },
-    { label: 'Progress', href: '/student/progress', icon: TrendingUp },
     { label: 'Progress Report', href: '/student/report', icon: FileText },
     { label: 'My Classes', href: '/student/classes', icon: BookOpen },
     { label: 'Competitions', href: '/student/competitions', icon: Trophy },
@@ -40,7 +43,6 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { label: 'Teachers', href: '/admin/teachers', icon: Users },
     { label: 'New Applicants', href: '/admin/applicants', icon: GraduationCap },
     { label: 'Classes', href: '/admin/classes', icon: Library },
-    { label: 'Study Plans', href: '/admin/study-plans', icon: BookOpen },
     { label: 'Competitions', href: '/admin/competitions', icon: Trophy },
     { label: 'Settings', href: '/admin/settings', icon: Settings },
   ],
@@ -120,12 +122,14 @@ const SidebarContent = ({
   role, 
   navItems, 
   onNavItemClick, 
-  onLogout 
+  onLogout,
+  currentPath,
 }: { 
   role: UserRole, 
   navItems: NavItem[], 
   onNavItemClick: () => void, 
-  onLogout: () => void 
+  onLogout: () => void
+  currentPath: string
 }) => (
   <div className="flex flex-col h-full">
     {/* Brand */}
@@ -140,7 +144,16 @@ const SidebarContent = ({
           key={item.href}
           to={item.href}
           end={item.href === `/${role}`}
-          onClick={onNavItemClick}
+          onClick={async (e) => {
+            if (role === 'teacher') {
+              const allowed = await confirmLeaveStudyPlan(currentPath, item.href)
+              if (!allowed) {
+                e.preventDefault()
+                return
+              }
+            }
+            onNavItemClick()
+          }}
           className={({ isActive }) =>
             clsx(
               'flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200',
@@ -196,14 +209,13 @@ const SidebarContent = ({
 
 export default function PortalLayout() {
   const { user, clearSession } = useAuthStore()
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   const navigate = useNavigate()
+  const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const isDesktop = useMediaQuery({ minWidth: 768 })
 
-  if (!user) return null
-  const role = user.role as UserRole
-  const navItems = NAV_ITEMS[role]
-  const bottomNavItems = BOTTOM_NAV_ITEMS[role]
+  useStudentPortalAttendance(user?.role === 'student' && isAuthenticated)
 
   useEffect(() => {
     if (isDesktop && mobileOpen) {
@@ -211,22 +223,39 @@ export default function PortalLayout() {
     }
   }, [isDesktop, mobileOpen])
 
+  if (!user) return null
+  const role = user.role as UserRole
+  const navItems = NAV_ITEMS[role]
+  const bottomNavItems = BOTTOM_NAV_ITEMS[role]
+
   const handleLogout = async () => {
+    if (role === 'teacher') {
+      const loginPath = '/auth/login'
+      const allowed = await confirmLeaveStudyPlan(location.pathname, loginPath)
+      if (!allowed) return
+    }
+    if (role === 'student') {
+      recordStudentPortalOut()
+    }
     try { await authApi.logout() } catch { /* ignore */ }
     clearSession()
+    useStudyPlanSyncStore.getState().resetOnPlanLoad()
     toast.success('Logged out')
     navigate(role === 'student' ? '/auth/student-login' : '/auth/login')
   }
 
   return (
-    <div className="app-shell flex h-dvh min-h-screen bg-slate-50 overflow-hidden relative">
+    <>
+      <StudyPlanUnsyncedDialog />
+      <div className="app-shell flex h-dvh min-h-screen bg-slate-50 overflow-hidden relative">
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-56 lg:w-60 bg-white border-r border-slate-200 shrink-0 relative z-10">
         <SidebarContent 
           role={role} 
           navItems={navItems} 
           onNavItemClick={() => {}} 
-          onLogout={handleLogout} 
+          onLogout={handleLogout}
+          currentPath={location.pathname}
         />
       </aside>
 
@@ -256,7 +285,8 @@ export default function PortalLayout() {
           role={role} 
           navItems={navItems} 
           onNavItemClick={() => setMobileOpen(false)} 
-          onLogout={handleLogout} 
+          onLogout={handleLogout}
+          currentPath={location.pathname}
         />
       </aside>
 
@@ -296,6 +326,15 @@ export default function PortalLayout() {
                 key={item.href}
                 to={item.href}
                 end={item.href === `/${role}`}
+                onClick={async (e) => {
+                  if (role === 'teacher') {
+                    const allowed = await confirmLeaveStudyPlan(location.pathname, item.href)
+                    if (!allowed) {
+                      e.preventDefault()
+                      return
+                    }
+                  }
+                }}
                 className={({ isActive }) =>
                   clsx(
                     'flex flex-col items-center justify-center w-full h-full gap-1 transition-colors duration-200',
@@ -315,5 +354,6 @@ export default function PortalLayout() {
         </nav>
       </div>
     </div>
+    </>
   )
 }

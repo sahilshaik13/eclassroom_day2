@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+import { bootstrapAuthSession } from '@/lib/authSession'
 import { useAuthStore } from '@/stores/authStore'
 import type { UserRole } from '@/types'
 
@@ -19,9 +21,30 @@ interface Props {
 export function RequireRole({ children, role, redirectTo }: Props) {
   const { isAuthenticated, user, _hasHydrated } = useAuthStore()
   const location = useLocation()
+  const [sessionReady, setSessionReady] = useState(false)
 
-  // Wait for persisted state to load before making any auth decisions
+  useEffect(() => {
+    if (!_hasHydrated) return
+    if (!isAuthenticated) {
+      setSessionReady(true)
+      return
+    }
+    let cancelled = false
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) setSessionReady(true)
+    }, 8000)
+    bootstrapAuthSession().finally(() => {
+      if (!cancelled) setSessionReady(true)
+    })
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_hasHydrated, isAuthenticated])
+
   if (!_hasHydrated) return null
+  if (isAuthenticated && !sessionReady) return null
 
   if (!isAuthenticated || !user) {
     const isStudentRoute = Array.isArray(role) ? role.includes('student') : role === 'student'

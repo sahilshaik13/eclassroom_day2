@@ -1,21 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Users, UserPlus, MessageCircle, CheckCircle2, Clock, Calendar, PlayCircle, BookOpen, Sparkles, Loader2, Check } from 'lucide-react'
+import { Users, MessageCircle, CheckCircle2, Clock, Calendar, Sparkles, Loader2, Check } from 'lucide-react'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
+import { studyPlanQueryOptions } from '@/lib/studyPlanQueries'
 import { useAuthStore } from '@/stores/authStore'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import toast from 'react-hot-toast'
 import { clsx } from 'clsx'
 import { TeacherSubmissionsWorkspace } from '@/components/teacher/TeacherSubmissionsWorkspace'
+import { TeacherScheduleClassCard } from '@/components/teacher/TeacherScheduleClassCard'
 import { StudyPlanTableView } from '@/components/study-plan/StudyPlanTableView'
 import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
 import { findStudyPlanSourceRow, getDashboardStudyPlanColumns } from '@/lib/studyPlanSource'
+import { subscribeToClassMeetings, subscribeToTeacherQueue } from '@/lib/realtime'
+import { fetchTeacherTodayMeetings } from '@/services/meetApi'
+import type { ClassMeeting } from '@/services/meetApi'
+import {
+  formatMeetingTimeRange,
+  meetingScheduleStatus,
+  pickNextMeeting,
+} from '@/lib/studentMeetings'
 
 interface StudentQuestion { id: string; student: string; initials: string; question: string; time: string; subject?: string }
 interface PulseStudent { student_id: string; name: string; completion_pct: number; pending_doubts: number }
@@ -49,6 +58,50 @@ export default function TeacherDashboard() {
     staleTime: 60_000,
   })
 
+  const { data: todayMeetings = [] } = useQuery({
+    queryKey: queryKeys.teacher.meetingsToday(),
+    queryFn: fetchTeacherTodayMeetings,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    enabled: classes.length > 0,
+  })
+
+  const meetingsByClass = useMemo(() => {
+    const map = new Map<string, ClassMeeting[]>()
+    const now = Date.now()
+    for (const m of todayMeetings) {
+      try {
+        if (now >= new Date(m.end_at).getTime()) continue
+      } catch {
+        continue
+      }
+      const list = map.get(m.class_id) ?? []
+      list.push(m)
+      map.set(m.class_id, list)
+    }
+    return map
+  }, [todayMeetings])
+
+  const scheduleClasses = useMemo(() => {
+    if (!classes.length) return []
+    return classes.filter((c: { id: string }) => meetingsByClass.has(c.id)).slice(0, 3)
+  }, [classes, meetingsByClass])
+
+  // Subscribe to real-time updates for pending queue
+  useEffect(() => {
+    if (!user?.id || classes.length === 0) return
+
+    const classIds = classes.map((c: any) => c.id)
+    const unsubscribe = subscribeToTeacherQueue(user.id, classIds)
+    return unsubscribe
+  }, [user?.id, classes])
+
+  useEffect(() => {
+    if (classes.length === 0) return
+    const unsubs = classes.map((c: { id: string }) => subscribeToClassMeetings(c.id))
+    return () => unsubs.forEach((u) => u())
+  }, [classes])
+
   const { data: pendingDoubtsRaw = [], isPending: doubtsPending } = useQuery({
     queryKey: queryKeys.teacher.doubts('pending'),
     queryFn: async () => (await api.get('/teacher/doubts?status=pending')).data?.data ?? [],
@@ -59,16 +112,30 @@ export default function TeacherDashboard() {
 
   const { data: firstClassPlan, isPending: todayCurriculumLoading } = useQuery({
     queryKey: queryKeys.teacher.classroomStudyPlan(firstClassId ?? ''),
-    queryFn: async () => (await api.get(`/teacher/classrooms/${firstClassId}/study-plan`)).data?.data,
+    queryFn: async () => {
+      try {
+        return (await api.get(`/teacher/classrooms/${firstClassId}/study-plan`)).data?.data
+      } catch {
+        return null
+      }
+    },
     enabled: !!firstClassId,
-    staleTime: 120_000,
+    ...studyPlanQueryOptions(),
+    retry: 0,
   })
 
   const { data: firstClassSource } = useQuery({
     queryKey: queryKeys.teacher.classroomStudyPlanSource(firstClassId ?? ''),
-    queryFn: async () => (await api.get(`/teacher/classrooms/${firstClassId}/study-plan-source`)).data?.data,
+    queryFn: async () => {
+      try {
+        return (await api.get(`/teacher/classrooms/${firstClassId}/study-plan-source`)).data?.data
+      } catch {
+        return null
+      }
+    },
     enabled: !!firstClassId,
-    staleTime: 120_000,
+    ...studyPlanQueryOptions(),
+    retry: 0,
   })
 
   const { totalStudents, totalClasses, pendingDoubts, todayCurriculum, todayCurriculumColumns, todayCurriculumRow, questions } = useMemo(() => {
@@ -254,20 +321,38 @@ export default function TeacherDashboard() {
           <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
             <p className="text-sm text-slate-400">No classes assigned yet.</p>
           </div>
+        ) : scheduleClasses.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
+            <p className="text-sm text-slate-400">No upcoming meetings for today.</p>
+          </div>
         ) : (
           <div className="space-y-4">
-            {classes.slice(0, 3).map((cls: any, i: number) => (
-              <ClassCard
-                key={cls.id || i}
-                id={cls.id}
-                title={cls.name}
-                batch={`Class ${i + 1}`}
-                time={cls.schedule_json?.time ? `${cls.schedule_json.time}` : 'Time TBD'}
-                students={cls.enrollment_count || cls['class_enrollments']?.[0]?.count || 0}
-                status="Upcoming"
-                zoomLink={cls.zoom_link}
-              />
-            ))}
+            {scheduleClasses.map((cls: any, i: number) => {
+              const classMeetings = meetingsByClass.get(cls.id) ?? []
+              const meeting = pickNextMeeting(classMeetings)
+              const enrollment =
+                cls.class_enrollments?.[0]?.count ?? cls.enrollment_count ?? 0
+              return (
+                <TeacherScheduleClassCard
+                  key={cls.id || i}
+                  classId={cls.id}
+                  title={cls.name}
+                  batch={`Class ${i + 1}`}
+                  time={
+                    meeting
+                      ? formatMeetingTimeRange(meeting)
+                      : cls.schedule_json?.time
+                        ? String(cls.schedule_json.time)
+                        : 'No meeting today'
+                  }
+                  students={enrollment}
+                  status={meeting ? meetingScheduleStatus(meeting) : 'Upcoming'}
+                  meeting={meeting ?? null}
+                  zoomLink={cls.zoom_link}
+                  meetingTitle={meeting?.title}
+                />
+              )
+            })}
           </div>
         )}
       </section>
@@ -342,43 +427,6 @@ function StatCard({ value, label, icon: Icon, from, to, shadow }: { value: strin
       <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:scale-110 transition-transform duration-300"><Icon className="h-8 w-8" /></div>
       <p className="text-4xl font-black tracking-tighter mb-1">{value}</p>
       <div className="flex items-center gap-1.5 opacity-90"><Icon className="h-3.5 w-3.5" /><span className="text-[10px] font-black uppercase tracking-widest">{label}</span></div>
-    </div>
-  )
-}
-
-function ClassCard({ id, title, batch, time, students, status, zoomLink }: { id: string; title: string; batch: string; time: string; students: number; status: string; zoomLink?: string }) {
-  return (
-    <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md transition-all">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge className="bg-slate-100 text-slate-500 border-none text-[10px] font-bold px-3 py-1 rounded-full">{batch}</Badge>
-            <Badge className="bg-blue-50 text-blue-600 border-none text-[10px] font-bold px-3 py-1 rounded-full">{status}</Badge>
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-            <div className="flex items-center gap-4 mt-1.5 text-slate-400 text-sm flex-wrap">
-              <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />{time}</span>
-              <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5" />{students} Students</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-3 flex-wrap sm:flex-nowrap">
-          {zoomLink ? (
-            <Button asChild className="flex-1 sm:flex-none gap-2 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold text-xs">
-              <a href={zoomLink} target="_blank" rel="noopener noreferrer"><PlayCircle className="h-4 w-4" /> Start Class</a>
-            </Button>
-          ) : (
-            <Button disabled className="flex-1 sm:flex-none gap-2 bg-blue-600 rounded-xl font-semibold text-xs opacity-60"><PlayCircle className="h-4 w-4" /> Start Class</Button>
-          )}
-          <Button asChild variant="outline" className="flex-1 sm:flex-none gap-2 rounded-xl font-semibold text-xs border-slate-200">
-            <Link to={`/teacher/students?class=${id}`}>
-              <UserPlus className="h-4 w-4" /> Add Student
-            </Link>
-          </Button>
-          <Button variant="outline" className="flex-1 sm:flex-none gap-2 rounded-xl font-semibold text-xs border-slate-200"><BookOpen className="h-4 w-4" /> View Materials</Button>
-        </div>
-      </div>
     </div>
   )
 }

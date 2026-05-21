@@ -72,11 +72,21 @@ WITH imported_templates AS (
 DELETE FROM public.study_plan_templates
 WHERE id IN (SELECT template_id FROM imported_templates);
 
-DELETE FROM storage.objects
-WHERE bucket_id = 'curriculum-pdfs';
+DO $$
+BEGIN
+    DELETE FROM storage.objects WHERE bucket_id = 'curriculum-pdfs';
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Skipping storage.objects cleanup: %', SQLERRM;
+END $$;
 
-DELETE FROM storage.buckets
-WHERE id = 'curriculum-pdfs';
+DO $$
+BEGIN
+    DELETE FROM storage.buckets WHERE id = 'curriculum-pdfs';
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Skipping storage.buckets cleanup: %', SQLERRM;
+END $$;
 
 DROP TABLE IF EXISTS public.teacher_curriculum_sources;
 

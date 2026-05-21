@@ -1,5 +1,7 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export interface StudyPlanTableRow {
@@ -15,6 +17,8 @@ interface StudyPlanTableViewProps {
   onRowsChange?: (rows: StudyPlanTableRow[]) => void
   className?: string
   emptyMessage?: string
+  /** When set, only this many rows render per page with prev/next navigation. */
+  rowsPerPage?: number
 }
 
 export function StudyPlanTableView({
@@ -26,8 +30,32 @@ export function StudyPlanTableView({
   onRowsChange,
   className,
   emptyMessage = 'No rows available.',
+  rowsPerPage,
 }: StudyPlanTableViewProps) {
+  const [page, setPage] = useState(0)
+  const pageSize = rowsPerPage && rowsPerPage > 0 ? rowsPerPage : rows.length
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const paginated = Boolean(rowsPerPage && rowsPerPage > 0 && rows.length > rowsPerPage)
+  const safePage = Math.min(page, pageCount - 1)
+  const startIndex = safePage * pageSize
+  const endIndex = Math.min(startIndex + pageSize, rows.length)
+  const visibleRows = paginated ? rows.slice(startIndex, endIndex) : rows
+
+  useEffect(() => {
+    setPage(0)
+  }, [rows.length, rowsPerPage])
+
+  useEffect(() => {
+    if (page > pageCount - 1) {
+      setPage(Math.max(0, pageCount - 1))
+    }
+  }, [page, pageCount])
+
   const allSelected = rows.length > 0 && selectedRowIndexes?.length === rows.length
+  const pageAllSelected =
+    paginated &&
+    visibleRows.length > 0 &&
+    visibleRows.every((_, localIndex) => selectedRowIndexes?.includes(startIndex + localIndex))
 
   const updateCell = (rowIndex: number, column: string, value: string) => {
     if (!onRowsChange) return
@@ -48,74 +76,141 @@ export function StudyPlanTableView({
     onSelectedRowIndexesChange(checked ? rows.map((_, index) => index) : [])
   }
 
+  const togglePageAll = (checked: boolean) => {
+    if (!onSelectedRowIndexesChange || !paginated) return
+    const current = new Set(selectedRowIndexes || [])
+    for (let local = 0; local < visibleRows.length; local += 1) {
+      const global = startIndex + local
+      if (checked) current.add(global)
+      else current.delete(global)
+    }
+    onSelectedRowIndexesChange(Array.from(current).sort((a, b) => a - b))
+  }
+
+  const headerChecked = paginated ? pageAllSelected : allSelected
+  const headerToggle = paginated ? togglePageAll : toggleAll
+
+  const paginationBar = paginated ? (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-xs font-semibold text-slate-600">
+        Rows {startIndex + 1}–{endIndex} of {rows.length}
+      </p>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 rounded-lg px-2"
+          disabled={safePage <= 0}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+          aria-label="Previous rows"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="min-w-[4.5rem] text-center text-xs font-bold text-slate-700">
+          Page {safePage + 1} / {pageCount}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 rounded-lg px-2"
+          disabled={safePage >= pageCount - 1}
+          onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+          aria-label="Next rows"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  ) : null
+
   return (
-    <div className={cn('overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm', className)}>
-      <Table className="min-w-[780px]">
-        <TableHeader className="bg-slate-50">
-          <TableRow className="hover:bg-slate-50">
+    <div className={cn('space-y-2', className)}>
+      {paginationBar}
+      <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="min-w-[600px]">
+          {/* Table Header - Compact fixed height, equal columns */}
+          <div className="grid bg-slate-50 border-b border-slate-200" style={{ gridTemplateColumns: editable ? `36px repeat(${columns.length}, minmax(100px, 1fr))` : `repeat(${columns.length}, minmax(100px, 1fr))` }}>
             {editable && onSelectedRowIndexesChange ? (
-              <TableHead className="h-11 w-12 px-3">
+              <div className="flex h-9 items-center justify-center px-1" title={paginated ? 'Select all rows on this page' : 'Select all rows'}>
                 <input
                   type="checkbox"
-                  checked={allSelected}
-                  onChange={(event) => toggleAll(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
+                  checked={headerChecked}
+                  onChange={(event) => headerToggle(event.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-slate-300"
                 />
-              </TableHead>
+              </div>
             ) : null}
             {columns.map((column) => (
-              <TableHead key={column} className="h-11 whitespace-nowrap px-3 text-[11px] font-black uppercase tracking-wide text-slate-500">
-                {column}
-              </TableHead>
+              <div
+                key={column}
+                className="flex h-9 items-center px-2 text-[10px] font-bold uppercase tracking-wide text-slate-500"
+              >
+                <span className="truncate">{column}</span>
+              </div>
             ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={columns.length + (editable ? 1 : 0)} className="px-4 py-8 text-center text-sm text-slate-500">
+          </div>
+          
+          {/* Table Body - Compact equal row heights */}
+          <div className="divide-y divide-slate-100">
+            {rows.length === 0 ? (
+              <div className="flex items-center justify-center px-3 py-6 text-xs text-slate-500" style={{ minHeight: '80px' }}>
                 {emptyMessage}
-              </TableCell>
-            </TableRow>
-          ) : (
-            rows.map((row, rowIndex) => {
-              const isSelected = selectedRowIndexes?.includes(rowIndex) ?? false
-              return (
-                <TableRow key={rowIndex} className={cn(isSelected && 'bg-blue-50/40')}>
-                  {editable && onSelectedRowIndexesChange ? (
-                    <TableCell className="px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(event) => toggleRow(rowIndex, event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                    </TableCell>
-                  ) : null}
-                  {columns.map((column) => {
-                    const value = row[column]
-                    return (
-                      <TableCell key={`${rowIndex}-${column}`} className="px-3 py-2 align-top">
-                        {editable ? (
-                          <Input
-                            value={value == null ? '' : String(value)}
-                            onChange={(event) => updateCell(rowIndex, column, event.target.value)}
-                            className="h-10 rounded-xl border-slate-200 bg-white px-3 text-sm"
-                          />
-                        ) : (
-                          <div className="min-h-10 whitespace-pre-wrap rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                            {value == null || String(value).trim() === '' ? '—' : String(value)}
-                          </div>
-                        )}
-                      </TableCell>
-                    )
-                  })}
-                </TableRow>
-              )
-            })
-          )}
-        </TableBody>
-      </Table>
+              </div>
+            ) : (
+              visibleRows.map((row, localIndex) => {
+                const rowIndex = startIndex + localIndex
+                const isSelected = selectedRowIndexes?.includes(rowIndex) ?? false
+                return (
+                  <div 
+                    key={rowIndex} 
+                    className={cn(
+                      'grid items-stretch transition-colors hover:bg-slate-50/50',
+                      isSelected && 'bg-blue-50/40'
+                    )}
+                    style={{ gridTemplateColumns: editable ? `36px repeat(${columns.length}, minmax(100px, 1fr))` : `repeat(${columns.length}, minmax(100px, 1fr))` }}
+                  >
+                    {editable && onSelectedRowIndexesChange ? (
+                      <div className="flex items-center justify-center px-1 py-2">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(event) => toggleRow(rowIndex, event.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300"
+                        />
+                      </div>
+                    ) : null}
+                    {columns.map((column) => {
+                      const value = row[column]
+                      return (
+                        <div key={`${rowIndex}-${column}`} className="flex items-stretch px-2 py-1.5 min-h-[40px]">
+                          {editable ? (
+                            <Input
+                              value={value == null ? '' : String(value)}
+                              onChange={(event) => updateCell(rowIndex, column, event.target.value)}
+                              className="h-8 w-full rounded-lg border-slate-200 bg-white px-2 text-xs"
+                            />
+                          ) : (
+                            <div className="flex w-full items-center whitespace-pre-wrap rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-700 min-h-[28px]">
+                              {value == null || String(value).trim() === '' ? (
+                                <span className="text-slate-300">—</span>
+                              ) : (
+                                String(value)
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      </div>
+      {paginationBar}
     </div>
   )
 }

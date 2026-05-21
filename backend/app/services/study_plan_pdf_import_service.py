@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.services.study_plan_kpi_service import (
     build_column_bucket_map,
     infer_kpi_bucket,
+    is_day_topic_column,
     is_supporting_metadata_column,
     normalize_kpi_bucket,
     supporting_field_key_for_column,
@@ -76,6 +77,8 @@ def normalize_import_status(status: Any) -> str:
         return "failed"
     if raw in {"cancelled", "canceled"}:
         return "cancelled"
+    if raw in {"archived"}:
+        return "archived"
     if raw in {"uploading"}:
         return "uploading"
     if raw:
@@ -213,9 +216,18 @@ def build_plan_rows(
     date_column = detect_date_column(ordered_columns)
     day_column = detect_day_column(ordered_columns)
     supporting_columns = [column for column in ordered_columns if is_supporting_metadata_column(column)]
+    topic_columns = [
+        column
+        for column in ordered_columns
+        if column not in {date_column, day_column}
+        and column not in supporting_columns
+        and is_day_topic_column(column)
+    ]
     content_columns = [
         column for column in ordered_columns
-        if column not in {date_column, day_column} and column not in supporting_columns
+        if column not in {date_column, day_column}
+        and column not in supporting_columns
+        and column not in topic_columns
     ]
     plan_days: list[dict[str, Any]] = []
     normalized_bucket_map = {
@@ -228,8 +240,21 @@ def build_plan_rows(
         if not any(meaningful_value(row.get(column)) for column in ordered_columns):
             continue
 
+        day_topic: Optional[str] = None
+        topic_source_column: Optional[str] = None
+        for column in topic_columns:
+            topic_source_column = column
+            cell_value = row.get(column, "")
+            if meaningful_value(cell_value):
+                day_topic = str(cell_value).strip()
+            else:
+                day_topic = str(column).strip()
+            break
+
         tasks: list[dict[str, Any]] = []
         for task_index, column in enumerate(content_columns):
+            if is_supporting_metadata_column(column):
+                continue
             cell_value = row.get(column, "")
             if not meaningful_value(cell_value):
                 continue
@@ -250,8 +275,27 @@ def build_plan_rows(
                 }
             )
 
-        if not tasks:
+        if not tasks and not day_topic:
             continue
+
+        if day_topic and topic_source_column:
+            tasks.insert(
+                0,
+                {
+                    "title": day_topic,
+                    "description": None,
+                    "task_type": "written",
+                    "required": False,
+                    "order_index": -1,
+                    "config": {
+                        "role": "day_topic",
+                        "kpi_bucket": "tajweed",
+                        "source_column": topic_source_column,
+                        "source_value": day_topic,
+                        "source_row": row,
+                    },
+                },
+            )
 
         supporting_fields: dict[str, dict[str, str]] = {}
         for column in supporting_columns:
@@ -303,6 +347,7 @@ def build_plan_rows(
                 "day_number": len(plan_days) + 1,
                 "scheduled_date": parse_scheduled_date(row.get(date_column)) if date_column else None,
                 "is_accessible": True,
+                "topic": day_topic,
                 "periods": [
                     {
                         "title": FLAT_PERIOD_TITLE,

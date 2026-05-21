@@ -5,7 +5,6 @@ import {
   GraduationCap,
   BookOpen,
   MessageCircle,
-  CalendarCheck,
   Download,
   TrendingUp,
   Activity,
@@ -46,7 +45,7 @@ export default function AdminDashboard() {
       const r = await api.get<{ data: AdminStats }>('/admin/stats')
       return r.data.data
     },
-    staleTime: 90_000,
+    staleTime: 0,
   })
 
   useEffect(() => {
@@ -259,12 +258,11 @@ export default function AdminDashboard() {
             <TrendingUp className="h-4 w-4" />
             Institution Control
           </h3>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 lg:gap-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
             {[
               { label: 'Classes', href: '/admin/classes', icon: BookOpen, color: 'text-violet-600', bg: 'bg-violet-500/5' },
               { label: 'Students', href: '/admin/students', icon: GraduationCap, color: 'text-emerald-600', bg: 'bg-emerald-500/5' },
               { label: 'Teachers', href: '/admin/teachers', icon: Users, color: 'text-blue-600', bg: 'bg-blue-500/5' },
-              { label: 'Study Plans', href: '/admin/study-plans', icon: CalendarCheck, color: 'text-amber-600', bg: 'bg-amber-500/5' },
               { label: 'Settings', href: '/admin/settings', icon: SettingsIcon, color: 'text-slate-600', bg: 'bg-slate-500/5' },
             ].map((action, i) => (
               <a

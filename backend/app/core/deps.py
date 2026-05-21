@@ -153,22 +153,38 @@ async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> TokenData:
-    token   = _extract_token(request, credentials)
+    token = _extract_token(request, credentials)
     payload = _verify_token(token)
-    data    = TokenData(payload)
+    data = TokenData(payload)
     data.raw_token = token
-    
+
     # Check if the tenant is suspended (block mutations only to allow read-only access)
-    if data.tenant_id and data.role not in ("super_admin", "platform_admin") and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+    if (
+        data.tenant_id
+        and data.role not in ("super_admin", "platform_admin")
+        and request.method in ("POST", "PUT", "PATCH", "DELETE")
+    ):
         admin = get_admin_client()
-        tenant_res = admin.table("tenants").select("is_active").eq("id", data.tenant_id).maybe_single().execute()
-        if tenant_res and tenant_res.data and not tenant_res.data.get("is_active", True):
+        tenant_res = (
+            admin.table("tenants")
+            .select("is_active")
+            .eq("id", data.tenant_id)
+            .maybe_single()
+            .execute()
+        )
+        is_active = True
+        if tenant_res and tenant_res.data:
+            is_active = bool(tenant_res.data.get("is_active", True))
+        if not is_active:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "TENANT_SUSPENDED", "message": "Your organization account has been suspended by the platform administrator."},
+                detail={
+                    "code": "TENANT_SUSPENDED",
+                    "message": "Your organization account has been suspended by the platform administrator.",
+                },
             )
 
-    request.state.jwt_token  = token
+    request.state.jwt_token = token
     request.state.token_data = data
     return data
 

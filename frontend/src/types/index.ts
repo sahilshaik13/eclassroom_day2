@@ -61,10 +61,14 @@ export interface PaginationMeta {
   has_more: boolean
 }
 
-/** One row from GET /super-admin/audit-logs (7-day hot table). */
+/** One row from GET /super-admin/audit-logs (Neon Postgres — HTTP, warnings, errors). */
 export interface AuditLogEntry {
   id: string
   occurred_at: string
+  log_level: 'info' | 'warning' | 'error'
+  log_type: 'http_request' | 'app_event' | 'unhandled_error'
+  message: string | null
+  request_id: string | null
   actor_user_id: string | null
   tenant_id: string | null
   actor_role: string | null
@@ -93,7 +97,7 @@ export interface Task {
   completed: boolean
   completed_at?: string
   notes?: string
-  /** Imported timetable / Gemini columns */
+  /** Imported timetable columns (NexusOCR PDF import) */
   config?: Record<string, unknown>
   plan_name?: string
   period_title?: string
@@ -249,7 +253,7 @@ export interface StudyPlanPdfImport {
   pdf_storage_path?: string
   pdf_url?: string | null
   ocr_job_id?: string | null
-  ocr_status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'applied'
+  ocr_status: 'pending' | 'uploading' | 'processing' | 'completed' | 'failed' | 'cancelled' | 'applied' | 'archived'
   total_chunks: number
   completed_chunks: number
   failed_chunks: number
@@ -287,11 +291,24 @@ export interface AppliedStudyPlanSummary {
   } | null
 }
 
+export interface StudyPlanTeacherChange {
+  id: string
+  class_name: string
+  teacher_name: string
+  entity_type: 'task' | 'period' | 'day' | string
+  change_type: string
+  plan_day_number?: number | null
+  scheduled_date?: string | null
+  previous_details: Record<string, unknown>
+  new_details: Record<string, unknown>
+  created_at?: string
+}
+
 // ── Competition domain ────────────────────────────────────────────────────────
 
 export type CompetitionStatus = 'draft' | 'active' | 'closed'
 export type RegistrationStatus = 'registered' | 'participated' | 'disqualified'
-export type CompetitionCategory = 'mcq' | 'hifz' | 'khirat'
+export type CompetitionCategory = 'mcq' | 'hifz' | 'khirat' | 'mixed'
 
 export interface CompetitionGraderRef {
   teacher_id: string

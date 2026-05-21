@@ -50,7 +50,7 @@ export default function TeacherEvaluationPage() {
       
       submissions.forEach(sub => {
         initialReviews[sub.id] = {
-          score: sub.score !== null ? sub.score : (sub.auto_score || 0),
+          score: sub.score ?? null,
           feedback: sub.feedback || '',
           status: sub.status || 'submitted'
         };
@@ -70,6 +70,19 @@ export default function TeacherEvaluationPage() {
       [subId]: { ...prev[subId], ...updates }
     }));
   };
+
+  const applyRubricPreset = (subId: string, rubric: 'excellent' | 'acceptable' | 'needs_repeat') => {
+    const preset = {
+      excellent: { score: 100, feedback: 'Excellent recitation. Keep this level.' },
+      acceptable: { score: 75, feedback: 'Acceptable attempt. Keep practicing for cleaner delivery.' },
+      needs_repeat: { score: 40, feedback: 'Needs repeat. Please re-record and submit again.' },
+    }[rubric]
+    handleUpdateReview(subId, {
+      score: preset.score,
+      feedback: preset.feedback,
+      status: 'reviewed',
+    })
+  }
 
   const handleSaveAll = async (publish: boolean = false) => {
     setSaving(true);
@@ -131,31 +144,31 @@ export default function TeacherEvaluationPage() {
         </div>
       }
     >
-      <div className="space-y-8">
+      <div className="space-y-4">
         {/* Header Profile */}
-        <div className="bg-gradient-to-r from-slate-900 to-indigo-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden">
+        <div className="bg-gradient-to-r from-slate-900 to-indigo-900 rounded-2xl p-4 sm:p-5 text-white shadow-lg relative overflow-hidden">
            <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl" />
-           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-              <div className="flex items-center gap-6">
-                 <div className="h-20 w-20 rounded-3xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-inner">
-                    <User className="h-10 w-10" />
+           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                 <div className="h-12 w-12 rounded-xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-inner">
+                    <User className="h-6 w-6" />
                  </div>
                  <div>
                     <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 opacity-80">Evaluating Participant</span>
-                    <h1 className="text-3xl font-black">{typeof student === 'string' ? student : student.name}</h1>
-                    <p className="text-sm font-bold text-slate-300 mt-1">{title}</p>
+                    <h1 className="text-xl font-black">{typeof student === 'string' ? student : student.name}</h1>
+                    <p className="text-xs font-bold text-slate-300 mt-0.5">{title}</p>
                  </div>
               </div>
               
-               <div className="flex items-center gap-8">
+               <div className="flex items-center gap-4">
                   <div className="text-right">
                      <p className="text-[10px] font-black uppercase text-indigo-300 mb-1">Day Result</p>
-                     <div className="flex items-center gap-4">
+                     <div className="flex items-center gap-2">
                         <div className="text-right">
-                           <span className="text-3xl font-black">{submissions[0]?.day_progress?.average_score || 0}%</span>
+                           <span className="text-xl font-black">{submissions[0]?.day_progress?.average_score ?? '—'}%</span>
                            <p className="text-[10px] font-bold text-indigo-300 mt-0.5">{submissions[0]?.day_progress?.completed || 0}/{submissions[0]?.day_progress?.total || 0} Tasks</p>
                         </div>
-                        <div className="w-32 h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div className="w-20 h-2 bg-white/10 rounded-full overflow-hidden">
                            <div 
                              className="h-full bg-indigo-500 transition-all duration-500" 
                              style={{ width: `${submissions[0]?.day_progress?.pct || 0}%` }}
@@ -168,41 +181,41 @@ export default function TeacherEvaluationPage() {
         </div>
 
         {/* Evaluation Cards */}
-        <div className="space-y-12">
+        <div className="space-y-4">
           {submissions.map((sub, idx) => (
             <div key={sub.id} className="relative">
               <div className="absolute -left-4 top-10 w-1 bg-indigo-600 h-20 rounded-full hidden lg:block" />
-              <Card className="border-none shadow-xl shadow-slate-200/50 rounded-[3rem] overflow-hidden">
+              <Card className="border border-slate-200 shadow-sm rounded-2xl overflow-hidden">
                 <div className="grid grid-cols-1 lg:grid-cols-2">
                    {/* Left side: Content */}
-                   <div className="p-10 lg:p-12 space-y-8 border-r border-slate-50">
+                   <div className="p-4 sm:p-5 space-y-4 border-r border-slate-100">
                       <div className="flex items-center justify-between">
                          <div>
                             <div className="flex items-center gap-2 mb-2">
                                <BadgeCheck className="h-4 w-4 text-indigo-500" />
                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Task {idx + 1} of {submissions.length}</span>
                             </div>
-                            <h3 className="text-2xl font-black text-slate-900">{sub.task_title || sub.task?.title}</h3>
+                            <h3 className="text-lg font-black text-slate-900">{sub.task_title || sub.task?.title}</h3>
                          </div>
                          <Badge className="bg-slate-100 text-slate-500 border-none font-black text-[10px] uppercase px-3 py-1">
                             {sub.task_type || sub.task?.task_type}
                          </Badge>
                       </div>
 
-                      <div className="space-y-6">
-                         <div className="p-8 bg-slate-50 rounded-[2.5rem] border border-slate-100 relative group">
+                      <div className="space-y-4">
+                         <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 relative group">
                             <Label className="absolute -top-3 left-8 bg-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-indigo-600 border border-indigo-100 shadow-sm">Student Response</Label>
                             
                             {sub.audio_url ? (
-                              <div className="flex flex-col items-center gap-6 py-4">
-                                 <div className="w-16 h-16 rounded-full bg-white shadow-inner flex items-center justify-center text-indigo-600">
-                                    <Mic className="w-8 h-8" />
+                              <div className="flex flex-col items-center gap-3 py-2">
+                                 <div className="w-10 h-10 rounded-full bg-white shadow-inner flex items-center justify-center text-indigo-600">
+                                    <Mic className="w-5 h-5" />
                                  </div>
-                                 <audio src={sub.audio_url} controls className="w-full h-12 outline-none" />
+                                 <audio src={sub.audio_url} controls className="w-full h-9 outline-none" />
                                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Audio Recording Provided</p>
                               </div>
                             ) : (
-                              <div className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed text-lg italic">
+                              <div className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed text-sm italic">
                                  "{sub.content?.submission_text || sub.submission_text || 'No written response provided.'}"
                               </div>
                             )}
@@ -232,19 +245,21 @@ export default function TeacherEvaluationPage() {
                    </div>
 
                    {/* Right side: Grading */}
-                   <div className="p-10 lg:p-12 bg-slate-50/50 space-y-10">
+                   <div className="p-4 sm:p-5 bg-slate-50/50 space-y-4">
                       <div className="flex items-center gap-3">
                          <Trophy className="h-6 w-6 text-indigo-600" />
-                         <h4 className="text-xl font-black text-slate-900">Grading System</h4>
+                         <h4 className="text-base font-black text-slate-900">Grading System</h4>
                       </div>
 
-                      <div className="space-y-8">
+                      <div className="space-y-4">
                          {/* Marks System */}
-                         <div className="grid grid-cols-2 gap-6">
+                         <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-3">
                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Calculated Marks</Label>
-                               <div className="h-20 bg-white rounded-3xl border border-slate-200 flex flex-col items-center justify-center group transition-all hover:border-indigo-300">
-                                  <span className="text-3xl font-black text-slate-900">{sub.auto_score || sub.score || 0}%</span>
+                               <div className="h-16 bg-white rounded-xl border border-slate-200 flex flex-col items-center justify-center group transition-all hover:border-indigo-300">
+                                  <span className="text-xl font-black text-slate-900">
+                                    {sub.auto_score ?? sub.score ?? '—'}%
+                                  </span>
                                   <span className="text-[8px] font-bold text-emerald-500 uppercase">AI Suggested</span>
                                </div>
                             </div>
@@ -255,11 +270,15 @@ export default function TeacherEvaluationPage() {
                                     type="number"
                                     min="0"
                                     max="100"
-                                    value={reviews[sub.id]?.score}
-                                    onChange={(e) => handleUpdateReview(sub.id, { score: Number(e.target.value) })}
-                                    className="h-20 bg-white rounded-3xl border-slate-200 text-3xl font-black text-center focus:ring-indigo-500/20"
+                                    value={reviews[sub.id]?.score ?? ''}
+                                    onChange={(e) =>
+                                      handleUpdateReview(sub.id, {
+                                        score: e.target.value === '' ? null : Number(e.target.value),
+                                      })
+                                    }
+                                    className="h-16 bg-white rounded-xl border-slate-200 text-xl font-black text-center focus:ring-indigo-500/20"
                                   />
-                                  <span className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-300 font-black text-xl">%</span>
+                                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 font-black text-sm">%</span>
                                </div>
                             </div>
                          </div>
@@ -270,14 +289,41 @@ export default function TeacherEvaluationPage() {
                                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Teacher's Remarks</Label>
                                <span className="text-[10px] font-bold text-indigo-600 uppercase">Visible to student</span>
                             </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => applyRubricPreset(sub.id, 'excellent')}
+                                className="h-8 rounded-xl bg-emerald-600 px-3 text-[10px] font-black text-white hover:bg-emerald-700"
+                              >
+                                Excellent
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => applyRubricPreset(sub.id, 'acceptable')}
+                                className="h-8 rounded-xl bg-blue-600 px-3 text-[10px] font-black text-white hover:bg-blue-700"
+                              >
+                                Acceptable
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => applyRubricPreset(sub.id, 'needs_repeat')}
+                                className="h-8 rounded-xl px-3 text-[10px] font-black text-rose-700"
+                              >
+                                Needs Repeat
+                              </Button>
+                            </div>
                             <div className="relative">
                                <Textarea 
                                  placeholder="Excellent work! Keep improving..."
                                  value={reviews[sub.id]?.feedback}
                                  onChange={(e) => handleUpdateReview(sub.id, { feedback: e.target.value })}
-                                 className="min-h-[160px] rounded-[2rem] bg-white border-slate-200 pl-14 pt-6 font-medium focus:ring-indigo-500/20 text-lg leading-relaxed shadow-sm"
+                                 className="min-h-[100px] rounded-xl bg-white border-slate-200 pl-10 pt-4 font-medium focus:ring-indigo-500/20 text-sm leading-relaxed shadow-sm"
                                />
-                               <MessageSquare className="absolute left-6 top-7 h-6 w-6 text-slate-300" />
+                               <MessageSquare className="absolute left-3 top-4 h-4 w-4 text-slate-300" />
                             </div>
                          </div>
 
@@ -296,14 +342,14 @@ export default function TeacherEvaluationPage() {
         </div>
 
         {/* Final Footer Actions */}
-        <div className="pt-8 flex flex-col md:flex-row items-center justify-between gap-6 bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl">
+        <div className="pt-2 flex flex-col md:flex-row items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
            <div className="flex items-center gap-4">
-              <div className="h-14 w-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400">
-                 <BadgeCheck className="h-7 w-7" />
+              <div className="h-10 w-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400">
+                 <BadgeCheck className="h-5 w-5" />
               </div>
               <div>
-                 <h4 className="text-xl font-black text-slate-900">Finalize Evaluation</h4>
-                 <p className="text-sm font-bold text-slate-400">Confirm all scores and remarks for this {mode}.</p>
+                 <h4 className="text-base font-black text-slate-900">Finalize Evaluation</h4>
+                 <p className="text-xs font-bold text-slate-400">Confirm all scores and remarks for this {mode}.</p>
               </div>
            </div>
            
@@ -311,7 +357,7 @@ export default function TeacherEvaluationPage() {
               <Button 
                 variant="outline" 
                 size="lg" 
-                className="flex-1 md:flex-none rounded-2xl h-16 px-10 font-black border-slate-200"
+                className="flex-1 md:flex-none rounded-xl h-11 px-5 font-black border-slate-200"
                 onClick={() => handleSaveAll(false)}
                 disabled={saving}
               >
@@ -319,7 +365,7 @@ export default function TeacherEvaluationPage() {
               </Button>
               <Button 
                 size="lg" 
-                className="flex-1 md:flex-none rounded-2xl h-16 px-12 bg-blue-600 hover:bg-blue-700 text-white font-black shadow-xl shadow-blue-500/30"
+                className="flex-1 md:flex-none rounded-xl h-11 px-5 bg-blue-600 hover:bg-blue-700 text-white font-black"
                 onClick={() => handleSaveAll(true)}
                 disabled={saving}
               >

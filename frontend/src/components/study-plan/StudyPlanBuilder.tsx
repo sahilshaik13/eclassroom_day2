@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar, Eye, EyeOff, Headphones, FileText, PenLine, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar, Eye, EyeOff, Headphones, FileText, PenLine, RefreshCw, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,8 +46,12 @@ interface StudyPlanBuilderProps {
   days: Day[];
   onChange: (days: Day[]) => void;
   readOnly?: boolean;
+  /** When set, only render this day (calendar day editor). */
+  singleDayIndex?: number;
   // Optional CRUD callbacks for real-time saving (Teacher mode)
   onAddPeriod?: (dayIdx: number) => void;
+  /** Clone period structure (and tasks when supported) */
+  onDuplicatePeriod?: (dayIdx: number, periodIdx: number) => void;
   onUpdatePeriod?: (dayIdx: number, pIdx: number, updates: any) => void;
   onDeletePeriod?: (dayIdx: number, pIdx: number) => void;
   onAddTask?: (dayIdx: number, pIdx: number, type: TaskType) => void;
@@ -93,7 +97,9 @@ export default function StudyPlanBuilder({
   days, 
   onChange, 
   readOnly = false,
+  singleDayIndex,
   onAddPeriod,
+  onDuplicatePeriod,
   onUpdatePeriod,
   onDeletePeriod,
   onAddTask,
@@ -105,6 +111,16 @@ export default function StudyPlanBuilder({
 }: StudyPlanBuilderProps) {
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({ 1: true });
   const [activeMCQTask, setActiveMCQTask] = useState<{ dIdx: number, pIdx: number, tIdx: number } | null>(null);
+
+  const visibleDayEntries = singleDayIndex != null
+    ? (days[singleDayIndex] ? [[singleDayIndex, days[singleDayIndex]] as const] : [])
+    : days.map((day, index) => [index, day] as const);
+
+  useEffect(() => {
+    if (singleDayIndex == null || !days[singleDayIndex]) return;
+    const dayNum = days[singleDayIndex].day_number;
+    setExpandedDays((prev) => ({ ...prev, [dayNum]: true }));
+  }, [singleDayIndex, days]);
 
   const toggleDay = (dayNum: number) => {
     setExpandedDays(prev => ({ ...prev, [dayNum]: !prev[dayNum] }));
@@ -129,6 +145,23 @@ export default function StudyPlanBuilder({
       duration_minutes: 30,
       order_index: newDays[dayIdx].periods.length,
       tasks: []
+    });
+    onChange(newDays);
+  };
+
+  const handleDuplicatePeriod = (dayIdx: number, periodIdx: number) => {
+    if (onDuplicatePeriod) return onDuplicatePeriod(dayIdx, periodIdx);
+    const newDays = [...days];
+    const source = newDays[dayIdx].periods[periodIdx];
+    newDays[dayIdx].periods.push({
+      ...source,
+      id: undefined,
+      order_index: newDays[dayIdx].periods.length,
+      tasks: (source.tasks || []).map((task, i) => ({
+        ...task,
+        id: undefined,
+        order_index: i,
+      })),
     });
     onChange(newDays);
   };
@@ -179,7 +212,7 @@ export default function StudyPlanBuilder({
 
   return (
     <div className="space-y-6">
-      {days.map((day, dIdx) => (
+      {visibleDayEntries.map(([dIdx, day]) => (
         <div key={dIdx} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Day Header */}
           <div 
@@ -285,14 +318,32 @@ export default function StudyPlanBuilder({
                       </div>
                     </div>
                     {!readOnly && (
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 text-slate-300 hover:text-red-500 rounded-lg"
-                        onClick={() => handleRemovePeriod(dIdx, pIdx)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-0.5">
+                        {(onDuplicatePeriod || !onAddPeriod) && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg"
+                            title="Duplicate this period"
+                            aria-label="Duplicate period"
+                            onClick={() => handleDuplicatePeriod(dIdx, pIdx)}
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-slate-300 hover:text-red-500 rounded-lg"
+                          title="Delete period"
+                          aria-label="Delete period"
+                          onClick={() => handleRemovePeriod(dIdx, pIdx)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                   <CardContent className="p-5 space-y-3">
@@ -367,7 +418,7 @@ export default function StudyPlanBuilder({
                             placeholder="Add instructions or description..."
                             readOnly={readOnly}
                           />
-                          
+
                           {task.task_type === 'mcq' && (
                             <div className="pt-2">
                                <Button 
@@ -397,9 +448,9 @@ export default function StudyPlanBuilder({
                 </Card>
               ))}
               {!readOnly && (
-                <Button 
-                  variant="outline" 
-                  className="w-full py-6 border-dashed border-slate-300 text-slate-500 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200 rounded-2xl font-black text-sm gap-2"
+                <Button
+                  variant="outline"
+                  className="w-full gap-2 rounded-2xl border-dashed border-slate-300 py-6 text-sm font-black text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                   onClick={() => handleAddPeriod(dIdx)}
                 >
                   <Plus className="h-5 w-5" /> Add New Period
@@ -410,7 +461,7 @@ export default function StudyPlanBuilder({
         </div>
       ))}
 
-      {!readOnly && !onAddPeriod && ( // In admin mode (no real-time callbacks), show add day button
+      {!readOnly && !onAddPeriod && singleDayIndex == null && ( // In admin mode (no real-time callbacks), show add day button
         <Button 
           onClick={addDay}
           className="w-full py-8 bg-slate-900 hover:bg-slate-800 text-white rounded-3xl font-black text-lg shadow-xl shadow-slate-200 flex items-center justify-center gap-3 transition-transform hover:scale-[1.01] active:scale-[0.99]"

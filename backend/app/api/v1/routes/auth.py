@@ -4,6 +4,8 @@ Auth routes — thin layer that delegates to AuthService.
 POST /api/v1/auth/otp/send
 POST /api/v1/auth/otp/verify
 POST /api/v1/auth/login
+POST /api/v1/auth/forgot-password
+POST /api/v1/auth/set-password
 POST /api/v1/auth/mfa/enroll
 GET  /api/v1/auth/mfa/factors
 POST /api/v1/auth/mfa/verify
@@ -47,6 +49,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+    redirect_to: str | None = None
+
+
 class MFAVerifyRequest(BaseModel):
     factor_id: str
     code: str
@@ -83,6 +90,29 @@ async def verify_otp(body: OTPVerifyRequest):
 async def login(body: LoginRequest):
     try:
         result = await AuthService.login_with_password(body.email, body.password)
+        return success(result)
+    except AuthError as e:
+        return error(e.code, e.message, e.status)
+
+
+@router.post("/forgot-password")
+async def forgot_password(body: ForgotPasswordRequest, request: Request):
+    """Request a password reset link (admin, teacher, super admin only)."""
+    try:
+        redirect_to = body.redirect_to
+        if not redirect_to:
+            origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
+            base = settings.FRONTEND_URL.rstrip("/")
+            if origin:
+                base = origin.rstrip("/")
+            elif referer:
+                from urllib.parse import urlparse
+
+                p = urlparse(referer)
+                base = f"{p.scheme}://{p.netloc}"
+            redirect_to = f"{base}/auth/reset-password"
+        result = await AuthService.request_password_reset(body.email, redirect_to)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)

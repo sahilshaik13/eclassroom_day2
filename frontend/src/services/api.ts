@@ -29,11 +29,13 @@ const processQueue = (error: Error | null, token: string | null = null) => {
 }
 
 function getStoredToken(): string | null {
-  // Primary: access_token is written synchronously by setSession/updateToken
+  // Prefer in-memory store (accurate immediately after rehydrate / refresh)
+  const fromStore = useAuthStore.getState().accessToken
+  if (fromStore) return fromStore
+
   const direct = localStorage.getItem('access_token')
   if (direct) return direct
 
-  // Fallback: read from Zustand persist key (may lag slightly after login)
   try {
     const raw = localStorage.getItem('eclassroom-auth')
     if (raw) {
@@ -74,11 +76,18 @@ api.interceptors.response.use(
 
       const state = useAuthStore.getState()
       
-      // Check inactivity limit
-      if (!state.lastActivityTimestamp || (Date.now() - state.lastActivityTimestamp > state.getInactivityLimitMs())) {
+      // Check inactivity limit (skip when timestamp missing — e.g. legacy persisted session)
+      const lastActivity = state.lastActivityTimestamp
+      if (
+        lastActivity != null &&
+        Date.now() - lastActivity > state.getInactivityLimitMs()
+      ) {
         state.clearSession()
         window.dispatchEvent(new Event('eclassroom-logout'))
         return Promise.reject(err)
+      }
+      if (lastActivity == null) {
+        state.touchActivity()
       }
 
       const refreshToken = state.refreshToken || localStorage.getItem('refresh_token')
@@ -117,8 +126,9 @@ api.interceptors.response.use(
         return api(originalRequest)
       } catch (refreshError) {
         processQueue(refreshError as Error, null)
-        state.clearSession()
-        window.dispatchEvent(new Event('eclassroom-logout'))
+        // Don't clear session on refresh error - let user retry or re-authenticate
+        // state.clearSession()
+        // window.dispatchEvent(new Event('eclassroom-logout'))
         return Promise.reject(refreshError)
       } finally {
         isRefreshing = false
@@ -126,9 +136,9 @@ api.interceptors.response.use(
     }
 
     if (err.response?.status === 401) {
-      // In case retry fails or no token
-      useAuthStore.getState().clearSession()
-      window.dispatchEvent(new Event('eclassroom-logout'))
+      // Don't auto-clear session on 401 - let RouteGuards handle auth state
+      // useAuthStore.getState().clearSession()
+      // window.dispatchEvent(new Event('eclassroom-logout'))
       return Promise.reject(err)
     }
 

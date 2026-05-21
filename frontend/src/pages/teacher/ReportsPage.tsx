@@ -14,9 +14,23 @@ import { Badge } from '@/components/ui/badge'
 export default function ReportsPage() {
   const [search, setSearch] = useState('')
 
+  const { data: classes = [] } = useQuery({
+    queryKey: queryKeys.teacher.classes(),
+    queryFn: async () =>
+      (await api.get('/teacher/classes')).data.data as { id: string; name: string }[],
+  })
+
+  const reportClassId = classes[0]?.id ?? ''
+
   const { data: students = [], isPending: loading } = useQuery({
-    queryKey: queryKeys.teacher.studentsAll(),
-    queryFn: async () => (await api.get('/teacher/students')).data.data as { id: string; name: string }[],
+    queryKey: queryKeys.teacher.studentsByClass(reportClassId),
+    enabled: Boolean(reportClassId),
+    queryFn: async () => {
+      const res = await api.get('/teacher/students', {
+        params: { class_id: reportClassId, page: 1, limit: 100 },
+      })
+      return res.data.data as { id: string; name: string }[]
+    },
   })
 
   const download = async (id: string, name: string) => {

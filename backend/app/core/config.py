@@ -1,5 +1,12 @@
-from pydantic_settings import BaseSettings
+from pathlib import Path
 from typing import List
+
+from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
+
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+# override=True: backend/.env wins over stale machine env (e.g. old REDIS_URL=localhost)
+load_dotenv(_BACKEND_DIR / ".env", override=True)
 
 
 class Settings(BaseSettings):
@@ -13,7 +20,12 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_NAME: str = "ThinkTarteeb E-Classroom"
     FRONTEND_URL: str = "http://localhost:5173"
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ]
 
     # ── Session TTLs per role (minutes) ───────────────────────
     SESSION_STUDENT_TTL_MINUTES: int = 10080
@@ -39,9 +51,63 @@ class Settings(BaseSettings):
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_API: str = "100/minute"
 
+    # ── Redis (SSE import events, ARQ worker, cache) ──────────
+    REDIS_URL: str = ""
+
+    # ── Real-time Features (gradual rollout) ───────────────────
+    USE_SUPABASE_REALTIME: bool = False  # Enable Supabase Realtime for live portal sync
+
+    # ── Neon Postgres (super-admin application logs) ──────────
+    DATABASE_URL: str = ""
+    AUDIT_LOG_RETENTION_DAYS: int = 7
+    AUDIT_LOG_MAX_ENTRIES: int = 500_000
+
+    # ── Connection Pooling / Concurrency ───────────────────────
+    # Database connection pool size (asyncpg)
+    DB_POOL_MIN_SIZE: int = 2
+    DB_POOL_MAX_SIZE: int = 10
+    # HTTP client connection pool (httpx)
+    HTTP_POOL_LIMIT: int = 100
+    HTTP_POOL_LIMIT_PER_HOST: int = 20
+    # Number of concurrent workers for parallel processing
+    MAX_WORKER_THREADS: int = 10
+
+    # ── Google Meet (Calendar API + OAuth) ────────────────────
+    GOOGLE_OAUTH_CLIENT_ID: str = ""
+    GOOGLE_OAUTH_CLIENT_SECRET: str = ""
+    GOOGLE_OAUTH_REDIRECT_URI: str = ""
+    GOOGLE_TOKEN_ENCRYPTION_KEY: str = ""
+
+    # ── Sentry ────────────────────────────────────────────────
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.2
+
+    @property
+    def google_oauth_redirect_uri(self) -> str:
+        explicit = (self.GOOGLE_OAUTH_REDIRECT_URI or "").strip()
+        if explicit:
+            return explicit.rstrip("/")
+        return "http://localhost:8080/api/v1/meet/google/callback"
+
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
+
+    @property
+    def sentry_enabled(self) -> bool:
+        return bool(self.SENTRY_DSN.strip())
+
+    @property
+    def cors_origins(self) -> List[str]:
+        """Allowed browser origins (env list + common local dev ports in development)."""
+        origins = {o.rstrip("/") for o in (self.CORS_ORIGINS or []) if o}
+        if self.FRONTEND_URL:
+            origins.add(self.FRONTEND_URL.rstrip("/"))
+        if not self.is_production:
+            for port in (5173, 5174, 5175, 3000):
+                origins.add(f"http://localhost:{port}")
+                origins.add(f"http://127.0.0.1:{port}")
+        return sorted(origins)
 
     model_config = {
         "env_file": ".env",

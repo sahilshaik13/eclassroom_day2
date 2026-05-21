@@ -50,37 +50,41 @@ export default function AuthCallback() {
         return
       }
 
-      const email = decoded?.email
+      const email = decoded?.email as string | undefined
+      const linkType = hashData.get('type') || searchData.get('type')
 
-      // Store temporarily for setPassword
+      if (linkType === 'recovery') {
+        localStorage.setItem('temp_reset_token', accessToken)
+        if (email) localStorage.setItem('temp_reset_email', email)
+        navigate('/auth/reset-password', { replace: true })
+        return
+      }
+
+      // Invite / first-time setup
       localStorage.setItem('temp_invite_token', accessToken)
       if (email) {
         localStorage.setItem('temp_invite_email', email)
       }
 
       try {
-        // Temporarily set token for the status check
         localStorage.setItem('access_token', accessToken)
 
         const statusRes = await authApi.getUserStatus()
         const { has_password } = statusRes.data.data
 
         if (has_password) {
-          // Password already set → go to login
           localStorage.removeItem('temp_invite_token')
           localStorage.removeItem('temp_invite_email')
           localStorage.removeItem('access_token')
           toast.success('Account already active. Please login.')
           navigate('/auth/login', { replace: true })
         } else {
-          // Not set yet → go to setup
           localStorage.removeItem('access_token')
           navigate('/auth/setup-password', { replace: true })
         }
       } catch (error) {
         console.error('Failed to verify user status:', error)
         localStorage.removeItem('access_token')
-        // If status check fails but token exists and isn't expired, still try setup
         navigate('/auth/setup-password', { replace: true })
       }
     }

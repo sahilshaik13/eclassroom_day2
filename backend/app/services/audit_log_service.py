@@ -1,45 +1,16 @@
 """
-Write API audit events to `audit_log_recent` and trigger rotation into `audit_log_archive`.
+Application logs for super-admin — stored in Neon Postgres (DATABASE_URL).
 
-Rotation is implemented in SQL (`rotate_audit_logs`) and invoked periodically from the
-app lifespan and optionally via pg_cron.
+Includes HTTP requests (all status codes), Python warnings/errors, and unhandled exceptions.
 """
 from __future__ import annotations
 
-import logging
-import uuid
 from typing import Any, Optional
 
-from supabase import Client
-
-logger = logging.getLogger(__name__)
+from app.services import application_log_store
 
 
-def _safe_uuid(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    try:
-        return str(uuid.UUID(str(value)))
-    except (ValueError, TypeError):
-        return None
-
-
-def _is_missing_actor_fk_violation(exc: Exception) -> bool:
-    blob = " ".join(
-        str(part)
-        for part in (
-            getattr(exc, "code", ""),
-            getattr(exc, "details", ""),
-            getattr(exc, "message", ""),
-            exc,
-        )
-        if part
-    )
-    return "23503" in blob and "audit_log_recent_actor_user_id_fkey" in blob
-
-
-def insert_audit_event(
-    admin: Client,
+async def record_audit_event(
     *,
     http_method: str,
     path: str,
@@ -50,52 +21,40 @@ def insert_audit_event(
     actor_role: Optional[str],
     client_ip: Optional[str],
     user_agent: Optional[str],
+    request_id: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> None:
-    actor_uuid = _safe_uuid(actor_user_id)
-    clean_metadata = {k: v for k, v in (metadata or {}).items() if v is not None}
-    row = {
-        "http_method": http_method[:16],
-        "path": path[:2048],
-        "status_code": status_code,
-        "duration_ms": duration_ms,
-        "actor_user_id": actor_uuid,
-        "tenant_id": _safe_uuid(tenant_id),
-        "actor_role": (actor_role[:64] if actor_role else None),
-        "client_ip": (client_ip[:128] if client_ip else None),
-        "user_agent": (user_agent[:512] if user_agent else None),
-        "metadata": clean_metadata,
-    }
-    try:
-        admin.table("audit_log_recent").insert(row).execute()
-    except Exception as exc:
-        if actor_uuid and _is_missing_actor_fk_violation(exc):
-            fallback_metadata = dict(clean_metadata)
-            fallback_metadata.setdefault("unresolved_actor_user_id", actor_uuid)
-            fallback_row = {
-                **row,
-                "actor_user_id": None,
-                "metadata": fallback_metadata,
-            }
-            try:
-                admin.table("audit_log_recent").insert(fallback_row).execute()
-                logger.warning(
-                    "[audit_log] actor_user_id missing in users; recorded path=%s without FK link",
-                    path,
-                )
-                return
-            except Exception:
-                logger.exception("[audit_log] fallback insert failed path=%s", path)
-                return
-        logger.exception("[audit_log] insert failed path=%s", path)
+    await application_log_store.insert_http_request_log(
+        http_method=http_method,
+        path=path,
+        status_code=status_code,
+        duration_ms=duration_ms,
+        actor_user_id=actor_user_id,
+        tenant_id=tenant_id,
+        actor_role=actor_role,
+        client_ip=client_ip,
+        user_agent=user_agent,
+        request_id=request_id,
+        metadata=metadata,
+    )
 
 
-def rotate_audit_logs(admin: Client) -> dict[str, Any]:
-    """Move rows older than 7 days to archive; purge archive older than 37 days."""
-    try:
-        res = admin.rpc("rotate_audit_logs").execute()
-        raw = getattr(res, "data", None)
-        return raw if isinstance(raw, dict) else {}
-    except Exception:
-        logger.exception("[audit_log] rotate_audit_logs RPC failed")
-        return {}
+async def list_audit_events(
+    *,
+    page: int = 1,
+    limit: int = 100,
+    tenant_id: Optional[str] = None,
+) -> tuple[list[dict[str, Any]], int]:
+    return await application_log_store.list_application_logs(
+        page=page,
+        limit=limit,
+        tenant_id=tenant_id,
+    )
+
+
+async def rotate_audit_logs() -> dict[str, Any]:
+    return await application_log_store.rotate_application_logs()
+
+
+async def purge_tenant_audit_logs(tenant_id: str) -> int:
+    return await application_log_store.purge_tenant_application_logs(tenant_id)

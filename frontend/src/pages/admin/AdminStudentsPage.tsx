@@ -55,6 +55,7 @@ export default function AdminStudentsPage() {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.admin.students(STUDENT_PAGE_LIMIT),
     })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.admin.stats() })
   }
 
   useEffect(() => {

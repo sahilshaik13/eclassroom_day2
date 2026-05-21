@@ -20,6 +20,12 @@ export const authApi = {
       { email, password }
     ),
 
+  forgotPassword: (email: string, redirectTo?: string) =>
+    api.post<{ success: true; data: { message: string } }>(
+      '/auth/forgot-password',
+      { email, redirect_to: redirectTo }
+    ),
+
   mfaEnroll: (token?: string) => {
     const rt = localStorage.getItem('refresh_token') ?? ''
     const headers: any = { 'X-Refresh-Token': rt }

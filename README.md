@@ -39,7 +39,8 @@ net — even a bug in FastAPI cannot leak cross-tenant data.
 ### Prerequisites
 - Python 3.12+
 - Node 20+
-- A Supabase project (free tier works)
+- Cloud Supabase project
+- Cloud Redis (`REDIS_URL`, e.g. Upstash `rediss://...`)
 
 ### Backend
 
@@ -54,9 +55,7 @@ uvicorn app.main:app --reload --port 8080  # http://localhost:8080/docs
 ### Run migrations
 ```bash
 # In Supabase SQL Editor, paste and run:
-#   supabase/migrations/001_initial_schema.sql
-#   supabase/migrations/002_rls_policies.sql
-#   supabase/migrations/003_seed.sql
+#   backend/supabase/migrations/*.sql (in order)
 ```
 
 ### Frontend
@@ -64,8 +63,8 @@ uvicorn app.main:app --reload --port 8080  # http://localhost:8080/docs
 ```bash
 cd frontend
 npm install
-cp .env.example .env.local     # fill in VITE_SUPABASE_URL + ANON_KEY
-npm run dev                     # http://localhost:5173
+cp .env.example .env           # VITE_SUPABASE_URL + ANON_KEY (cloud project)
+npm run dev                     # http://localhost:5174
 ```
 
 ## Project Structure

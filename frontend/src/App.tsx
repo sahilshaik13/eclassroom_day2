@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import { useEffect } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
 // Store
 import { useAuthStore } from '@/stores/authStore'
@@ -11,63 +11,78 @@ import { RequireRole, RedirectIfAuthed } from '@/components/shared/RouteGuards'
 // Layout
 import PortalLayout from '@/components/shared/PortalLayout'
 
-// Auth pages
+// Auth pages (eager — first paint)
 import StudentLoginPage from '@/pages/auth/StudentLoginPage'
 import StaffLoginPage from '@/pages/auth/StaffLoginPage'
 import MFASetupPage from '@/pages/auth/MFASetupPage'
 import MFAVerifyPage from '@/pages/auth/MFAVerifyPage'
 import AuthCallback from '@/pages/auth/AuthCallback'
 import SetupPasswordPage from '@/pages/auth/SetupPasswordPage'
+import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
 import StudentRegistrationPage from '@/pages/auth/StudentRegistrationPage'
 import TeacherRegistrationPage from '@/pages/auth/TeacherRegistrationPage'
 
-// Student pages
-import StudentDashboard from '@/pages/student/StudentDashboard'
-import StudyPlanPage from '@/pages/student/StudyPlanPage'
-import StudentClassesPage from '@/pages/student/StudentClassesPage'
-import StudentDoubtsPage from '@/pages/student/StudentDoubtsPage'
-import StudentProfilePage from '@/pages/student/StudentProfilePage'
-import StudentCompetitionsPage from '@/pages/student/StudentCompetitionsPage'
-import StudentExamPage from '@/pages/student/StudentExamPage'
-import StudentProgressPage from '@/pages/student/StudentProgressPage'
-import StudentReportPage from '@/pages/student/StudentReportPage'
-
-// Teacher pages
-import TeacherDashboard from './pages/teacher/TeacherDashboard'
-import TeacherStudentsPage from './pages/teacher/TeacherStudentsPage'
-import AttendancePage from './pages/teacher/AttendancePage'
-import TeacherDoubtsPage from './pages/teacher/TeacherDoubtsPage'
-import GradesPage from './pages/teacher/GradesPage'
-import ReportsPage from './pages/teacher/ReportsPage'
-import TeacherProfilePage from './pages/teacher/TeacherProfilePage'
-import TeacherStudyPlanPage from './pages/teacher/TeacherStudyPlanPage'
-import TeacherEvaluationPage from './pages/teacher/TeacherEvaluationPage'
+// Public apply (small)
 import TeacherApplyPage from './pages/public/TeacherApplyPage'
 import StudentApplyPage from './pages/public/StudentApplyPage'
-import TeacherCompetitionsPage from './pages/teacher/TeacherCompetitionsPage'
-import TeacherExamSetupPage from './pages/teacher/TeacherExamSetupPage'
-import TeacherParticipantPortal from './pages/teacher/TeacherParticipantPortal'
-
-// Competition pages
 import { CompetitionLandingPage } from './pages/public/CompetitionLandingPage'
-import { CompetitionPortalPage } from './pages/competition/CompetitionPortalPage'
+
+const PageFallback = () => (
+  <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground" role="status" aria-live="polite">
+    Loading…
+  </div>
+)
+
+// Student pages
+const StudentDashboard = lazy(() => import('@/pages/student/StudentDashboard'))
+const StudentClassesPage = lazy(() => import('@/pages/student/StudentClassesPage'))
+const StudentDoubtsPage = lazy(() => import('@/pages/student/StudentDoubtsPage'))
+const StudentProfilePage = lazy(() => import('@/pages/student/StudentProfilePage'))
+const StudentCompetitionsPage = lazy(() => import('@/pages/student/StudentCompetitionsPage'))
+const StudentExamPage = lazy(() => import('@/pages/student/StudentExamPage'))
+const StudentReportPage = lazy(() => import('@/pages/student/StudentReportPage'))
+
+// Teacher pages
+const TeacherDashboard = lazy(() => import('./pages/teacher/TeacherDashboard'))
+const TeacherStudentsPage = lazy(() => import('./pages/teacher/TeacherStudentsPage'))
+const AttendancePage = lazy(() => import('./pages/teacher/AttendancePage'))
+const TeacherDoubtsPage = lazy(() => import('./pages/teacher/TeacherDoubtsPage'))
+const GradesPage = lazy(() => import('./pages/teacher/GradesPage'))
+const ReportsPage = lazy(() => import('./pages/teacher/ReportsPage'))
+const TeacherProfilePage = lazy(() => import('./pages/teacher/TeacherProfilePage'))
+const TeacherStudyPlanPage = lazy(() => import('./pages/teacher/TeacherStudyPlanPage'))
+const TeacherEvaluationPage = lazy(() => import('./pages/teacher/TeacherEvaluationPage'))
+const TeacherCompetitionsPage = lazy(() => import('./pages/teacher/TeacherCompetitionsPage'))
+const TeacherExamSetupPage = lazy(() => import('./pages/teacher/TeacherExamSetupPage'))
+const TeacherParticipantPortal = lazy(() => import('./pages/teacher/TeacherParticipantPortal'))
+
+// Competition portal
+const CompetitionPortalPage = lazy(() =>
+  import('./pages/competition/CompetitionPortalPage').then((m) => ({
+    default: m.CompetitionPortalPage,
+  }))
+)
 
 // Admin pages
-import AdminDashboard from '@/pages/admin/AdminDashboard'
-import AdminStudentsPage from '@/pages/admin/AdminStudentsPage'
-import AdminTeachersPage from '@/pages/admin/AdminTeachersPage'
-import AdminClassesPage from '@/pages/admin/AdminClassesPage'
-import StudyPlansPage from '@/pages/admin/StudyPlansPage'
-import AdminSettingsPage from '@/pages/admin/AdminSettingsPage'
-import AdminCompetitionsPage from '@/pages/admin/AdminCompetitionsPage'
-import AdminClassStudyPlanPage from '@/pages/admin/AdminClassStudyPlanPage'
+const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard'))
+const AdminStudentsPage = lazy(() => import('@/pages/admin/AdminStudentsPage'))
+const AdminTeachersPage = lazy(() => import('@/pages/admin/AdminTeachersPage'))
+const AdminClassesPage = lazy(() => import('@/pages/admin/AdminClassesPage'))
+const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage'))
+const AdminCompetitionsPage = lazy(() => import('@/pages/admin/AdminCompetitionsPage'))
+const AdminClassStudyPlanPage = lazy(() => import('@/pages/admin/AdminClassStudyPlanPage'))
 
 // Super Admin pages
-import SuperAdminDashboard from '@/pages/superadmin/SuperAdminDashboard'
-import TenantsPage from '@/pages/superadmin/TenantPage'
-import TenantDetailPage from '@/pages/superadmin/TenantDetailPage'
-import SuperAdminTenantTeachersPage from '@/pages/superadmin/SuperAdminTenantTeachersPage'
-import SuperAdminTenantStudentsPage from '@/pages/superadmin/SuperAdminTenantStudentsPage'
+const SuperAdminDashboard = lazy(() => import('@/pages/superadmin/SuperAdminDashboard'))
+const TenantsPage = lazy(() => import('@/pages/superadmin/TenantPage'))
+const TenantDetailPage = lazy(() => import('@/pages/superadmin/TenantDetailPage'))
+const SuperAdminTenantTeachersPage = lazy(() => import('@/pages/superadmin/SuperAdminTenantTeachersPage'))
+const SuperAdminTenantStudentsPage = lazy(() => import('@/pages/superadmin/SuperAdminTenantStudentsPage'))
+
+function Lazy({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PageFallback />}>{children}</Suspense>
+}
 
 function AuthEventListener() {
   const navigate = useNavigate()
@@ -107,8 +122,17 @@ function HashHandler() {
 
     const type = hashData.get('type') || searchData.get('type')
 
+    if (accessToken && type === 'recovery') {
+      const suffix =
+        window.location.hash ||
+        (window.location.search
+          ? '#' + window.location.search.substring(1)
+          : '')
+      navigate('/auth/reset-password' + suffix, { replace: true })
+      return
+    }
+
     if (accessToken && type === 'invite') {
-      console.log('Detected invite token on root, redirecting to callback...')
       const suffix =
         window.location.hash ||
         (window.location.search
@@ -127,8 +151,6 @@ function ActivityTracker() {
     if (!isAuthenticated) return
 
     const handleActivity = () => {
-      // Use a small debounce/throttle implicitly by just calling it
-      // Zustand handles the shallow check
       touchActivity()
     }
 
@@ -172,10 +194,8 @@ export default function App() {
       />
 
       <Routes>
-        {/* ── Root ─────────────────────────── */}
         <Route path="/" element={<Navigate to="/auth/student-login" replace />} />
 
-        {/* ── Auth ───────────────────────────── */}
         <Route
           path="/auth/student-login"
           element={<RedirectIfAuthed><StudentLoginPage /></RedirectIfAuthed>}
@@ -188,6 +208,8 @@ export default function App() {
         <Route path="/auth/mfa-verify" element={<MFAVerifyPage />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/auth/setup-password" element={<SetupPasswordPage />} />
+        <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
         <Route
           path="/auth/student-registration"
           element={<RequireRole role="student"><StudentRegistrationPage /></RequireRole>}
@@ -199,82 +221,83 @@ export default function App() {
         <Route path="/apply/:slug" element={<TeacherApplyPage />} />
         <Route path="/apply/:slug/student" element={<StudentApplyPage />} />
         <Route path="/compete/:competition_id" element={<CompetitionLandingPage />} />
-        
-        {/* ── Competition Portal (External Participants) ── */}
-        <Route 
-          path="/competition-portal" 
-          element={<RequireRole role="student"><CompetitionPortalPage /></RequireRole>} 
+
+        <Route
+          path="/competition-portal"
+          element={
+            <RequireRole role="student">
+              <Lazy><CompetitionPortalPage /></Lazy>
+            </RequireRole>
+          }
         />
 
-        {/* ── Student portal ────────────────── */}
         <Route
           path="/student"
           element={<RequireRole role="student"><PortalLayout /></RequireRole>}
         >
-          <Route index element={<StudentDashboard />} />
-          <Route path="study-plan" element={<StudyPlanPage />} />
-          <Route path="classes" element={<StudentClassesPage />} />
-          <Route path="progress" element={<StudentProgressPage />} />
+          <Route index element={<Lazy><StudentDashboard /></Lazy>} />
+          <Route path="study-plan" element={<Navigate to="/student/classes" replace />} />
+          <Route path="classes" element={<Lazy><StudentClassesPage /></Lazy>} />
+          <Route path="progress" element={<Navigate to="/student/report" replace />} />
           <Route path="today" element={<Navigate to="/student" replace />} />
-          <Route path="doubts" element={<StudentDoubtsPage />} />
-          <Route path="competitions" element={<StudentCompetitionsPage />} />
-          <Route path="competitions/:id/exam" element={<StudentExamPage />} />
-          <Route path="report" element={<StudentReportPage />} />
-          <Route path="profile" element={<StudentProfilePage />} />
+          <Route path="doubts" element={<Lazy><StudentDoubtsPage /></Lazy>} />
+          <Route path="competitions" element={<Lazy><StudentCompetitionsPage /></Lazy>} />
+          <Route path="competitions/:id/exam" element={<Lazy><StudentExamPage /></Lazy>} />
+          <Route path="report" element={<Lazy><StudentReportPage /></Lazy>} />
+          <Route path="profile" element={<Lazy><StudentProfilePage /></Lazy>} />
         </Route>
 
-        {/* ── Teacher portal ────────────────── */}
         <Route
           path="/teacher"
           element={<RequireRole role="teacher"><PortalLayout /></RequireRole>}
         >
-          <Route index element={<TeacherDashboard />} />
-          <Route path="students" element={<TeacherStudentsPage />} />
-          <Route path="study-plan" element={<TeacherStudyPlanPage />} />
+          <Route index element={<Lazy><TeacherDashboard /></Lazy>} />
+          <Route path="students" element={<Lazy><TeacherStudentsPage /></Lazy>} />
+          <Route path="study-plan" element={<Lazy><TeacherStudyPlanPage /></Lazy>} />
           <Route path="submissions" element={<Navigate to="/teacher" replace />} />
           <Route path="applicants" element={<Navigate to="/teacher" replace />} />
-          <Route path="attendance" element={<AttendancePage />} />
-          <Route path="doubts" element={<TeacherDoubtsPage />} />
-          <Route path="grades" element={<GradesPage />} />
-          <Route path="reports" element={<ReportsPage />} />
-          <Route path="profile" element={<TeacherProfilePage />} />
-          <Route path="competitions" element={<TeacherCompetitionsPage />} />
-          <Route path="competitions/:id/setup" element={<TeacherExamSetupPage />} />
-          <Route path="competitions/:competition_id/evaluate/:registration_id" element={<TeacherParticipantPortal />} />
-          <Route path="evaluate/:mode/:id" element={<TeacherEvaluationPage />} />
-          <Route path="evaluate/:mode/:id/:studentId" element={<TeacherEvaluationPage />} />
-          <Route path="report/:studentId" element={<StudentReportPage />} />
+          <Route path="attendance" element={<Lazy><AttendancePage /></Lazy>} />
+          <Route path="doubts" element={<Lazy><TeacherDoubtsPage /></Lazy>} />
+          <Route path="grades" element={<Lazy><GradesPage /></Lazy>} />
+          <Route path="reports" element={<Lazy><ReportsPage /></Lazy>} />
+          <Route path="profile" element={<Lazy><TeacherProfilePage /></Lazy>} />
+          <Route path="competitions" element={<Lazy><TeacherCompetitionsPage /></Lazy>} />
+          <Route path="competitions/:id/setup" element={<Lazy><TeacherExamSetupPage /></Lazy>} />
+          <Route
+            path="competitions/:competition_id/evaluate/:registration_id"
+            element={<Lazy><TeacherParticipantPortal /></Lazy>}
+          />
+          <Route path="evaluate/:mode/:id" element={<Lazy><TeacherEvaluationPage /></Lazy>} />
+          <Route path="evaluate/:mode/:id/:studentId" element={<Lazy><TeacherEvaluationPage /></Lazy>} />
+          <Route path="report/:studentId" element={<Lazy><StudentReportPage /></Lazy>} />
         </Route>
 
-        {/* ── Admin portal ──────────────────── */}
         <Route
           path="/admin"
           element={<RequireRole role="admin"><PortalLayout /></RequireRole>}
         >
-          <Route index element={<AdminDashboard />} />
-          <Route path="students" element={<AdminStudentsPage />} />
-          <Route path="teachers" element={<AdminTeachersPage />} />
-          <Route path="applicants" element={<AdminTeachersPage />} />
-          <Route path="classes" element={<AdminClassesPage />} />
-          <Route path="study-plans" element={<StudyPlansPage />} />
-          <Route path="settings" element={<AdminSettingsPage />} />
-          <Route path="competitions" element={<AdminCompetitionsPage />} />
-          <Route path="classes/:classId/study-plan" element={<AdminClassStudyPlanPage />} />
+          <Route index element={<Lazy><AdminDashboard /></Lazy>} />
+          <Route path="students" element={<Lazy><AdminStudentsPage /></Lazy>} />
+          <Route path="teachers" element={<Lazy><AdminTeachersPage /></Lazy>} />
+          <Route path="applicants" element={<Lazy><AdminTeachersPage /></Lazy>} />
+          <Route path="classes" element={<Lazy><AdminClassesPage /></Lazy>} />
+          <Route path="study-plans" element={<Navigate to="/admin/classes" replace />} />
+          <Route path="settings" element={<Lazy><AdminSettingsPage /></Lazy>} />
+          <Route path="competitions" element={<Lazy><AdminCompetitionsPage /></Lazy>} />
+          <Route path="classes/:classId/study-plan" element={<Lazy><AdminClassStudyPlanPage /></Lazy>} />
         </Route>
 
-        {/* ── Super Admin portal ──────────────── */}
         <Route
           path="/super-admin"
           element={<RequireRole role={['super_admin', 'platform_admin']}><PortalLayout /></RequireRole>}
         >
-          <Route index element={<SuperAdminDashboard />} />
-          <Route path="tenants" element={<TenantsPage />} />
-          <Route path="tenants/:tenantId" element={<TenantDetailPage />} />
-          <Route path="tenants/:tenantId/teachers" element={<SuperAdminTenantTeachersPage />} />
-          <Route path="tenants/:tenantId/students" element={<SuperAdminTenantStudentsPage />} />
+          <Route index element={<Lazy><SuperAdminDashboard /></Lazy>} />
+          <Route path="tenants" element={<Lazy><TenantsPage /></Lazy>} />
+          <Route path="tenants/:tenantId" element={<Lazy><TenantDetailPage /></Lazy>} />
+          <Route path="tenants/:tenantId/teachers" element={<Lazy><SuperAdminTenantTeachersPage /></Lazy>} />
+          <Route path="tenants/:tenantId/students" element={<Lazy><SuperAdminTenantStudentsPage /></Lazy>} />
         </Route>
 
-        {/* ── 404 ───────────────────────────── */}
         <Route path="*" element={<Navigate to="/auth/student-login" replace />} />
       </Routes>
     </BrowserRouter>

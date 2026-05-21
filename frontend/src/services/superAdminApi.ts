@@ -33,6 +33,15 @@ export interface PlatformStats {
     total_students: number
 }
 
+/** Shared React Query keys — dashboard + tenants list reuse the same cache. */
+export const superAdminQueryKeys = {
+    stats: ['super-admin', 'stats'] as const,
+    tenants: ['super-admin', 'tenants'] as const,
+    auditLogs: (page: number) => ['super-admin', 'audit-logs', page] as const,
+}
+
+const STALE_MS = 0
+
 export const superAdminApi = {
     getStats: () =>
         api.get<{ success: true; data: PlatformStats }>('/super-admin/stats'),
@@ -75,4 +84,25 @@ export const superAdminApi = {
 
     deleteTenant: (tenantId: string) =>
         api.delete<{ success: true; data: { message: string } }>(`/super-admin/tenants/${tenantId}`),
+}
+
+/** Invalidate super-admin dashboard queries after mutations (instant UI refresh). */
+export function invalidateSuperAdminQueries(
+    queryClient: { invalidateQueries: (opts: { queryKey: readonly unknown[] }) => void },
+) {
+    queryClient.invalidateQueries({ queryKey: superAdminQueryKeys.stats })
+    queryClient.invalidateQueries({ queryKey: superAdminQueryKeys.tenants })
+}
+
+export const superAdminQueryOptions = {
+    stats: {
+        queryKey: superAdminQueryKeys.stats,
+        queryFn: async () => (await superAdminApi.getStats()).data.data,
+        staleTime: STALE_MS,
+    },
+    tenants: {
+        queryKey: superAdminQueryKeys.tenants,
+        queryFn: async () => (await superAdminApi.getTenants()).data.data.tenants,
+        staleTime: STALE_MS,
+    },
 }
