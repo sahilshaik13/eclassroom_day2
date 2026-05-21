@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import List
 
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
     ]
+    # Optional regex for dynamic frontend hosts (e.g. Vercel preview URLs).
+    # Keep this strict to trusted domains only.
+    CORS_ORIGIN_REGEX: str = r"^https://([a-z0-9-]+\.)*vercel\.app$"
 
     # ── Session TTLs per role (minutes) ───────────────────────
     SESSION_STUDENT_TTL_MINUTES: int = 10080
@@ -108,6 +112,25 @@ class Settings(BaseSettings):
                 origins.add(f"http://localhost:{port}")
                 origins.add(f"http://127.0.0.1:{port}")
         return sorted(origins)
+
+    @property
+    def cors_origin_regex(self) -> str | None:
+        value = (self.CORS_ORIGIN_REGEX or "").strip()
+        return value or None
+
+    def is_origin_allowed(self, origin: str | None) -> bool:
+        if not origin:
+            return False
+        normalized = origin.rstrip("/")
+        if normalized in self.cors_origins:
+            return True
+        pattern = self.cors_origin_regex
+        if not pattern:
+            return False
+        try:
+            return re.match(pattern, normalized) is not None
+        except re.error:
+            return False
 
     model_config = {
         "env_file": ".env",

@@ -24,6 +24,8 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: CORS_ORIGIN_REGEX
+        sync: false
       - key: REDIS_URL
         sync: false
       - key: NEXUSOCR_API_URL

@@ -10,10 +10,11 @@ def cors_allow_headers(request: Request) -> dict[str, str]:
     origin = request.headers.get("origin")
     if not origin:
         return {}
-    if origin not in settings.cors_origins:
+    normalized = origin.rstrip("/")
+    if not settings.is_origin_allowed(normalized):
         return {}
     return {
-        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Origin": normalized,
         "Access-Control-Allow-Credentials": "true",
         "Vary": "Origin",
     }
