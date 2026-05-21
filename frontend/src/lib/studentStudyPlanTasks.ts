@@ -173,7 +173,15 @@ export function getTeacherTaskRowParts(task: {
 }
 
 /** Day-shaped plan slice (teacher calendar, student portal). */
-export type PlanDayWithPeriods = Pick<StudentPlanDay, 'page_target' | 'periods'>
+export type PlanDayWithPeriods = {
+  page_target?: string | null
+  periods?: {
+    tasks?: {
+      title?: string
+      config?: Record<string, unknown>
+    }[]
+  }[]
+}
 
 export function getDayPageTarget(day: PlanDayWithPeriods): string | null {
   if (day.page_target?.trim()) return day.page_target.trim()

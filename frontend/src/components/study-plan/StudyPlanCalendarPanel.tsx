@@ -34,7 +34,6 @@ export interface CalendarPlanDay {
       description?: string
       required?: boolean
       config?: Record<string, unknown>
-      config?: Record<string, unknown>
     }[]
   }[]
 }

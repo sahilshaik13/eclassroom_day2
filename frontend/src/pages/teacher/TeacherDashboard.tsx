@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Users, MessageCircle, CheckCircle2, Clock, Calendar, Sparkles, Loader2, Check } from 'lucide-react'
+import { Users, MessageCircle, CheckCircle2, Calendar, Sparkles, Loader2, Check } from 'lucide-react'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { studyPlanQueryOptions } from '@/lib/studyPlanQueries'
@@ -98,8 +98,10 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     if (classes.length === 0) return
-    const unsubs = classes.map((c: { id: string }) => subscribeToClassMeetings(c.id))
-    return () => unsubs.forEach((u) => u())
+    const unsubs: Array<() => void> = classes.map((c: { id: string }) =>
+      subscribeToClassMeetings(c.id),
+    )
+    return () => unsubs.forEach((unsub) => unsub())
   }, [classes])
 
   const { data: pendingDoubtsRaw = [], isPending: doubtsPending } = useQuery({
