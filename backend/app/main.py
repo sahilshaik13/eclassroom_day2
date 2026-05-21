@@ -34,10 +34,9 @@ configure_logging()
 # slowapi always loads a dotenv file via Starlette Config (cp1252 on Windows).
 # Use ASCII-only placeholder so UTF-8 decorative comments in backend/.env do not break startup.
 _SLOWAPI_ENV = Path(__file__).resolve().parent.parent / ".slowapi.env"
-_limiter_kw: dict = {
-    "key_func": get_remote_address,
-    "config_filename": str(_SLOWAPI_ENV),
-}
+_limiter_kw: dict = {"key_func": get_remote_address}
+if _SLOWAPI_ENV.is_file():
+    _limiter_kw["config_filename"] = str(_SLOWAPI_ENV)
 if settings.REDIS_URL:
     _limiter_kw["storage_uri"] = settings.REDIS_URL
 limiter = Limiter(**_limiter_kw)

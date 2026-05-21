@@ -7,8 +7,6 @@
 !.env.*.example
 backend/.env
 frontend/.env
-.slowapi.env
-**/.slowapi.env
 *.secrets.env
 *.local.secrets
 
