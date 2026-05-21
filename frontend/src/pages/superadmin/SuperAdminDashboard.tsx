@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSuperAdminAuditLogsLive } from '@/hooks/useSuperAdminAuditLogsLive'
 import { Link } from 'react-router-dom'
 import {
     Building2,
@@ -220,8 +221,12 @@ export default function SuperAdminDashboard() {
             const res = await superAdminApi.getAuditLogs({ page: auditPage, limit: 50 })
             return { rows: res.data.data, meta: res.data.meta }
         },
-        staleTime: 0,
+        staleTime: 15_000,
+        refetchInterval: auditPage === 1 ? 60_000 : false,
+        refetchIntervalInBackground: false,
     })
+
+    useSuperAdminAuditLogsLive(true, auditPage)
 
     const recentTenants = tenants.slice(0, 5) as Tenant[]
     const auditLogs = auditResult?.rows ?? []
@@ -422,7 +427,7 @@ export default function SuperAdminDashboard() {
                                 <div className="min-w-0 leading-tight">
                                     <CardTitle className="text-sm font-bold sm:text-base">Application logs</CardTitle>
                                     <p className="mt-0 text-[10px] leading-snug text-slate-500 sm:text-xs">
-                                        API requests, warnings, and errors in Neon Postgres. Entries older than 7 days are trimmed automatically.
+                                        Live stream via Redis (page 1). Stored in Neon Postgres; entries older than 7 days are trimmed automatically.
                                     </p>
                                 </div>
                             </div>

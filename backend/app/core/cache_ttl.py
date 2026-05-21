@@ -15,6 +15,7 @@ TEACHER_PULSE = HOT  # Today's curriculum - same for the whole day
 STUDENT_TASKS_TODAY = HOT  # Today's curriculum - same for the whole day
 SUPER_ADMIN = HOT
 AUDIT_LOG_TOTAL = HOT
+AUDIT_LOG_PAGE = HOT  # First-page list; bust on each new log via Redis pub/sub
 
 # Tier 2: Warm data - frequently accessed but not critical (2 minutes)
 WARM = 120

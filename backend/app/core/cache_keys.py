@@ -116,6 +116,15 @@ def super_admin_audit_total(tenant_id: Optional[str] = None) -> str:
     return key("platform", "super_admin", "audit_total")
 
 
+def super_admin_audit_page(
+    page: int,
+    limit: int,
+    tenant_id: Optional[str] = None,
+) -> str:
+    tenant_key = tenant_id or "all"
+    return key("platform", "super_admin", "audit_page", tenant_key, str(page), str(limit))
+
+
 def teacher_dashboard(tenant_id: str, teacher_id: str) -> str:
     return key(tenant_prefix(tenant_id), "teacher", teacher_id, "dashboard")
 

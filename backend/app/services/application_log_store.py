@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 from app.core import cache_keys
 from app.core import cache_ttl
-from app.core.cache_service import cache_get, cache_set
+from app.core.cache_service import cache_delete, cache_get, cache_set, get_or_set_cache
 from app.core.config import settings
 from app.core.neon_db import get_neon_pool
 
@@ -100,7 +100,9 @@ async def _drain_log_worker() -> None:
     while True:
         payload = await _log_queue.get()
         try:
-            await _insert_row(**payload)
+            row = await _insert_row(**payload)
+            if row:
+                await notify_audit_log_inserted(row)
         except Exception:
             logger.exception("[application_log] worker insert failed")
         finally:
@@ -117,7 +119,9 @@ async def enqueue_application_log(**payload: Any) -> None:
         except asyncio.QueueFull:
             logger.warning("[application_log] queue full, dropping log")
             return
-    await _insert_row(**payload)
+    row = await _insert_row(**payload)
+    if row:
+        await notify_audit_log_inserted(row)
 
 
 async def _insert_row(
@@ -136,38 +140,85 @@ async def _insert_row(
     message: Optional[str] = None,
     request_id: Optional[str] = None,
     metadata: Optional[dict[str, Any]] = None,
-) -> None:
+) -> Optional[dict[str, Any]]:
     pool = get_neon_pool()
     if not pool:
-        return
+        return None
     clean_meta = {k: v for k, v in (metadata or {}).items() if v is not None}
-    await pool.execute(
-        """
-        INSERT INTO application_logs (
-            log_level, log_type, http_method, path, status_code, duration_ms,
-            actor_user_id, tenant_id, actor_role, client_ip, user_agent,
-            message, request_id, metadata
-        ) VALUES (
-            $1, $2, $3, $4, $5, $6,
-            $7::uuid, $8::uuid, $9, $10, $11,
-            $12, $13, $14::jsonb
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"""
+            INSERT INTO application_logs (
+                log_level, log_type, http_method, path, status_code, duration_ms,
+                actor_user_id, tenant_id, actor_role, client_ip, user_agent,
+                message, request_id, metadata
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6,
+                $7::uuid, $8::uuid, $9, $10, $11,
+                $12, $13, $14::jsonb
+            )
+            RETURNING {_LOG_LIST_COLUMNS.strip()}
+            """,
+            log_level[:16],
+            log_type[:32],
+            (http_method[:16] if http_method else None),
+            (path[:2048] if path else None),
+            status_code,
+            duration_ms,
+            _safe_uuid(actor_user_id),
+            _safe_uuid(tenant_id),
+            (actor_role[:64] if actor_role else None),
+            (client_ip[:128] if client_ip else None),
+            (user_agent[:512] if user_agent else None),
+            (message[:4000] if message else None),
+            (request_id[:64] if request_id else None),
+            json.dumps(clean_meta, default=str),
         )
-        """,
-        log_level[:16],
-        log_type[:32],
-        (http_method[:16] if http_method else None),
-        (path[:2048] if path else None),
-        status_code,
-        duration_ms,
-        _safe_uuid(actor_user_id),
-        _safe_uuid(tenant_id),
-        (actor_role[:64] if actor_role else None),
-        (client_ip[:128] if client_ip else None),
-        (user_agent[:512] if user_agent else None),
-        (message[:4000] if message else None),
-        (request_id[:64] if request_id else None),
-        json.dumps(clean_meta, default=str),
-    )
+    if not row:
+        return None
+    return _row_to_dict(row)
+
+
+async def notify_audit_log_inserted(entry: dict[str, Any]) -> None:
+    """Bust list caches and push to super-admin SSE subscribers."""
+    from app.services.audit_log_events import publish_audit_log_event
+
+    await _purge_audit_log_list_cache(entry.get("tenant_id"))
+    await publish_audit_log_event({"type": "log", "entry": entry})
+
+
+async def _purge_audit_log_list_cache(tenant_id: Optional[str] = None) -> None:
+    keys = [
+        cache_keys.super_admin_audit_total(),
+        cache_keys.super_admin_audit_total(tenant_id) if tenant_id else None,
+        cache_keys.super_admin_audit_page(1, 50, None),
+        cache_keys.super_admin_audit_page(1, 50, tenant_id) if tenant_id else None,
+        cache_keys.super_admin_audit_page(1, 100, None),
+    ]
+    await cache_delete(*[k for k in keys if k])
+
+    redis = None
+    try:
+        from app.core.redis_client import get_redis
+
+        redis = get_redis()
+    except Exception:
+        redis = None
+
+    if redis:
+        prefix = cache_keys.key("platform", "super_admin", "audit_page")
+        pattern = f"{prefix}*"
+        try:
+            batch: list[str] = []
+            async for key in redis.scan_iter(match=pattern, count=100):
+                batch.append(key)
+                if len(batch) >= 100:
+                    await cache_delete(*batch)
+                    batch = []
+            if batch:
+                await cache_delete(*batch)
+        except Exception:
+            logger.exception("[application_log] audit page cache purge failed")
 
 
 async def insert_http_request_log(
@@ -292,7 +343,7 @@ async def list_application_logs(
     page: int = 1,
     limit: int = 100,
     tenant_id: Optional[str] = None,
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int, bool]:
     pool = get_neon_pool()
     if not pool:
         raise RuntimeError("Application logs require DATABASE_URL (Neon Postgres)")
@@ -302,11 +353,25 @@ async def list_application_logs(
     offset = (page - 1) * limit
     tid = _safe_uuid(tenant_id)
 
-    rows, total = await asyncio.gather(
-        _fetch_log_page(tenant_id=tid, limit=limit, offset=offset),
-        _audit_total_cached(tid),
-    )
-    return [_row_to_dict(r) for r in rows], total
+    async def _load_page() -> tuple[list[dict[str, Any]], int]:
+        rows, total = await asyncio.gather(
+            _fetch_log_page(tenant_id=tid, limit=limit, offset=offset),
+            _audit_total_cached(tid),
+        )
+        return [_row_to_dict(r) for r in rows], total
+
+    if page == 1:
+        cache_key = cache_keys.super_admin_audit_page(page, limit, tid)
+        payload, hit = await get_or_set_cache(
+            cache_key,
+            cache_ttl.AUDIT_LOG_PAGE,
+            _load_page,
+        )
+        rows, total = payload
+        return rows, total, hit
+
+    rows, total = await _load_page()
+    return rows, total, False
 
 
 async def rotate_application_logs() -> dict[str, Any]:
@@ -322,6 +387,7 @@ async def rotate_application_logs() -> dict[str, Any]:
                 days,
             )
         removed = int(tag.split()[-1]) if tag and tag.split()[-1].isdigit() else 0
+        await _purge_audit_log_list_cache()
         return {"removed": removed, "retention_days": days}
     except Exception:
         logger.exception("[application_log] rotate failed")
@@ -338,7 +404,9 @@ async def purge_tenant_application_logs(tenant_id: str) -> int:
             "DELETE FROM application_logs WHERE tenant_id = $1::uuid",
             tid,
         )
-        return int(tag.split()[-1]) if tag and tag.split()[-1].isdigit() else 0
+        removed = int(tag.split()[-1]) if tag and tag.split()[-1].isdigit() else 0
+        await _purge_audit_log_list_cache(tid)
+        return removed
     except Exception:
         logger.exception("[application_log] purge tenant %s failed", tid)
         return 0

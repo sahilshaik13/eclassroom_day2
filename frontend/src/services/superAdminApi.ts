@@ -40,7 +40,8 @@ export const superAdminQueryKeys = {
     auditLogs: (page: number) => ['super-admin', 'audit-logs', page] as const,
 }
 
-const STALE_MS = 0
+/** Stats/tenants: Redis-backed on API. Audit logs: short stale + SSE live tail. */
+const STALE_MS = 30_000
 
 export const superAdminApi = {
     getStats: () =>
@@ -92,6 +93,7 @@ export function invalidateSuperAdminQueries(
 ) {
     queryClient.invalidateQueries({ queryKey: superAdminQueryKeys.stats })
     queryClient.invalidateQueries({ queryKey: superAdminQueryKeys.tenants })
+    queryClient.invalidateQueries({ queryKey: ['super-admin', 'audit-logs'] })
 }
 
 export const superAdminQueryOptions = {

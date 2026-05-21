@@ -9,15 +9,21 @@ GET  /api/v1/super-admin/tenants/:id
 GET  /api/v1/super-admin/tenants/:id/admins
 POST /api/v1/super-admin/tenants/:id/admins
 GET  /api/v1/super-admin/audit-logs
+GET  /api/v1/super-admin/audit-logs/events
 """
+import asyncio
+import json
 from uuid import UUID
 from typing import Optional
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr
 
 from app.core.deps import require_super_admin, TokenData
 from app.core.response import success, error, paginated
+from app.core.redis_client import get_redis
 from app.db.supabase import get_admin_client
+from app.services.audit_log_events import CHANNEL as AUDIT_LOG_CHANNEL
 from app.services.auth_service import AuthService, AuthError
 from app.services.super_admin_service import (
     bust_platform_dashboard_cache,
@@ -96,12 +102,51 @@ async def list_audit_logs(
     try:
         from app.services.audit_log_service import list_audit_events
 
-        rows, total = await list_audit_events(page=page, limit=limit, tenant_id=tenant_id)
-        return paginated(rows, page, limit, total)
+        rows, total, hit = await list_audit_events(page=page, limit=limit, tenant_id=tenant_id)
+        response = paginated(rows, page, limit, total)
+        if page == 1:
+            response.headers["X-Cache"] = "HIT" if hit else "MISS"
+        return response
     except RuntimeError as e:
         return error("SERVICE_UNAVAILABLE", str(e), 503)  # DATABASE_URL missing
     except Exception as e:
         return error("INTERNAL_ERROR", str(e), 500)
+
+
+@router.get("/audit-logs/events")
+async def audit_log_events_sse(token: TokenData = Depends(require_super_admin)):
+    """SSE stream — new application log rows (Redis pub/sub, Neon-backed store)."""
+    redis = get_redis()
+    if not redis:
+        return error("SERVICE_UNAVAILABLE", "Live log stream requires Redis", 503)
+
+    async def event_stream():
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(AUDIT_LOG_CHANNEL)
+        try:
+            yield f"data: {json.dumps({'type': 'connected'})}\n\n"
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=25.0)
+                if message is None:
+                    yield ": keepalive\n\n"
+                    continue
+                if message.get("type") == "message":
+                    yield f"data: {message.get('data')}\n\n"
+        except asyncio.CancelledError:
+            raise
+        finally:
+            await pubsub.unsubscribe(AUDIT_LOG_CHANNEL)
+            await pubsub.aclose()
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/tenants")

@@ -44,7 +44,7 @@ async def list_audit_events(
     page: int = 1,
     limit: int = 100,
     tenant_id: Optional[str] = None,
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int, bool]:
     return await application_log_store.list_application_logs(
         page=page,
         limit=limit,
