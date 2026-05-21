@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import {
   Select,
   SelectContent,
@@ -431,7 +432,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                       Marked done: {item.marked_done ? 'Yes' : 'No'}
                     </p>
                     {item.audio_url ? (
-                      <audio className="mt-1.5 h-7 w-full" controls src={item.audio_url} />
+                      <AudioWaveformPlayer src={item.audio_url} className="mt-1.5" height={32} />
                     ) : (
                       <p className="mt-1 text-[10px] italic text-slate-400">No audio clip attached</p>
                     )}

@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { LiveWaveform } from '@/components/ui/live-waveform'
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import { clsx } from 'clsx'
 import { StudyPlanPdfEmbed } from '@/components/study-plan/StudyPlanPdfEmbed'
 import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
@@ -254,7 +255,10 @@ function TaskRow({
               active
               mode="scrolling"
               stream={recordingStream}
+              updateRate={90}
+              historySize={140}
               height={52}
+              barColor="#94a3b8"
               className="mt-2 rounded-md bg-white"
             />
           ) : null}
@@ -297,7 +301,9 @@ function TaskRow({
               </Button>
             )}
           </div>
-          {audioDataUrl && <audio className="mt-2 h-8 w-full" controls src={audioDataUrl} />}
+          {audioDataUrl ? (
+            <AudioWaveformPlayer src={audioDataUrl} className="mt-2" height={38} />
+          ) : null}
           <div className="mt-2 flex gap-2">
             <Button
               type="button"

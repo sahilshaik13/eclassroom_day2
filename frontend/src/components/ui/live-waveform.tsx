@@ -1,4 +1,4 @@
-import { useEffect, useRef, type HTMLAttributes } from 'react'
+import { useEffect, useRef, useState, type HTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
 type LiveWaveformProps = HTMLAttributes<HTMLDivElement> & {
@@ -6,6 +6,7 @@ type LiveWaveformProps = HTMLAttributes<HTMLDivElement> & {
   processing?: boolean
   mode?: 'scrolling' | 'static'
   stream?: MediaStream | null
+  audioUrl?: string | null
   barWidth?: number
   barHeight?: number
   barGap?: number
@@ -18,6 +19,7 @@ type LiveWaveformProps = HTMLAttributes<HTMLDivElement> & {
   smoothingTimeConstant?: number
   fftSize?: number
   historySize?: number
+  updateRate?: number
   onError?: (error: Error) => void
   onStreamReady?: (stream: MediaStream) => void
   onStreamEnd?: () => void
@@ -30,6 +32,7 @@ export function LiveWaveform({
   processing = false,
   mode = 'scrolling',
   stream = null,
+  audioUrl = null,
   barWidth = 3,
   barHeight = 4,
   barGap = 1,
@@ -42,6 +45,7 @@ export function LiveWaveform({
   smoothingTimeConstant = 0.8,
   fftSize = 256,
   historySize = 60,
+  updateRate = 80,
   className,
   onError,
   onStreamReady,
@@ -54,6 +58,8 @@ export function LiveWaveform({
   const analyserRef = useRef<AnalyserNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const historyRef = useRef<number[]>([])
+  const audioPeaksRef = useRef<number[]>([])
+  const [peaksVersion, setPeaksVersion] = useState(0)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -77,6 +83,54 @@ export function LiveWaveform({
       onStreamEnd?.()
     }
   }, [onStreamEnd])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadWaveform = async () => {
+      if (!audioUrl) {
+        audioPeaksRef.current = []
+        setPeaksVersion((v) => v + 1)
+        return
+      }
+      try {
+        const response = await fetch(audioUrl)
+        const arr = await response.arrayBuffer()
+        const ctx = new AudioContext()
+        const buffer = await ctx.decodeAudioData(arr.slice(0))
+        await ctx.close()
+
+        const channels = Math.max(1, buffer.numberOfChannels)
+        const length = buffer.length
+        const targetPeaks = 1400
+        const block = Math.max(1, Math.floor(length / targetPeaks))
+        const peaks: number[] = []
+        for (let i = 0; i < targetPeaks; i++) {
+          const start = i * block
+          const end = Math.min(length, start + block)
+          let peak = 0
+          for (let c = 0; c < channels; c++) {
+            const data = buffer.getChannelData(c)
+            for (let j = start; j < end; j++) {
+              const v = Math.abs(data[j] ?? 0)
+              if (v > peak) peak = v
+            }
+          }
+          peaks.push(peak)
+        }
+        if (cancelled || !mountedRef.current) return
+        audioPeaksRef.current = peaks
+        setPeaksVersion((v) => v + 1)
+      } catch {
+        if (cancelled || !mountedRef.current) return
+        audioPeaksRef.current = []
+        setPeaksVersion((v) => v + 1)
+      }
+    }
+    void loadWaveform()
+    return () => {
+      cancelled = true
+    }
+  }, [audioUrl])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -154,6 +208,7 @@ export function LiveWaveform({
 
     let localAnalyser: AnalyserNode | null = null
     let freqData: Uint8Array | null = null
+    let timeData: Uint8Array | null = null
 
     if (active && stream) {
       try {
@@ -170,6 +225,7 @@ export function LiveWaveform({
         sourceRef.current = source
         localAnalyser = analyser
         freqData = new Uint8Array(analyser.frequencyBinCount)
+        timeData = new Uint8Array(analyser.fftSize)
         onStreamReady?.(stream)
       } catch (err) {
         onError?.(err as Error)
@@ -179,6 +235,7 @@ export function LiveWaveform({
     }
 
     let phase = 0
+    let lastUpdate = 0
 
     const render = () => {
       if (cancelled || !mountedRef.current) return
@@ -197,24 +254,38 @@ export function LiveWaveform({
       const step = barWidth + barGap
       const totalBars = Math.max(1, Math.floor(width / step))
 
-      if (localAnalyser && freqData) {
-        localAnalyser.getByteFrequencyData(freqData)
-        if (mode === 'scrolling') {
-          const avg =
-            freqData.reduce((sum, v) => sum + v, 0) / Math.max(1, freqData.length)
-          const amplitude = Math.max(
-            barHeight,
-            (avg / 255) * h * 0.75 * Math.max(0.2, sensitivity),
-          )
-          historyRef.current.push(amplitude)
-          if (historyRef.current.length > historySize) historyRef.current.shift()
+      const now = performance.now()
+      const shouldSample = now - lastUpdate >= Math.max(16, updateRate)
 
-          const bars = historyRef.current
-          for (let i = 0; i < bars.length; i++) {
-            const x = width - step * (bars.length - i)
-            const bh = Math.max(barHeight, bars[i])
+      if (localAnalyser && freqData) {
+        if (shouldSample) {
+          localAnalyser.getByteFrequencyData(freqData)
+          if (mode === 'scrolling' && timeData) {
+            localAnalyser.getByteTimeDomainData(timeData)
+          }
+          lastUpdate = now
+        }
+        if (mode === 'scrolling') {
+          const bars = timeData
+          const prevHeights = historyRef.current
+          const nextHeights: number[] = []
+          const decay = Math.max(0, Math.min(0.95, historySize / 500))
+          for (let i = 0; i < totalBars; i++) {
+            const x = i * step
+            const dataIndex = Math.floor((i / totalBars) * (bars?.length ?? 1))
+            const normalized = bars ? Math.abs(((bars[dataIndex] ?? 128) - 128) / 128) : 0
+            const rawHeight = Math.max(
+              barHeight,
+              normalized * h * 0.85 * Math.max(0.35, sensitivity),
+            )
+            const bh = Math.max(
+              barHeight,
+              (prevHeights[i] ?? barHeight) * decay + rawHeight * (1 - decay),
+            )
+            nextHeights[i] = bh
             drawRoundedBar(x, centerY - bh / 2, barWidth, bh)
           }
+          historyRef.current = nextHeights
         } else {
           for (let i = 0; i < totalBars; i++) {
             const dataIndex = Math.floor((i / totalBars) * freqData.length)
@@ -227,8 +298,25 @@ export function LiveWaveform({
             drawRoundedBar(x, centerY - bh / 2, barWidth, bh)
           }
         }
+      } else if (audioPeaksRef.current.length > 0) {
+        const peaks = audioPeaksRef.current
+        for (let i = 0; i < totalBars; i++) {
+          const x = i * step
+          const start = Math.floor((i / totalBars) * peaks.length)
+          const end = Math.max(start + 1, Math.floor(((i + 1) / totalBars) * peaks.length))
+          let peak = 0
+          for (let j = start; j < end; j++) {
+            const v = peaks[j] ?? 0
+            if (v > peak) peak = v
+          }
+          const bh = Math.max(barHeight, peak * h * 0.8)
+          drawRoundedBar(x, centerY - bh / 2, barWidth, bh)
+        }
       } else if (processing || active) {
-        phase += 0.12
+        if (shouldSample) {
+          phase += 0.07
+          lastUpdate = now
+        }
         for (let i = 0; i < totalBars; i++) {
           const x = i * step
           const wave =
@@ -277,6 +365,8 @@ export function LiveWaveform({
     sensitivity,
     smoothingTimeConstant,
     stream,
+    updateRate,
+    peaksVersion,
   ])
 
   return (

@@ -3,6 +3,7 @@ import { Mic, MicOff, ImagePlus, CheckCircle2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Button } from '@/components/ui/button'
 import { LiveWaveform } from '@/components/ui/live-waveform'
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import type { ExamQuestion } from '@/lib/competitionExam'
 import { isAnswerableQuestion } from '@/lib/competitionExam'
 
@@ -226,9 +227,9 @@ function AudioAnswer({
   return (
     <div className="space-y-3 pl-11">
       {hasRecording && audioPreviewUrl && (
-        <div className="flex items-center gap-3 rounded-xl bg-emerald-50 p-3">
+        <div className="rounded-xl bg-emerald-50 p-3">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
-          <audio src={audioPreviewUrl} controls className="h-10 flex-1" />
+          <AudioWaveformPlayer src={audioPreviewUrl} className="mt-2" height={36} />
         </div>
       )}
       <div className="flex items-center gap-3">
@@ -273,7 +274,10 @@ function AudioAnswer({
           active
           mode="scrolling"
           stream={recordingStream ?? null}
+          updateRate={90}
+          historySize={140}
           height={56}
+          barColor="#94a3b8"
           className="bg-white"
         />
       ) : null}

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Save, CheckCircle, SaveAll, Mic, FileText, BadgeCheck, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Save, CheckCircle, SaveAll, FileText, BadgeCheck, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import { competitionApi } from '@/services/competitionApi'
 import type { Competition, CompetitionRegistration, CompetitionRegistrationsMeta } from '@/types'
 import clsx from 'clsx'
@@ -457,11 +458,8 @@ export default function TeacherParticipantPortal() {
                             Student recording
                           </Label>
                           {response?.audio_url ? (
-                            <div className="flex items-center gap-3 rounded-lg border border-indigo-100 bg-indigo-50/80 p-3">
-                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
-                                <Mic className="h-4 w-4" />
-                              </div>
-                              <audio src={response.audio_url} controls className="h-9 min-w-0 flex-1 outline-none" />
+                            <div className="rounded-lg border border-indigo-100 bg-indigo-50/80 p-3">
+                              <AudioWaveformPlayer src={response.audio_url} height={38} />
                             </div>
                           ) : (
                             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm italic text-slate-400">

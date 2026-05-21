@@ -12,6 +12,7 @@ import type { Task } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { LiveWaveform } from '@/components/ui/live-waveform'
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { competitionListQueryOptions } from '@/lib/competitionQueries'
@@ -413,7 +414,10 @@ export default function StudentDashboard() {
                             active
                             mode="scrolling"
                             stream={recordingStream}
+                            updateRate={90}
+                            historySize={140}
                             height={52}
+                            barColor="#94a3b8"
                             className="mt-2 rounded-md bg-white"
                           />
                         ) : null}
@@ -462,9 +466,13 @@ export default function StudentDashboard() {
                             </Button>
                           )}
                         </div>
-                        {audioDataUrls[task.id]?.dataUrl && (
-                          <audio className="mt-2 h-8 w-full" controls src={audioDataUrls[task.id].dataUrl} />
-                        )}
+                        {audioDataUrls[task.id]?.dataUrl ? (
+                          <AudioWaveformPlayer
+                            src={audioDataUrls[task.id].dataUrl}
+                            className="mt-2"
+                            height={38}
+                          />
+                        ) : null}
                         <div className="mt-2 flex gap-2">
                           <Button
                             type="button"

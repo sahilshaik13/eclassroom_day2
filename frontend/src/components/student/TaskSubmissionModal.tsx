@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { LiveWaveform } from '@/components/ui/live-waveform';
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player';
 import toast from 'react-hot-toast';
 import api from '@/services/api';
 
@@ -195,7 +196,10 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
                   active
                   mode="scrolling"
                   stream={recordingStream}
+                  updateRate={90}
+                  historySize={150}
                   height={60}
+                  barColor="#94a3b8"
                   className="rounded-xl bg-white"
                 />
                 <Button 
@@ -209,7 +213,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
               <div className="space-y-6 w-full">
                 <h3 className="text-xl font-black text-slate-900">Recitation Recorded!</h3>
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                  <audio src={audioUrl} controls className="w-full h-12" />
+                  <AudioWaveformPlayer src={audioUrl} height={42} />
                 </div>
                 <div className="flex gap-3 justify-center">
                   <Button 

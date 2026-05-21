@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player';
 
 import clsx from 'clsx';
 
@@ -211,7 +212,7 @@ export default function TeacherEvaluationPage() {
                                  <div className="w-10 h-10 rounded-full bg-white shadow-inner flex items-center justify-center text-indigo-600">
                                     <Mic className="w-5 h-5" />
                                  </div>
-                                 <audio src={sub.audio_url} controls className="w-full h-9 outline-none" />
+                                 <AudioWaveformPlayer src={sub.audio_url} className="w-full" height={36} />
                                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Audio Recording Provided</p>
                               </div>
                             ) : (
