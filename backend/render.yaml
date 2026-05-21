@@ -6,7 +6,8 @@ services:
     plan: free
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # API + ARQ in one process group (free tier has no Background Worker)
+    startCommand: bash scripts/start_render_web_with_worker.sh
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
@@ -34,3 +35,5 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+
+  # Paid on Render: type worker + arq only. Free tier: use start_render_web_with_worker.sh on the web service above.
