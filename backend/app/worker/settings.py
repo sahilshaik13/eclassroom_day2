@@ -37,6 +37,7 @@ class WorkerSettings:
         tasks.apply_study_plan_import_job,
         tasks.refresh_materialized_views,
         tasks.rotate_audit_logs_job,
+        tasks.database_keepalive_job,
         tasks.unlock_study_plan_days,
         tasks.rewarm_hot_caches,
     ]
@@ -48,4 +49,6 @@ class WorkerSettings:
         cron(tasks.rewarm_hot_caches, minute={0, 30}),
         cron(tasks.unlock_study_plan_days, hour=0, minute=15),
         cron(tasks.rotate_audit_logs_job, hour=3, minute=0),
+        # Daily DB keepalive (Neon + Supabase) — avoids inactive / autosuspend from no traffic
+        cron(tasks.database_keepalive_job, hour=4, minute=30),
     ]

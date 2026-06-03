@@ -11,7 +11,7 @@ from app.core import cache_keys, cache_ttl
 from app.core.cache_service import get_or_set_cache, cache_delete
 from app.core.db_async import run_sync
 from app.db.supabase import get_user_client
-from app.db.supabase_execute import execute_with_retry
+from app.db.supabase_execute import execute_with_retry, first_row_from_response
 from app.services.realtime_events import (
     broadcast_competition_created,
     broadcast_competition_exam_active_changed,
@@ -21,6 +21,11 @@ from app.services.realtime_events import (
 )
 
 router = APIRouter(prefix="", tags=["competitions"])
+
+
+def _strip_null_fields(data: dict) -> dict:
+    """Omit None so optional columns (e.g. end_date) are not sent as null on create."""
+    return {k: v for k, v in data.items() if v is not None}
 
 
 def _is_postgrest_unknown_table_error(exc: BaseException) -> bool:
@@ -33,56 +38,80 @@ def _is_postgrest_unknown_table_error(exc: BaseException) -> bool:
 
 def _refresh_competition_lead_teacher(admin: Any, competition_id: str) -> None:
     """assigned_teacher_id = first setup teacher, else first grader, else null."""
+    su_row = None
     try:
-        su = (
+        su_res = execute_with_retry(
             admin.table("competition_setup_teachers")
             .select("teacher_id")
             .eq("competition_id", competition_id)
             .order("created_at", desc=False)
-            .limit(1)
-            .execute()
+            .limit(1),
+            label=f"competition_setup_teachers lead competition_id={competition_id}",
         )
+        su_row = first_row_from_response(su_res)
     except Exception as exc:
         if not _is_postgrest_unknown_table_error(exc):
             raise
-        su = SimpleNamespace(data=None)
-    if su.data:
-        admin.table("competitions").update({"assigned_teacher_id": su.data[0]["teacher_id"]}).eq("id", competition_id).execute()
+    if su_row and su_row.get("teacher_id"):
+        execute_with_retry(
+            admin.table("competitions")
+            .update({"assigned_teacher_id": su_row["teacher_id"]})
+            .eq("id", competition_id),
+            label=f"competitions assigned_teacher_id competition_id={competition_id}",
+        )
         return
-    gu = (
+    gu_res = execute_with_retry(
         admin.table("competition_graders")
         .select("teacher_id")
         .eq("competition_id", competition_id)
         .order("created_at", desc=False)
-        .limit(1)
-        .execute()
+        .limit(1),
+        label=f"competition_graders lead competition_id={competition_id}",
     )
-    lead = gu.data[0]["teacher_id"] if gu.data else None
-    admin.table("competitions").update({"assigned_teacher_id": lead}).eq("id", competition_id).execute()
+    gu_row = first_row_from_response(gu_res)
+    lead = gu_row.get("teacher_id") if gu_row else None
+    execute_with_retry(
+        admin.table("competitions")
+        .update({"assigned_teacher_id": lead})
+        .eq("id", competition_id),
+        label=f"competitions clear assigned_teacher_id competition_id={competition_id}",
+    )
 
 
 def _sync_competition_graders(admin: Any, competition_id: str, tenant_id: str, teacher_ids: List[str]) -> None:
-    admin.table("competition_graders").delete().eq("competition_id", competition_id).execute()
+    execute_with_retry(
+        admin.table("competition_graders").delete().eq("competition_id", competition_id),
+        label=f"competition_graders delete competition_id={competition_id}",
+    )
     rows = [
         {"competition_id": competition_id, "tenant_id": tenant_id, "teacher_id": tid}
         for tid in teacher_ids
         if tid
     ]
     if rows:
-        admin.table("competition_graders").insert(rows).execute()
+        execute_with_retry(
+            admin.table("competition_graders").insert(rows),
+            label=f"competition_graders insert competition_id={competition_id}",
+        )
     _refresh_competition_lead_teacher(admin, competition_id)
 
 
 def _sync_competition_setup_teachers(admin: Any, competition_id: str, tenant_id: str, teacher_ids: List[str]) -> None:
     try:
-        admin.table("competition_setup_teachers").delete().eq("competition_id", competition_id).execute()
+        execute_with_retry(
+            admin.table("competition_setup_teachers").delete().eq("competition_id", competition_id),
+            label=f"competition_setup_teachers delete competition_id={competition_id}",
+        )
         rows = [
             {"competition_id": competition_id, "tenant_id": tenant_id, "teacher_id": tid}
             for tid in teacher_ids
             if tid
         ]
         if rows:
-            admin.table("competition_setup_teachers").insert(rows).execute()
+            execute_with_retry(
+                admin.table("competition_setup_teachers").insert(rows),
+                label=f"competition_setup_teachers insert competition_id={competition_id}",
+            )
     except Exception as exc:
         if not _is_postgrest_unknown_table_error(exc):
             raise
@@ -1123,6 +1152,7 @@ async def create_competition(body: CompetitionCreate, token: TokenData = Depends
     has_explicit_graders = "grader_teacher_ids" in provided
     has_explicit_setup = "setup_teacher_ids" in provided
     data = {k: v for k, v in provided.items() if k not in ("grader_teacher_ids", "setup_teacher_ids")}
+    data = _strip_null_fields(data)
     if "start_date" in data and isinstance(data["start_date"], date): data["start_date"] = data["start_date"].isoformat()
     if "end_date" in data and isinstance(data["end_date"], date): data["end_date"] = data["end_date"].isoformat()
     if "assigned_teacher_id" in data and data["assigned_teacher_id"]:
@@ -1139,7 +1169,10 @@ async def create_competition(body: CompetitionCreate, token: TokenData = Depends
     data["created_by"] = str(token.user_id)
 
     try:
-        res = admin.table("competitions").insert(data).execute()
+        res = execute_with_retry(
+            admin.table("competitions").insert(data).select("*"),
+            label="competitions insert",
+        )
     except Exception as exc:
         err = str(exc)
         if data.get("category") == "mixed" and "category" in err.lower():
@@ -1148,13 +1181,16 @@ async def create_competition(body: CompetitionCreate, token: TokenData = Depends
             settings["exam_format"] = "form_builder"
             data["settings"] = settings
             try:
-                res = admin.table("competitions").insert(data).execute()
+                res = execute_with_retry(
+                    admin.table("competitions").insert(data).select("*"),
+                    label="competitions insert mixed fallback",
+                )
             except Exception as retry_exc:
                 return error("INTERNAL", str(retry_exc), 500)
         else:
             return error("INTERNAL", err, 500)
 
-    row = res.data[0] if res.data else None
+    row = first_row_from_response(res)
     if not row:
         return success({"message": "Created"})
     cid = str(row["id"])
@@ -1217,8 +1253,10 @@ async def modify_competition(competition_id: UUID, body: CompetitionUpdate, toke
     has_explicit_graders = "grader_teacher_ids" in provided
     has_explicit_setup = "setup_teacher_ids" in provided
     update_data = {k: v for k, v in provided.items() if k not in ("grader_teacher_ids", "setup_teacher_ids")}
-    if "start_date" in update_data and isinstance(update_data["start_date"], date): update_data["start_date"] = update_data["start_date"].isoformat()
-    if "end_date" in update_data and isinstance(update_data["end_date"], date): update_data["end_date"] = update_data["end_date"].isoformat()
+    if "start_date" in update_data and isinstance(update_data["start_date"], date):
+        update_data["start_date"] = update_data["start_date"].isoformat()
+    if "end_date" in update_data and isinstance(update_data["end_date"], date):
+        update_data["end_date"] = update_data["end_date"].isoformat()
     # Opening the exam window mirrors legacy teacher toggle: keep competition active.
     if update_data.get("is_exam_active") is True:
         update_data["status"] = "active"
@@ -1243,29 +1281,36 @@ async def modify_competition(competition_id: UUID, body: CompetitionUpdate, toke
     exam_toggle = "is_exam_active" in provided
     prev_row: Optional[dict] = None
     if exam_toggle:
-        prev_res = (
+        prev_res = execute_with_retry(
             admin.table("competitions")
             .select("is_exam_active, title, name")
             .eq("id", cid)
             .eq("tenant_id", tenant_id_str)
-            .maybe_single()
-            .execute()
+            .maybe_single(),
+            label=f"competitions prev exam toggle id={cid}",
         )
-        prev_row = prev_res.data if prev_res else None
+        prev_row = first_row_from_response(prev_res)
 
     if update_data:
-        res = admin.table("competitions").update(update_data).eq("id", cid).eq("tenant_id", tenant_id_str).execute()
-        out = res.data[0] if res.data else {"message": "Updated"}
+        res = execute_with_retry(
+            admin.table("competitions")
+            .update(update_data)
+            .eq("id", cid)
+            .eq("tenant_id", tenant_id_str)
+            .select("*"),
+            label=f"competitions update id={cid}",
+        )
+        out = first_row_from_response(res) or {"message": "Updated"}
     else:
-        cur = (
+        cur = execute_with_retry(
             admin.table("competitions")
             .select("*")
             .eq("id", cid)
             .eq("tenant_id", tenant_id_str)
-            .maybe_single()
-            .execute()
+            .maybe_single(),
+            label=f"competitions fetch id={cid}",
         )
-        out = cur.data or {"message": "Updated"}
+        out = first_row_from_response(cur) or {"message": "Updated"}
 
     if has_explicit_graders:
         _sync_competition_graders(admin, cid, tenant_id_str, [str(u) for u in (body.grader_teacher_ids or [])])

@@ -27,6 +27,7 @@ from app.middleware.audit_middleware import AuditLogMiddleware
 from app.middleware.cache_access_middleware import CacheAccessMiddleware
 from app.middleware.structured_logging_middleware import StructuredLoggingMiddleware
 from app.services.audit_log_service import rotate_audit_logs
+from app.services.database_keepalive_service import run_database_keepalive
 from app.worker.enqueue import close_arq_pool, init_arq_pool
 
 configure_logging()
@@ -80,6 +81,19 @@ async def _audit_rotate_loop() -> None:
         await asyncio.sleep(3600)
 
 
+_KEEPALIVE_INTERVAL_SEC = 86_400  # 24h
+
+
+async def _database_keepalive_loop() -> None:
+    """Daily ping when API runs without a separate ARQ worker (Render free tier)."""
+    while True:
+        try:
+            await run_database_keepalive()
+        except Exception:
+            _logger.exception("[keepalive] scheduled ping failed")
+        await asyncio.sleep(_KEEPALIVE_INTERVAL_SEC)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_neon_pool()
@@ -91,15 +105,22 @@ async def lifespan(app: FastAPI):
         await rotate_audit_logs()
     except Exception:
         _logger.exception("[audit_log] initial rotate failed")
+    try:
+        await run_database_keepalive()
+    except Exception:
+        _logger.exception("[keepalive] initial ping failed")
     rotate_task = asyncio.create_task(_audit_rotate_loop())
+    keepalive_task = asyncio.create_task(_database_keepalive_loop())
     try:
         yield
     finally:
-        rotate_task.cancel()
-        try:
-            await rotate_task
-        except asyncio.CancelledError:
-            pass
+        for bg in (rotate_task, keepalive_task):
+            bg.cancel()
+        for bg in (rotate_task, keepalive_task):
+            try:
+                await bg
+            except asyncio.CancelledError:
+                pass
         await _shutdown_step("log_worker", application_log_store.stop_log_worker())
         await _shutdown_step("arq_pool", close_arq_pool())
         await _shutdown_step("redis", close_redis())

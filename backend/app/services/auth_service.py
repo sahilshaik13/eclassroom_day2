@@ -51,7 +51,28 @@ class AuthService:
     # ── OTP (Student phone login) ─────────────────────────────
 
     @staticmethod
-    async def send_otp(phone: str, tenant_id: Optional[str], context: str = "classroom") -> dict:
+    def _resolve_competition_tenant(admin, competition_id: str) -> str:
+        res = (
+            admin.table("competitions")
+            .select("tenant_id, status")
+            .eq("id", competition_id)
+            .limit(1)
+            .execute()
+        )
+        if not res or not res.data:
+            raise AuthError("NOT_FOUND", "Competition not found", 404)
+        row = res.data[0]
+        if row.get("status") == "closed":
+            raise AuthError("COMPETITION_CLOSED", "This competition is closed", 400)
+        return str(row["tenant_id"])
+
+    @staticmethod
+    async def send_otp(
+        phone: str,
+        tenant_id: Optional[str],
+        context: str = "classroom",
+        competition_id: Optional[str] = None,
+    ) -> dict:
         admin = get_admin_client()
         # Normalize: keep only digits and leading +
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
@@ -98,6 +119,33 @@ class AuthService:
 
             # ✅ Always resolve tenant_id from the matched student record
             tenant_id = student_data["tenant_id"]
+
+        elif context == "competition":
+            if not competition_id:
+                raise AuthError(
+                    "INVALID_REQUEST",
+                    "competition_id is required to join a competition",
+                    400,
+                )
+            tenant_id = AuthService._resolve_competition_tenant(admin, str(competition_id))
+            # Optional: normalize phone / block deactivated accounts for known students
+            try:
+                stu_res = (
+                    admin.table("students")
+                    .select("phone, deactivated_at")
+                    .eq("phone", phone)
+                    .eq("tenant_id", tenant_id)
+                    .maybe_single()
+                    .execute()
+                )
+                if stu_res and stu_res.data:
+                    if stu_res.data.get("deactivated_at"):
+                        raise AuthError("ACCOUNT_DISABLED", "Account is deactivated", 401)
+                    phone = stu_res.data.get("phone") or phone
+            except AuthError:
+                raise
+            except Exception:
+                pass
 
         if not tenant_id:
             raise AuthError("INVALID_REQUEST", "tenant_id is required for non-classroom context", 400)
@@ -160,21 +208,33 @@ class AuthService:
         admin = get_admin_client()
         phone = "".join(filter(lambda x: x.isdigit() or x == '+', phone))
 
-        # Auto-resolve tenant_id from phone if not provided
+        # Auto-resolve tenant_id from phone or competition link
         if not tenant_id:
-            try:
-                stu_lookup = (
-                    admin.table("students")
-                    .select("tenant_id, phone")
-                    .eq("phone", phone)
-                    .maybe_single()
-                    .execute()
-                )
-                if stu_lookup and stu_lookup.data:
-                    tenant_id = stu_lookup.data["tenant_id"]
-                    phone = stu_lookup.data["phone"]  # use stored phone for OTP lookup
-            except Exception:
-                pass
+            if competition_id:
+                try:
+                    tenant_id = AuthService._resolve_competition_tenant(
+                        admin, str(competition_id)
+                    )
+                except AuthError:
+                    raise
+                except Exception as e:
+                    raise AuthError(
+                        "INTERNAL_ERROR", f"Failed to load competition: {str(e)}", 500
+                    )
+            else:
+                try:
+                    stu_lookup = (
+                        admin.table("students")
+                        .select("tenant_id, phone")
+                        .eq("phone", phone)
+                        .maybe_single()
+                        .execute()
+                    )
+                    if stu_lookup and stu_lookup.data:
+                        tenant_id = stu_lookup.data["tenant_id"]
+                        phone = stu_lookup.data["phone"]
+                except Exception:
+                    pass
 
         if not tenant_id:
             raise AuthError("NOT_REGISTERED", "Phone number not registered", 401)
@@ -274,6 +334,37 @@ class AuthService:
             user_id=user_data.get("id"),
             tenant_id=tenant_id,
         )
+
+        if competition_id:
+            try:
+                from app.services.realtime_events import broadcast_competition_registration
+
+                comp_id_str = str(competition_id)
+                reg_name = user_data.get("name") or "Participant"
+                reg_res = admin.table("competition_registrations").upsert(
+                    {
+                        "competition_id": comp_id_str,
+                        "tenant_id": tenant_id,
+                        "phone": phone,
+                        "name": reg_name,
+                        "student_id": student_record["id"] if student_record else None,
+                        "status": "registered",
+                    },
+                    on_conflict="competition_id, phone",
+                ).execute()
+                if reg_res.data:
+                    reg = reg_res.data[0]
+                    await broadcast_competition_registration(
+                        tenant_id=tenant_id,
+                        competition_id=comp_id_str,
+                        student_id=(
+                            (student_record or {}).get("id") or user_data["id"]
+                        ),
+                        registration_id=reg["id"],
+                        student_name=reg_name,
+                    )
+            except Exception:
+                pass
 
         # 7. Issue full session immediately (no MFA for students)
         access_token = AuthService._issue_session(user_data, mfa_verified=True)

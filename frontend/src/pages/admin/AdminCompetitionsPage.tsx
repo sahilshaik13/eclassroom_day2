@@ -113,7 +113,7 @@ function GradersNamesAndProgress({ c, dense }: { c: Competition; dense?: boolean
 /** Payload for create/update — omit empty dates and read-only API fields. */
 function buildCompetitionWritePayload(
   comp: Partial<Competition>,
-  options?: { requireStartDate?: boolean },
+  options?: { requireStartDate?: boolean; isUpdate?: boolean },
 ): Record<string, unknown> | null {
   if (options?.requireStartDate && !comp.start_date) {
     return null
@@ -125,7 +125,11 @@ function buildCompetitionWritePayload(
   }
   if (comp.description?.trim()) payload.description = comp.description.trim()
   if (comp.start_date) payload.start_date = comp.start_date
-  if (comp.end_date) payload.end_date = comp.end_date
+  if (options?.isUpdate) {
+    payload.end_date = comp.end_date?.trim() ? comp.end_date : null
+  } else if (comp.end_date?.trim()) {
+    payload.end_date = comp.end_date
+  }
   if (comp.grader_teacher_ids?.length) payload.grader_teacher_ids = comp.grader_teacher_ids
   if (comp.setup_teacher_ids?.length) payload.setup_teacher_ids = comp.setup_teacher_ids
   return payload
@@ -249,13 +253,19 @@ export default function AdminCompetitionsPage() {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingComp) return
-    const payload = buildCompetitionWritePayload(editingComp, { requireStartDate: true })
+    const payload = buildCompetitionWritePayload(editingComp, {
+      requireStartDate: true,
+      isUpdate: true,
+    })
     if (!payload) {
       toast.error('Start date is required')
       return
     }
     try {
-      const res = await competitionApi.updateCompetition(editingComp.id, payload)
+      const res = await competitionApi.updateCompetition(
+        editingComp.id,
+        payload,
+      )
       if (res.success) {
         toast.success("Competition updated!")
         setShowEdit(false)

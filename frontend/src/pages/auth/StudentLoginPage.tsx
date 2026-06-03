@@ -47,7 +47,12 @@ export default function StudentLoginPage() {
     setLoading(true)
     try {
       // No tenant_id needed — backend resolves it from the phone number
-      const res = await authApi.sendOtp(data.phone, undefined, competitionId ? 'competition' : 'classroom')
+      const res = await authApi.sendOtp(
+        data.phone,
+        undefined,
+        competitionId ? 'competition' : 'classroom',
+        competitionId || undefined,
+      )
       setPhone(data.phone)
       setResolvedTenantId(res.data.data.tenant_id)
       setDevOtp(res.data.data.dev_otp)
@@ -97,10 +102,10 @@ export default function StudentLoginPage() {
       void pingStudentPortalIn(true)
       toast.success('Welcome back!')
 
-      if (user.is_registered) {
+      if (competitionId) {
+        navigate(user.is_registered ? '/student/competitions' : '/competition-portal')
+      } else if (user.is_registered) {
         navigate('/student')
-      } else if (competitionId) {
-        navigate('/competition-portal')
       } else {
         navigate('/auth/student-registration')
       }
@@ -119,7 +124,12 @@ export default function StudentLoginPage() {
     if (resendCooldown > 0) return
     setLoading(true)
     try {
-      const res = await authApi.sendOtp(phone, resolvedTenantId, competitionId ? 'competition' : 'classroom')
+      const res = await authApi.sendOtp(
+        phone,
+        resolvedTenantId,
+        competitionId ? 'competition' : 'classroom',
+        competitionId || undefined,
+      )
       setDevOtp(res.data.data.dev_otp)
       setDigits(['', '', '', '', '', ''])
       setAttempts(0)

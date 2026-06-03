@@ -69,7 +69,10 @@ class RefreshRequest(BaseModel):
 async def send_otp(body: OTPSendRequest):
     try:
         tenant_id = str(body.tenant_id) if body.tenant_id else None
-        result = await AuthService.send_otp(body.phone, tenant_id, body.context)
+        comp_id = str(body.competition_id) if body.competition_id else None
+        result = await AuthService.send_otp(
+            body.phone, tenant_id, body.context, comp_id
+        )
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)

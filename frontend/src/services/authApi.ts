@@ -2,10 +2,15 @@ import api from './api'
 import type { AuthUser, LoginResponse, MFAEnrollResponse } from '@/types'
 
 export const authApi = {
-  sendOtp: (phone: string, tenantId?: string, context?: string) =>
+  sendOtp: (
+    phone: string,
+    tenantId?: string,
+    context?: string,
+    competitionId?: string,
+  ) =>
     api.post<{ success: true; data: { message: string; dev_otp?: string; tenant_id?: string } }>(
       '/auth/otp/send',
-      { phone, tenant_id: tenantId, context }
+      { phone, tenant_id: tenantId, context, competition_id: competitionId },
     ),
 
   verifyOtp: (phone: string, token: string, tenantId?: string, competitionId?: string) =>

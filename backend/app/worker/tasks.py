@@ -15,6 +15,7 @@ from app.services.study_plan_cache_service import (
     load_study_plan_source,
 )
 from app.services.audit_log_service import rotate_audit_logs as rotate_audit_logs_async
+from app.services.database_keepalive_service import run_database_keepalive
 from app.services.import_events import publish_import_event
 from app.services.study_plan_pdf_import_service import (
     STUDY_PLAN_PDF_BUCKET,
@@ -237,6 +238,14 @@ async def rotate_audit_logs_job(ctx: dict) -> None:
             _logger.info("[audit_log] rotate: %s", out)
     except Exception:
         _logger.exception("rotate_audit_logs_job failed")
+
+
+async def database_keepalive_job(ctx: dict) -> None:
+    """Daily ping — keeps Neon + Supabase from long-idle suspension."""
+    try:
+        await run_database_keepalive()
+    except Exception:
+        _logger.exception("database_keepalive_job failed")
 
 
 async def unlock_study_plan_days(ctx: dict) -> None:
