@@ -8,6 +8,7 @@ import { ArrowRight, RefreshCw } from 'lucide-react'
 import { PhoneCountryInput } from '@/components/ui/PhoneCountryInput'
 import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
+import type { AuthUser } from '@/types'
 import { pingStudentPortalIn } from '@/hooks/useStudentPortalAttendance'
 import { ApiClientError } from '@/services/api'
 
@@ -53,7 +54,7 @@ export default function StudentLoginPage() {
   })
 
   const finishLogin = (
-    user: { is_registered?: boolean },
+    user: AuthUser,
     access_token: string,
     refresh_token: string,
   ) => {
@@ -84,7 +85,7 @@ export default function StudentLoginPage() {
       setResolvedTenantId(payload.tenant_id)
 
       if (payload.otp_skipped && payload.access_token && payload.user) {
-        finishLogin(payload.user, payload.access_token, payload.refresh_token ?? '')
+        finishLogin(payload.user as AuthUser, payload.access_token, payload.refresh_token ?? '')
         return
       }
 

@@ -50,6 +50,7 @@ import type { Doubt, DoubtResponse, EnrolledClass } from '@/types'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { DoubtChatBubble } from '@/components/doubts/DoubtChatBubble'
 import { LiveWaveform } from '@/components/ui/live-waveform'
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import {
   blobToDataUrl,
   doubtPreviewLabel,
@@ -261,8 +262,8 @@ export function StudentDoubtsChat({
     liveEnabled,
     mergeChatMessages: mergeMsgs,
     pruneEphemeralAgainstServer: pruneEphemeral,
-  } = useDoubtChatLive(tenantId, classIds, 'classId', {
-    recipientStudentId: studentId,
+  } = useDoubtChatLive(tenantId ?? undefined, classIds, 'classId', {
+    recipientStudentId: studentId ?? undefined,
     currentUserId: userId,
     viewerRole: 'student',
     onLiveMessage: (payload, { isOwn }) => {

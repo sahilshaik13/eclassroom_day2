@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Loader2, ArrowRight,
+  Loader2,
   CheckCircle2, Upload, Mic, Square, Trash2,
 } from 'lucide-react'
 import { clsx } from 'clsx'

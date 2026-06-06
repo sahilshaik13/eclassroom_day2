@@ -25,7 +25,6 @@ export type TeacherSendParams = {
 }
 
 export async function deliverStudentOutboxEntry({
-  queryClient,
   entry,
   publish,
   liveEnabled,
@@ -74,9 +73,7 @@ export async function deliverStudentOutboxEntry({
 }
 
 export async function deliverTeacherOutboxEntry({
-  queryClient,
   entry,
-  filter,
   publish,
   liveEnabled,
 }: TeacherSendParams): Promise<boolean> {

@@ -77,7 +77,7 @@ export function studentDoubtsQueryOptions() {
 }
 
 /** Teacher portal: live API only (no sessionStorage pre-hydration). */
-export function teacherDoubtsQueryOptions(filter: 'all' | 'pending' = 'all') {
+export function teacherDoubtsQueryOptions(_filter: 'all' | 'pending' = 'all') {
   return {
     ...doubtsQueryOptions(),
     refetchOnMount: 'always' as const,

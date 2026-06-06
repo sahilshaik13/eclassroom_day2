@@ -51,6 +51,7 @@ import type { Doubt, DoubtResponse } from '@/types'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { DoubtChatBubble } from '@/components/doubts/DoubtChatBubble'
 import { LiveWaveform } from '@/components/ui/live-waveform'
+import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import {
   blobToDataUrl,
   doubtPreviewLabel,
@@ -183,11 +184,11 @@ type TeacherDoubtsChatProps = {
 
 export function TeacherDoubtsChat({
   variant = 'embedded',
+  statusFilter = 'all',
 }: TeacherDoubtsChatProps) {
   const queryClient = useQueryClient()
   const userId = useAuthStore((s) => s.user?.id)
   const tenantId = useAuthStore((s) => s.user?.tenant_id)
-  const teacherName = useAuthStore((s) => s.user?.name) ?? 'Teacher'
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
@@ -260,7 +261,7 @@ export function TeacherDoubtsChat({
     })
   }, [classIds.join(','), scheduleRefresh])
 
-  const teacherFilter = 'all' as const
+  const teacherFilter = statusFilter
 
   const {
     ephemeralByThread,
@@ -271,7 +272,7 @@ export function TeacherDoubtsChat({
     liveEnabled,
     mergeChatMessages: mergeMsgs,
     pruneEphemeralAgainstServer: pruneEphemeral,
-  } = useDoubtChatLive(tenantId, classIds, 'studentId', {
+  } = useDoubtChatLive(tenantId ?? undefined, classIds, 'studentId', {
     currentUserId: userId,
     viewerRole: 'teacher',
     onLiveMessage: (payload, { isOwn }) => {

@@ -136,14 +136,17 @@ export interface Doubt {
   status: DoubtStatus
   class_id: string
   class_name?: string
+  student_id?: string
   task_id?: string
   created_at: string
+  client_sent_at?: string
   /** Set when the teacher opens the doubt in chat (read receipt). */
   teacher_seen_at?: string | null
   reply_type?: 'text' | 'audio' | 'file'
   audio_url?: string | null
   file_url?: string | null
   file_name?: string | null
+  students?: { id?: string; name?: string } | null
   responses?: DoubtResponse[]
 }
 
