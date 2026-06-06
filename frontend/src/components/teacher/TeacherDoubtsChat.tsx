@@ -408,27 +408,32 @@ export function TeacherDoubtsChat({
   useEffect(() => {
     if (!activeThread?.doubts.length) return
     const unseen = activeThread.doubts
-      .filter((d) => !d.teacher_seen_at)
+      .filter((d) => !d.teacher_seen_at && !String(d.id).startsWith('pending-'))
       .map((d) => d.id)
     if (!unseen.length) return
 
     const seenAt = new Date().toISOString()
-    void api.post('/teacher/doubts/mark-seen', { doubt_ids: unseen }).then(() => {
-      queryClient.setQueryData<Doubt[]>(queryKeys.teacher.doubts('all'), (old) => {
-        const base = old ?? []
-        return base.map((d) =>
-          unseen.includes(d.id) ? { ...d, teacher_seen_at: seenAt } : d,
-        )
-      })
-      if (teacherFilter === 'pending') {
-        queryClient.setQueryData<Doubt[]>(queryKeys.teacher.doubts('pending'), (old) => {
+    void api
+      .post('/teacher/doubts/mark-seen', { doubt_ids: unseen })
+      .then(() => {
+        queryClient.setQueryData<Doubt[]>(queryKeys.teacher.doubts('all'), (old) => {
           const base = old ?? []
           return base.map((d) =>
             unseen.includes(d.id) ? { ...d, teacher_seen_at: seenAt } : d,
           )
         })
-      }
-    })
+        if (teacherFilter === 'pending') {
+          queryClient.setQueryData<Doubt[]>(queryKeys.teacher.doubts('pending'), (old) => {
+            const base = old ?? []
+            return base.map((d) =>
+              unseen.includes(d.id) ? { ...d, teacher_seen_at: seenAt } : d,
+            )
+          })
+        }
+      })
+      .catch(() => {
+        /* non-blocking read receipt */
+      })
   }, [activeThread?.studentId, queryClient, teacherFilter])
 
   const clearComposer = () => {

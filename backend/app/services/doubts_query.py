@@ -134,12 +134,24 @@ def mark_doubts_seen_by_teacher(client: Any, doubt_ids: list[str]) -> int:
             client.table("doubts")
             .update({"teacher_seen_at": seen_at})
             .in_("id", doubt_ids)
-            .is_("teacher_seen_at", "null"),
+            .is_("teacher_seen_at", None),
         )
         return len(res.data or [])
     except Exception as exc:
-        _logger.warning("mark_doubts_seen_by_teacher failed: %s", exc)
-        return 0
+        _logger.warning("mark_doubts_seen_by_teacher failed (%s): %s", type(exc).__name__, exc)
+        try:
+            res = _execute(
+                client,
+                client.table("doubts")
+                .update({"teacher_seen_at": seen_at})
+                .in_("id", doubt_ids),
+            )
+            return len(res.data or [])
+        except Exception as fallback_exc:
+            _logger.warning(
+                "mark_doubts_seen_by_teacher fallback failed: %s", fallback_exc,
+            )
+            return 0
 
 
 def insert_student_doubt(client: Any, row: dict) -> dict:

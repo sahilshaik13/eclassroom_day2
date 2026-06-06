@@ -1021,6 +1021,14 @@ async def clear_student_doubt_thread(
         return error("QUERY_ERROR", f"Failed to clear chat: {exc}", 500)
 
 
+def _valid_doubt_uuid(value: str) -> Optional[str]:
+    """Ignore optimistic client ids (e.g. pending-*) — PostgREST expects UUIDs."""
+    try:
+        return str(UUID(str(value)))
+    except (ValueError, TypeError):
+        return None
+
+
 @router.post("/doubts/mark-seen")
 async def mark_doubts_seen(
     body: MarkDoubtsSeenBody,
@@ -1031,33 +1039,44 @@ async def mark_doubts_seen(
     if not body.doubt_ids:
         return success({"updated": 0})
 
-    client = get_user_client(request.state.jwt_token)
-    classes_res = (
-        client.table("classes").select("id")
-        .eq("teacher_id", token.user_id)
-        .execute()
-    )
-    class_ids = {c["id"] for c in (classes_res.data or [])}
-    if not class_ids:
+    ids = [
+        uid
+        for d in body.doubt_ids[:50]
+        if (uid := _valid_doubt_uuid(str(d)))
+    ]
+    if not ids:
         return success({"updated": 0})
 
-    ids = [str(d) for d in body.doubt_ids[:50]]
-    rows = (
-        client.table("doubts")
-        .select("id, class_id")
-        .in_("id", ids)
-        .execute()
-    )
-    allowed = [
-        str(r["id"])
-        for r in (rows.data or [])
-        if r.get("class_id") in class_ids
-    ]
+    client = get_user_client(request.state.jwt_token)
+    try:
+        classes_res = (
+            client.table("classes").select("id")
+            .eq("teacher_id", token.user_id)
+            .execute()
+        )
+        class_ids = {c["id"] for c in (classes_res.data or [])}
+        if not class_ids:
+            return success({"updated": 0})
 
-    updated = mark_doubts_seen_by_teacher(client, allowed)
-    if token.tenant_id and updated:
-        await invalidate_teacher_caches(str(token.tenant_id), str(token.user_id))
-    return success({"updated": updated})
+        rows = (
+            client.table("doubts")
+            .select("id, class_id")
+            .in_("id", ids)
+            .execute()
+        )
+        allowed = [
+            str(r["id"])
+            for r in (rows.data or [])
+            if r.get("class_id") in class_ids
+        ]
+
+        updated = mark_doubts_seen_by_teacher(client, allowed)
+        if token.tenant_id and updated:
+            await invalidate_teacher_caches(str(token.tenant_id), str(token.user_id))
+        return success({"updated": updated})
+    except Exception as exc:
+        _logger.exception("mark_doubts_seen failed: %s", exc)
+        return error("QUERY_ERROR", f"Failed to mark doubts seen: {exc}", 500)
 
 
 class ReplyBody(BaseModel):
