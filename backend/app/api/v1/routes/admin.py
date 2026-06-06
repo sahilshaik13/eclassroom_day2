@@ -57,6 +57,8 @@ from app.services.study_plan_cache_service import (
     get_cached_study_plan_source,
 )
 from app.services.auth_service import AuthService, AuthError
+from app.services.data_archive_service import DataArchiveService
+from app.services.application_notification_service import ApplicationNotificationService
 from app.core.config import settings
 from app.services.study_plan_pdf_import_service import (
     STUDY_PLAN_PDF_BUCKET,
@@ -486,17 +488,49 @@ async def delete_student(
     request: Request,
     token: TokenData = Depends(require_admin),
 ):
-    """Permanently delete a student — removes all data and auth user."""
+    """Permanently delete a student — archives snapshot, then removes all data and auth user."""
     import httpx
     admin = get_admin_client()
-    
-    # 1. Get the student to find user_id
-    stu = admin.table("students").select("user_id").eq("id", student_id).eq("tenant_id", token.tenant_id).maybe_single().execute()
-    if not stu.data:
+
+    stu_res = (
+        admin.table("students")
+        .select("*")
+        .eq("id", student_id)
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    if not stu_res.data:
         return error("NOT_FOUND", "Student not found", 404)
-    user_id = stu.data["user_id"]
-    
-    # 2. Delete related rows (enrollments, completions, etc.)
+
+    student = stu_res.data
+    user_id = student["user_id"]
+
+    user_res = (
+        admin.table("users")
+        .select("*")
+        .eq("id", user_id)
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    enr_res = (
+        admin.table("class_enrollments")
+        .select("*")
+        .eq("student_id", student_id)
+        .eq("tenant_id", token.tenant_id)
+        .execute()
+    )
+
+    DataArchiveService.archive_student(
+        tenant_id=str(token.tenant_id),
+        student=student,
+        user=user_res.data if user_res and user_res.data else None,
+        enrollments=enr_res.data or [],
+        archived_by=str(token.user_id),
+    )
+
+    # Delete related rows (enrollments, completions, etc.)
     admin.table("class_enrollments").delete().eq("student_id", student_id).eq("tenant_id", token.tenant_id).execute()
     admin.table("task_completions").delete().eq("student_id", student_id).eq("tenant_id", token.tenant_id).execute()
     
@@ -773,15 +807,37 @@ async def delete_teacher(
     request: Request,
     token: TokenData = Depends(require_admin),
 ):
-    """Permanently delete a teacher — removes user record and auth user."""
+    """Permanently delete a teacher — archives snapshot, then removes user record and auth user."""
     admin = get_admin_client()
-    
-    # 1. Verify teacher exists and belongs to tenant
-    user = admin.table("users").select("id").eq("id", teacher_id).eq("role", "teacher").eq("tenant_id", token.tenant_id).maybe_single().execute()
-    if not user.data:
+
+    user_res = (
+        admin.table("users")
+        .select("*")
+        .eq("id", teacher_id)
+        .eq("role", "teacher")
+        .eq("tenant_id", token.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    if not user_res.data:
         return error("NOT_FOUND", "Teacher not found", 404)
-    
-    # 2. Unassign teacher from related records
+
+    classes_res = (
+        admin.table("classes")
+        .select("id, name, created_at")
+        .eq("teacher_id", teacher_id)
+        .eq("tenant_id", token.tenant_id)
+        .execute()
+    )
+
+    DataArchiveService.archive_teacher(
+        tenant_id=str(token.tenant_id),
+        teacher=user_res.data,
+        classes=classes_res.data or [],
+        archived_by=str(token.user_id),
+    )
+
+    # Unassign teacher from related records
     admin.table("classes").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
     admin.table("doubt_responses").update({"teacher_id": None}).eq("teacher_id", teacher_id).eq("tenant_id", token.tenant_id).execute()
     admin.table("attendance").update({"marked_by": None}).eq("marked_by", teacher_id).eq("tenant_id", token.tenant_id).execute()
@@ -807,35 +863,52 @@ async def get_tenant_info(token: TokenData = Depends(require_admin)):
     return success(res.data)
 
 
+def _apply_applied_ago(apps: list[dict]) -> None:
+    """Attach human-readable applied_ago; tolerate missing or bad timestamps."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    for app in apps:
+        raw = app.get("created_at")
+        if not raw:
+            app["applied_ago"] = ""
+            continue
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            diff = now - dt
+            if diff.days > 0:
+                app["applied_ago"] = f"{diff.days}d ago"
+            elif diff.seconds > 3600:
+                app["applied_ago"] = f"{diff.seconds // 3600}h ago"
+            elif diff.seconds > 60:
+                app["applied_ago"] = f"{diff.seconds // 60}m ago"
+            else:
+                app["applied_ago"] = "just now"
+        except Exception:
+            app["applied_ago"] = ""
+
+
 @router.get("/teachers/applications")
 async def list_teacher_applications(
     status: Optional[str] = "pending",
     token: TokenData = Depends(require_admin)
 ):
     admin = get_admin_client()
-    q = admin.table("teacher_applications").select("*").eq("tenant_id", token.tenant_id)
-    if status:
-        q = q.eq("status", status)
-    res = q.order("created_at", desc=True).execute()
-    
-    data = res.data or []
-    
-    # Simple relative time helper for internal use
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    for app in data:
-        dt = datetime.fromisoformat(app["created_at"].replace("Z", "+00:00"))
-        diff = now - dt
-        if diff.days > 0:
-            app["applied_ago"] = f"{diff.days}d ago"
-        elif diff.seconds > 3600:
-            app["applied_ago"] = f"{diff.seconds // 3600}h ago"
-        elif diff.seconds > 60:
-            app["applied_ago"] = f"{diff.seconds // 60}m ago"
-        else:
-            app["applied_ago"] = "just now"
-            
-    return success(data)
+    try:
+        q = admin.table("teacher_applications").select("*").eq("tenant_id", token.tenant_id)
+        if status:
+            q = q.eq("status", status)
+        res = q.order("created_at", desc=True).execute()
+        data = res.data or []
+        _apply_applied_ago(data)
+        return success(data)
+    except Exception as e:
+        import traceback
+        print(f"ERROR in list_teacher_applications: {e}")
+        print(traceback.format_exc())
+        return error("QUERY_ERROR", f"Could not load teacher applications: {e}", 500)
 
 
 @router.post("/teachers/applications/{app_id}/approve")
@@ -907,6 +980,12 @@ async def approve_teacher_application(
             "status": "approved"
         }).eq("id", app_id).execute()
 
+        await ApplicationNotificationService.notify_teacher_approved(
+            email=app["email"],
+            name=app["name"],
+            tenant_id=str(token.tenant_id),
+        )
+
         await bust_platform_dashboard_cache(str(token.tenant_id))
         return success({"message": "Application approved and invitation sent."})
 
@@ -920,9 +999,38 @@ async def reject_teacher_application(
     token: TokenData = Depends(require_admin)
 ):
     admin = get_admin_client()
-    res = admin.table("teacher_applications").update({"status": "rejected"}).eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
-    if not res.data:
+    app_res = (
+        admin.table("teacher_applications")
+        .select("*")
+        .eq("id", app_id)
+        .eq("tenant_id", token.tenant_id)
+        .execute()
+    )
+    if not app_res or not app_res.data:
         return error("NOT_FOUND", "Application not found", 404)
+
+    app = app_res.data[0]
+    if app["status"] != "pending":
+        return error("BAD_REQUEST", f"Application is already {app['status']}", 400)
+
+    archived_app = {
+        **app,
+        "status": "rejected",
+        "reviewed_at": f"{datetime.utcnow().isoformat()}Z",
+    }
+    DataArchiveService.archive_teacher_application(
+        archived_app,
+        tenant_id=str(token.tenant_id),
+        archived_by=str(token.user_id),
+    )
+
+    admin.table("teacher_applications").delete().eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
+
+    await ApplicationNotificationService.notify_teacher_rejected(
+        email=app["email"],
+        name=app["name"],
+        tenant_id=str(token.tenant_id),
+    )
     return success({"message": "Application rejected."})
 
 
@@ -932,27 +1040,19 @@ async def list_student_applications(
     token: TokenData = Depends(require_admin)
 ):
     admin = get_admin_client()
-    q = admin.table("student_applications").select("*").eq("tenant_id", token.tenant_id)
-    if status:
-        q = q.eq("status", status)
-    res = q.order("created_at", desc=True).execute()
-
-    data = res.data or []
-
-    now = datetime.utcnow()
-    for app in data:
-        dt = datetime.fromisoformat(app["created_at"].replace("Z", "+00:00")).replace(tzinfo=None)
-        diff = now - dt
-        if diff.days > 0:
-            app["applied_ago"] = f"{diff.days}d ago"
-        elif diff.seconds > 3600:
-            app["applied_ago"] = f"{diff.seconds // 3600}h ago"
-        elif diff.seconds > 60:
-            app["applied_ago"] = f"{diff.seconds // 60}m ago"
-        else:
-            app["applied_ago"] = "just now"
-
-    return success(data)
+    try:
+        q = admin.table("student_applications").select("*").eq("tenant_id", token.tenant_id)
+        if status:
+            q = q.eq("status", status)
+        res = q.order("created_at", desc=True).execute()
+        data = res.data or []
+        _apply_applied_ago(data)
+        return success(data)
+    except Exception as e:
+        import traceback
+        print(f"ERROR in list_student_applications: {e}")
+        print(traceback.format_exc())
+        return error("QUERY_ERROR", f"Could not load student applications: {e}", 500)
 
 
 @router.post("/students/applications/{app_id}/approve")
@@ -1068,6 +1168,13 @@ async def approve_student_application(
         }
     ).eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
 
+    await ApplicationNotificationService.notify_student_approved(
+        phone=normalized_phone,
+        name=app["name"],
+        tenant_id=str(token.tenant_id),
+        class_name=class_res.data.get("name") or "your class",
+    )
+
     await bust_platform_dashboard_cache(str(token.tenant_id))
     return success(
         {
@@ -1084,11 +1191,38 @@ async def reject_student_application(
     token: TokenData = Depends(require_admin)
 ):
     admin = get_admin_client()
-    res = admin.table("student_applications").update(
-        {"status": "rejected", "reviewed_at": f"{datetime.utcnow().isoformat()}Z"}
-    ).eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
-    if not res.data:
+    app_res = (
+        admin.table("student_applications")
+        .select("*")
+        .eq("id", app_id)
+        .eq("tenant_id", token.tenant_id)
+        .execute()
+    )
+    if not app_res or not app_res.data:
         return error("NOT_FOUND", "Application not found", 404)
+
+    app = app_res.data[0]
+    if app["status"] != "pending":
+        return error("BAD_REQUEST", f"Application is already {app['status']}", 400)
+
+    archived_app = {
+        **app,
+        "status": "rejected",
+        "reviewed_at": f"{datetime.utcnow().isoformat()}Z",
+    }
+    DataArchiveService.archive_student_application(
+        archived_app,
+        tenant_id=str(token.tenant_id),
+        archived_by=str(token.user_id),
+    )
+
+    admin.table("student_applications").delete().eq("id", app_id).eq("tenant_id", token.tenant_id).execute()
+
+    await ApplicationNotificationService.notify_student_rejected(
+        phone=app["phone"],
+        name=app["name"],
+        tenant_id=str(token.tenant_id),
+    )
     return success({"message": "Student application rejected."})
 
 
@@ -2400,20 +2534,18 @@ async def get_admin_classroom_study_plan_source(
     class_id: str,
     token: TokenData = Depends(require_admin),
 ):
-    admin = get_admin_client()
-    classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
-    if not classroom:
-        return error("NOT_FOUND", "Class not found", 404)
+    try:
+        admin = get_admin_client()
+        classroom = _verify_admin_classroom(admin, token.tenant_id, class_id)
+        if not classroom:
+            return error("NOT_FOUND", "Class not found", 404)
 
-    plan = _get_active_class_study_plan(admin, token.tenant_id, class_id)
-    import_row = None
-    if plan and plan.get("source_import_id"):
-        candidate = _get_import_by_id(admin, token.tenant_id, str(plan["source_import_id"]))
-        if candidate and str(candidate.get("ocr_status") or "") != "archived":
-            import_row = candidate
-    payload, cache_hit = await get_cached_study_plan_source(token.tenant_id, class_id)
-    response = success(payload)
-    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
-    return response
+        payload, cache_hit = await get_cached_study_plan_source(str(token.tenant_id), class_id)
+        response = success(payload)
+        response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+        return response
+    except Exception as exc:
+        logger.exception("admin study-plan-source failed class_id=%s: %s", class_id, exc)
+        return success(None)
 
 

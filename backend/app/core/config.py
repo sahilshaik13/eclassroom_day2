@@ -39,12 +39,25 @@ class Settings(BaseSettings):
     # ── OTP / rate limiting ───────────────────────────────────
     OTP_MAX_ATTEMPTS: int = 3
     OTP_LOCKOUT_MINUTES: int = 15
+    # Student login SMS OTP: set OTP=disable in .env for phone-only login (dev only).
+    OTP: str = "enable"
 
     # ── Twilio fallback (optional) ────────────────────────────
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_PHONE_NUMBER: str = ""
     TWILIO_MESSAGING_SERVICE_SID: str = ""
+
+    # ── SMTP (same credentials as Supabase Custom SMTP) ───────
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_NAME: str = "ThinkTarteeb E-Classroom"
+    SMTP_USE_TLS: bool = True
+    # Port 465 uses implicit SSL (SMTP_SSL). Port 587 uses STARTTLS when SMTP_USE_TLS=true.
+    SMTP_USE_SSL: bool = False
 
     # ── NexusOCR (optional, admin study-plan import) ──────────
     NEXUSOCR_API_URL: str = "https://nexusocr-backend-637895872255.asia-south1.run.app"
@@ -96,6 +109,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
+
+    @property
+    def student_otp_disabled(self) -> bool:
+        return self.OTP.strip().lower() == "disable"
 
     @property
     def sentry_enabled(self) -> bool:

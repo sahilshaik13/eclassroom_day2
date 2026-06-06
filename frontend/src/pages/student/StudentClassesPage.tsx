@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { User, Video, Calendar, Loader2, Search, Layers } from 'lucide-react'
+import { Video, Calendar, Loader2, Search, Layers } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
 import type { StudyPlanPdfImport } from '@/types'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { clsx } from 'clsx'
+import { StudentEnrolledClassPicker } from '@/components/student/StudentEnrolledClassPicker'
 import { StudentClassStudyPlanSection } from '@/components/student/StudentClassStudyPlanSection'
 import { StudentClassMeetingsCard } from '@/components/student/StudentClassMeetingsCard'
 import type { StudentPlanDay, StudentPlanTask } from '@/lib/studentStudyPlanTasks'
@@ -156,9 +156,6 @@ export default function StudentClassesPage() {
       <div className="space-y-4">
         {/* Class picker — same density pattern as Progress page */}
         <div className="flex flex-col gap-2">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Enrolled classes
-          </h3>
           {classes.length === 0 ? (
             <Card className="rounded-xl border border-dashed border-slate-200 bg-white shadow-sm">
               <CardContent className="flex flex-col items-center px-4 py-6 text-center">
@@ -167,32 +164,11 @@ export default function StudentClassesPage() {
               </CardContent>
             </Card>
           ) : (
-            <>
-              <div className="flex gap-1.5 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                {classes.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setSelectedClassId(c.id)}
-                    className={clsx(
-                      'h-9 max-w-[85vw] shrink-0 truncate rounded-lg px-3 text-left text-xs font-black transition-all sm:max-w-none',
-                      selectedClass?.id === c.id
-                        ? 'bg-slate-900 text-white shadow-md'
-                        : 'text-slate-500 hover:bg-slate-50',
-                    )}
-                    title={`${c.name} · ${c.teacher?.name ?? 'Teacher'}`}
-                  >
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-              {selectedClass && (
-                <p className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                  <User className="h-3 w-3 shrink-0 text-slate-400" />
-                  <span className="truncate">{selectedClass.teacher?.name ?? 'Teacher'}</span>
-                </p>
-              )}
-            </>
+            <StudentEnrolledClassPicker
+              classes={classes}
+              selectedClassId={selectedClassId}
+              onSelect={setSelectedClassId}
+            />
           )}
         </div>
 
@@ -242,6 +218,7 @@ export default function StudentClassesPage() {
               planDays={plan.days as StudentPlanDay[]}
               planSource={planSource}
               zoomLink={selectedClass.zoom_link}
+              classId={selectedClass.id}
               onToggleTask={handleToggleTask}
               togglingTaskId={togglingTaskId}
             />

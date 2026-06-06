@@ -7,12 +7,67 @@ Supabase's realtime system for direct database change notifications.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
+import httpx
+
+from app.core.config import settings
 from app.core.redis_client import get_redis
 
 _logger = logging.getLogger(__name__)
+
+# Must match frontend doubtChatRealtime.channelName()
+DOUBT_CHAT_CHANNEL_PREFIX = "doubt-chat"
+DOUBT_CHAT_BROADCAST_EVENT = "message"
+
+
+def doubt_chat_channel_topic(tenant_id: str, class_id: str) -> str:
+    """Topic must match supabase-js: channel('doubt-chat:…') → realtime:doubt-chat:…"""
+    name = f"{DOUBT_CHAT_CHANNEL_PREFIX}:{tenant_id}:{class_id}"
+    return name if name.startswith("realtime:") else f"realtime:{name}"
+
+
+async def _supabase_realtime_broadcast(
+    topic: str,
+    event: str,
+    payload: dict,
+) -> None:
+    """Push to Supabase Realtime so subscribed browsers receive text chat instantly."""
+    base = (settings.SUPABASE_URL or "").rstrip("/")
+    key = (settings.SUPABASE_SERVICE_ROLE_KEY or "").strip()
+    if not base or not key or not topic:
+        return
+
+    headers = {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "messages": [
+            {
+                "topic": topic,
+                "event": event,
+                "payload": payload,
+            }
+        ]
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.post(
+                f"{base}/realtime/v1/api/broadcast",
+                headers=headers,
+                json=body,
+            )
+            if res.status_code >= 400:
+                _logger.warning(
+                    "Supabase doubt-chat broadcast failed status=%s body=%s",
+                    res.status_code,
+                    (res.text or "")[:240],
+                )
+    except Exception:
+        _logger.exception("Supabase doubt-chat broadcast request failed topic=%s", topic)
 
 
 async def broadcast_submission_reviewed(
@@ -182,6 +237,33 @@ async def broadcast_doubt_created(
         _logger.debug("Broadcast doubt_created to %s", channel)
     except Exception:
         _logger.exception("Failed to broadcast doubt_created to %s", channel)
+
+
+async def broadcast_doubt_chat_message(
+    tenant_id: str,
+    class_id: str,
+    payload: dict,
+) -> None:
+    """Fan-out doubt text chat via Supabase Realtime (instant) and Redis (legacy listeners)."""
+    topic = doubt_chat_channel_topic(tenant_id, class_id)
+    await _supabase_realtime_broadcast(topic, DOUBT_CHAT_BROADCAST_EVENT, payload)
+
+    redis = await get_redis()
+    if not redis:
+        return
+
+    channel = f"tenant:{tenant_id}:class:{class_id}"
+    message = {
+        "event": "doubt_chat_message",
+        "tenant_id": tenant_id,
+        "class_id": class_id,
+        "payload": payload,
+    }
+    try:
+        await redis.publish(channel, json.dumps(message))
+        _logger.debug("Broadcast doubt_chat_message to %s", channel)
+    except Exception:
+        _logger.exception("Failed to broadcast doubt_chat_message to %s", channel)
 
 
 async def broadcast_doubt_replied(

@@ -51,6 +51,7 @@ export const queryKeys = {
     classMeetings: (classId: string) =>
       ['student', 'classes', classId, 'meetings'] as const,
     upcomingMeetings: () => ['student', 'meetings', 'upcoming'] as const,
+    meetingsToday: () => ['student', 'meetings', 'today'] as const,
     progressReport: (year: number, month: number, classId: string) =>
       ['student', 'progress-report', year, month, classId] as const,
   },

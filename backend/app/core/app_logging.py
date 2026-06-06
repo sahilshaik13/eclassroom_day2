@@ -32,12 +32,14 @@ class NeonApplicationLogHandler(logging.Handler):
             import asyncio
 
             loop = asyncio.get_running_loop()
-            loop.create_task(
-                application_log_store.insert_app_event_log(
-                    log_level=level,
-                    message=message,
-                    metadata=meta,
-                )
+            if application_log_store.is_shutting_down():
+                return
+            application_log_store.schedule_application_log(
+                loop,
+                log_level=level,
+                log_type="app_event",
+                message=message,
+                metadata=meta,
             )
         except RuntimeError:
             pass

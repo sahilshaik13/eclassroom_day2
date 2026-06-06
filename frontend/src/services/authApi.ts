@@ -8,7 +8,15 @@ export const authApi = {
     context?: string,
     competitionId?: string,
   ) =>
-    api.post<{ success: true; data: { message: string; dev_otp?: string; tenant_id?: string } }>(
+    api.post<{
+      success: true
+      data: {
+        message: string
+        dev_otp?: string
+        tenant_id?: string
+        otp_skipped?: boolean
+      } & Partial<LoginResponse>
+    }>(
       '/auth/otp/send',
       { phone, tenant_id: tenantId, context, competition_id: competitionId },
     ),

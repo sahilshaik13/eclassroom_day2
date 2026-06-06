@@ -3,6 +3,7 @@ Student routes — all require role=student JWT.
 """
 import asyncio
 import logging
+import uuid
 from datetime import date, timedelta, datetime, timezone
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -24,7 +25,11 @@ from app.services.study_plan_kpi_service import (
     kpi_bucket_for_task,
     summarize_bucket_progress,
 )
-from app.services.realtime_events import broadcast_new_submission
+from app.services.realtime_events import (
+    broadcast_new_submission,
+    broadcast_doubt_created,
+    broadcast_doubt_chat_message,
+)
 
 from app.core import cache_keys, cache_ttl
 from app.core.cache_service import get_or_set_cache, invalidate_caches_for_student_activity
@@ -111,60 +116,58 @@ async def record_student_portal_access(
 ):
     """
     Record portal IN (open/new window) or OUT (window/tab closed).
-    IN: unique-day row on first visit that day + log row. OUT: log row only.
+    Returns immediately; persistence runs in the background so the portal never waits.
     """
-    admin = get_admin_client()
-    student_res = await run_sync(
-        lambda: admin.table("students")
-        .select("id, tenant_id")
-        .eq("user_id", token.user_id)
-        .limit(1)
-        .execute()
-    )
-    student_row = (student_res.data or [None])[0] if student_res else None
-    if not student_row:
-        return error("NOT_FOUND", "Student not found", 404)
-
-    student_id = str(student_row["id"])
-    tenant_id = str(student_row.get("tenant_id") or token.tenant_id or "").strip()
-    if not tenant_id:
-        return error("INVALID_STATE", "Student has no tenant_id", 400)
-
     today = date.today().isoformat()
     event = body.event
+    user_id = str(token.user_id)
+    token_tenant_id = str(token.tenant_id or "").strip()
 
-    if event == "in":
-        ok = await run_sync(
-            lambda: record_portal_access_attendance(
-                student_id=student_id,
-                user_id=token.user_id,
-                tenant_id=tenant_id,
+    async def _persist() -> None:
+        try:
+            admin = get_admin_client()
+            student_res = await run_sync(
+                lambda: admin.table("students")
+                .select("id, tenant_id")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
             )
-        )
-    else:
-        ok = await run_sync(
-            lambda: record_portal_exit_attendance(
-                student_id=student_id,
-                user_id=token.user_id,
-                tenant_id=tenant_id,
-            )
-        )
+            student_row = (student_res.data or [None])[0] if student_res else None
+            if not student_row:
+                _logger.warning("[attendance] portal %s skipped — no student for user %s", event, user_id)
+                return
 
-    if not ok:
-        # Attendance logging should never block the student portal.
-        return success(
-            {
-                "recorded": False,
-                "date": today,
-                "event": event,
-                "warning": "Attendance log unavailable",
-            }
-        )
+            student_id = str(student_row["id"])
+            tenant_id = str(student_row.get("tenant_id") or token_tenant_id or "").strip()
+            if not tenant_id:
+                _logger.warning("[attendance] portal %s skipped — no tenant for student %s", event, student_id)
+                return
 
-    if event == "in":
-        asyncio.create_task(_invalidate_portal_caches_background(tenant_id, student_id))
+            if event == "in":
+                ok = await run_sync(
+                    lambda: record_portal_access_attendance(
+                        student_id=student_id,
+                        user_id=user_id,
+                        tenant_id=tenant_id,
+                    )
+                )
+            else:
+                ok = await run_sync(
+                    lambda: record_portal_exit_attendance(
+                        student_id=student_id,
+                        user_id=user_id,
+                        tenant_id=tenant_id,
+                    )
+                )
 
-    return success({"recorded": True, "date": today, "event": event})
+            if ok and event == "in":
+                await _invalidate_portal_caches_background(tenant_id, student_id)
+        except Exception:
+            _logger.exception("[attendance] portal %s background persist failed user=%s", event, user_id)
+
+    asyncio.create_task(_persist())
+    return success({"recorded": True, "date": today, "event": event, "queued": True})
 
 # ── Pydantic Models ───────────────────────────────────────────
 
@@ -185,78 +188,116 @@ class ProfileComplete(BaseModel):
     address: Optional[str] = None
 
 class DoubtCreate(BaseModel):
-    title: str
-    body: str
+    body: Optional[str] = None
     class_id: str
     task_id: Optional[str] = None
+    client_message_id: Optional[str] = None
+    title: Optional[str] = None  # ignored; stored server-side for legacy schema only
+    reply_type: Optional[str] = "text"
+    audio_url: Optional[str] = None
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    client_sent_at: Optional[str] = None
+
+
+def _infer_student_doubt_type(body: DoubtCreate) -> str:
+    explicit = (body.reply_type or "").strip().lower()
+    if explicit in ("text", "audio", "file"):
+        return explicit
+    if body.file_url:
+        return "file"
+    if body.audio_url:
+        return "audio"
+    return "text"
+
+
+def _doubt_preview_text(body: DoubtCreate, reply_type: str) -> str:
+    text = (body.body or "").strip()
+    if text:
+        return text
+    if reply_type == "audio":
+        return "Voice message"
+    if reply_type == "file":
+        return body.file_name or "File attachment"
+    return ""
 
 # ── Today's tasks ─────────────────────────────────────────────
 
 @router.get("/tasks/today")
 async def get_today_tasks(request: Request, token: TokenData = Depends(require_student)):
-    admin = get_admin_client()
-    today = date.today().isoformat()
+    try:
+        admin = get_admin_client()
+        today = date.today().isoformat()
 
-    student_res = await run_sync(
-        lambda: admin.table("students")
-        .select("id")
-        .eq("user_id", token.user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not student_res.data:
-        return error("NOT_FOUND", "Student record not found", 404)
-    student_id = student_res.data["id"]
-    tid = str(token.tenant_id)
-    cache_key = cache_keys.student_tasks_today(tid, student_id, today)
+        student_res = await run_sync(
+            lambda: admin.table("students")
+            .select("id")
+            .eq("user_id", token.user_id)
+            .limit(1)
+            .execute()
+        )
+        if not student_res.data:
+            return success([])
 
-    async def _load_tasks() -> list:
-        return await _fetch_today_tasks(admin, student_id, today)
+        student_id = student_res.data[0]["id"]
+        tid = str(token.tenant_id)
+        cache_key = cache_keys.student_tasks_today(tid, student_id, today)
 
-    tasks, hit = await get_or_set_cache(cache_key, cache_ttl.STUDENT_TASKS_TODAY, _load_tasks)
-    response = success(tasks)
-    response.headers["X-Cache"] = "HIT" if hit else "MISS"
-    return response
+        async def _load_tasks() -> list:
+            return await _fetch_today_tasks(admin, student_id, today)
+
+        tasks, hit = await get_or_set_cache(cache_key, cache_ttl.STUDENT_TASKS_TODAY, _load_tasks)
+        response = success(tasks)
+        response.headers["X-Cache"] = "HIT" if hit else "MISS"
+        return response
+    except Exception as exc:
+        _logger.exception("get_today_tasks failed user_id=%s: %s", token.user_id, exc)
+        return success([])
 
 
 async def _fetch_today_tasks(admin, student_id: str, today: str) -> list:
-    enrolled_res = await run_sync(
-        lambda: admin.table("class_enrollments")
-        .select("class_id")
-        .eq("student_id", student_id)
-        .execute()
-    )
-    class_ids = [r["class_id"] for r in (enrolled_res.data or [])]
-
-    if not class_ids:
-        return []
-
-    plans_res = await run_sync(
-        lambda: admin.table("study_plans")
-        .select("id")
-        .in_("class_id", class_ids)
-        .eq("status", "active")
-        .execute()
-    )
-    plan_ids = [r["id"] for r in (plans_res.data or [])]
-
-    if not plan_ids:
-        return []
-
-    days_res = await run_sync(
-        lambda: admin.table("study_plan_days")
-        .select(
-            "id, day_number, scheduled_date, is_accessible, study_plans(name), "
-            "study_plan_periods(id, title, study_plan_tasks(*, study_plan_submissions(*)))"
+    try:
+        enrolled_res = await run_sync(
+            lambda: admin.table("class_enrollments")
+            .select("class_id")
+            .eq("student_id", student_id)
+            .execute()
         )
-        .in_("plan_id", plan_ids)
-        .eq("scheduled_date", today)
-        .execute()
-    )
+        class_ids = [r["class_id"] for r in (enrolled_res.data or [])]
+
+        if not class_ids:
+            return []
+
+        plans_res = await run_sync(
+            lambda: admin.table("study_plans")
+            .select("id")
+            .in_("class_id", class_ids)
+            .eq("status", "active")
+            .execute()
+        )
+        plan_ids = [r["id"] for r in (plans_res.data or [])]
+
+        if not plan_ids:
+            return []
+
+        days_res = await run_sync(
+            lambda: admin.table("study_plan_days")
+            .select(
+                "id, day_number, scheduled_date, is_accessible, study_plans(name), "
+                "study_plan_periods(id, title, study_plan_tasks(*, study_plan_submissions(*)))"
+            )
+            .in_("plan_id", plan_ids)
+            .eq("scheduled_date", today)
+            .execute()
+        )
+    except Exception as exc:
+        _logger.warning("_fetch_today_tasks query failed student_id=%s: %s", student_id, exc)
+        return []
 
     tasks = []
     for day in (days_res.data or []):
-        plan_name = day.get("study_plans", {}).get("name", "Study Plan")
+        plan_meta = day.get("study_plans") or {}
+        plan_name = plan_meta.get("name", "Study Plan") if isinstance(plan_meta, dict) else "Study Plan"
         day_number = day.get("day_number")
         for period in (day.get("study_plan_periods") or []):
             for t in (period.get("study_plan_tasks") or []):
@@ -635,39 +676,52 @@ async def get_student_classroom_study_plan(class_id: str, token: TokenData = Dep
             token.tenant_id, class_id, student_id
         )
         if bundle is None:
-            return error("NOT_FOUND", "No study plan assigned to this classroom", 404)
+            return success(None)
         response = success(bundle)
         response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
         return response
     except Exception as exc:
         import logging
         logging.getLogger(__name__).exception("student study-plan load failed class_id=%s", class_id)
-        return error("QUERY_ERROR", f"Failed to load study plan: {exc}", 500)
+        return success(None)
 
 
 @router.get("/classes/{class_id}/study-plan-source")
 async def get_student_classroom_study_plan_source(class_id: str, token: TokenData = Depends(require_student)):
-    admin = get_admin_client()
-    student_res = admin.table("students").select("id").eq("user_id", token.user_id).maybe_single().execute()
-    if not student_res.data:
-        return error("NOT_FOUND", "Student not found", 404)
-    student_id = student_res.data["id"]
+    """PDF source for enrolled class. Null data when no import exists (not an error)."""
+    try:
+        admin = get_admin_client()
+        student_res = (
+            admin.table("students")
+            .select("id")
+            .eq("user_id", token.user_id)
+            .limit(1)
+            .execute()
+        )
+        if not student_res.data:
+            return error("NOT_FOUND", "Student not found", 404)
+        student_id = student_res.data[0]["id"]
 
-    enr_check = (
-        admin.table("class_enrollments")
-        .select("id")
-        .eq("class_id", class_id)
-        .eq("student_id", student_id)
-        .maybe_single()
-        .execute()
-    )
-    if not enr_check.data:
-        return error("FORBIDDEN", "Not enrolled in this classroom", 403)
+        enr_check = (
+            admin.table("class_enrollments")
+            .select("id")
+            .eq("class_id", class_id)
+            .eq("student_id", student_id)
+            .limit(1)
+            .execute()
+        )
+        if not enr_check.data:
+            return error("FORBIDDEN", "Not enrolled in this classroom", 403)
 
-    payload, cache_hit = await get_cached_study_plan_source(token.tenant_id, class_id)
-    response = success(payload)
-    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
-    return response
+        payload, cache_hit = await get_cached_study_plan_source(str(token.tenant_id), class_id)
+        response = success(payload)
+        response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
+        return response
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "student study-plan-source failed class_id=%s: %s", class_id, exc
+        )
+        return success(None)
 
 # ── Accountability partner ────────────────────────────────────
 
@@ -689,32 +743,181 @@ async def get_my_doubts(request: Request, status: Optional[str] = None, token: T
     student_res = client.table("students").select("id").eq("user_id", token.user_id).single().execute()
     if not student_res.data: return error("NOT_FOUND", "Student record not found", 404)
 
-    q = client.table("doubts").select("*, doubt_responses(id, body, created_at, users!doubt_responses_teacher_id_fkey(name))").eq("student_id", student_res.data["id"]).order("created_at", desc=True)
-    if status: q = q.eq("status", status)
-    res = q.execute()
-    return success(res.data or [])
+    from app.services.doubts_query import fetch_student_doubts
+
+    try:
+        rows = fetch_student_doubts(client, str(student_res.data["id"]), status)
+        return success(rows)
+    except Exception as exc:
+        return error("QUERY_ERROR", f"Failed to load doubts: {exc}", 500)
+
+async def _persist_student_doubt_background(
+    jwt_token: str,
+    new_doubt: dict,
+    tenant_id: str,
+    student_id: str,
+    class_id: str,
+    preview_text: str,
+    client_message_id: str,
+    chat_payload: dict,
+) -> None:
+    """Insert doubt in background after client already received the broadcast."""
+    try:
+        from app.services.doubts_query import insert_student_doubt
+
+        client = get_user_client(jwt_token)
+        created = insert_student_doubt(client, new_doubt)
+        await invalidate_caches_for_student_activity(tenant_id, student_id)
+        if created.get("id"):
+            await broadcast_doubt_created(
+                tenant_id,
+                class_id,
+                student_id,
+                str(created["id"]),
+                preview_text or None,
+            )
+            chat_payload = {
+                **chat_payload,
+                "doubtId": str(created["id"]),
+                "persisted": True,
+            }
+            await broadcast_doubt_chat_message(tenant_id, class_id, chat_payload)
+    except Exception:
+        logging.getLogger(__name__).exception("Background persist student doubt failed")
+
+
+@router.delete("/classes/{class_id}/doubts/chat")
+async def clear_class_doubts_chat(
+    class_id: str,
+    request: Request,
+    token: TokenData = Depends(require_student),
+):
+    """Archive all doubt messages for this student in one class (hidden from chat, kept in DB)."""
+    client = get_user_client(request.state.jwt_token)
+    student_res = (
+        client.table("students")
+        .select("id")
+        .eq("user_id", token.user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not student_res.data:
+        return error("NOT_FOUND", "Student record not found", 404)
+    student_id = str(student_res.data["id"])
+
+    enr = (
+        client.table("class_enrollments")
+        .select("id")
+        .eq("class_id", class_id)
+        .eq("student_id", student_id)
+        .limit(1)
+        .execute()
+    )
+    if not enr.data:
+        return error("FORBIDDEN", "Not enrolled in this classroom", 403)
+
+    from app.services.doubts_query import archive_student_class_doubts
+
+    try:
+        archived = archive_student_class_doubts(
+            client, student_id, class_id, archived_by=str(token.user_id)
+        )
+        await invalidate_caches_for_student_activity(str(token.tenant_id), student_id)
+        return success({"archived": archived, "class_id": class_id})
+    except Exception as exc:
+        logging.getLogger(__name__).exception("clear_class_doubts_chat failed: %s", exc)
+        return error("QUERY_ERROR", f"Failed to clear chat: {exc}", 500)
+
 
 @router.post("/doubts")
-async def create_doubt(body: DoubtCreate, request: Request, token: TokenData = Depends(require_student)):
+async def create_doubt(
+    body: DoubtCreate,
+    request: Request,
+    token: TokenData = Depends(require_student),
+):
     client = get_user_client(request.state.jwt_token)
     student_res = client.table("students").select("id, tenant_id").eq("user_id", token.user_id).single().execute()
-    if not student_res.data: return error("NOT_FOUND", "Student record not found", 404)
+    if not student_res.data:
+        return error("NOT_FOUND", "Student record not found", 404)
+
+    client_message_id = (body.client_message_id or "").strip() or str(uuid.uuid4())
+    tenant_id = str(student_res.data["tenant_id"])
+    student_id = str(student_res.data["id"])
+
+    from app.services.doubts_query import doubt_title_for_db
+
+    reply_type = _infer_student_doubt_type(body)
+    body_text = (body.body or "").strip()
+    audio_url = (body.audio_url or "").strip() or None
+    file_url = (body.file_url or "").strip() or None
+    file_name = (body.file_name or "").strip() or None
+
+    if not body_text and not audio_url and not file_url:
+        return error("BAD_REQUEST", "Message must include text, audio, or a file", 400)
+    if reply_type == "file" and not file_url:
+        return error("BAD_REQUEST", "File message requires file_url", 400)
+    if reply_type == "audio" and not audio_url:
+        return error("BAD_REQUEST", "Audio message requires audio_url", 400)
+
+    preview_text = _doubt_preview_text(body, reply_type)
+    title_source = body_text or preview_text
+
+    client_sent_at = (body.client_sent_at or "").strip() or datetime.now(timezone.utc).isoformat()
 
     new_doubt = {
         "student_id": student_res.data["id"],
         "tenant_id": student_res.data["tenant_id"],
         "class_id": body.class_id,
         "task_id": body.task_id,
-        "title": body.title,
-        "body": body.body,
+        "title": doubt_title_for_db(title_source),
+        "body": body_text or None,
         "status": "pending",
+        "reply_type": reply_type,
+        "audio_url": audio_url,
+        "file_url": file_url,
+        "file_name": file_name,
+        "client_sent_at": client_sent_at,
     }
-    res = client.table("doubts").insert(new_doubt).execute()
-    await invalidate_caches_for_student_activity(
-        str(student_res.data["tenant_id"]),
-        str(student_res.data["id"]),
+
+    chat_payload = {
+        "clientId": client_message_id,
+        "kind": "student_doubt",
+        "classId": str(body.class_id),
+        "studentId": student_id,
+        "text": preview_text,
+        "replyType": reply_type,
+        "createdAt": client_sent_at,
+        "senderUserId": str(token.user_id),
+    }
+    if audio_url:
+        chat_payload["audioUrl"] = audio_url
+    if file_url:
+        chat_payload["fileUrl"] = file_url
+        chat_payload["fileName"] = file_name
+
+    await broadcast_doubt_chat_message(tenant_id, str(body.class_id), chat_payload)
+    asyncio.create_task(
+        _persist_student_doubt_background(
+            request.state.jwt_token,
+            new_doubt,
+            tenant_id,
+            student_id,
+            body.class_id,
+            preview_text,
+            client_message_id,
+            chat_payload,
+        ),
     )
-    return success(res.data[0] if res.data else {}, status_code=201)
+
+    return success(
+        {
+            "accepted": True,
+            "client_message_id": client_message_id,
+            "class_id": body.class_id,
+            "student_id": student_id,
+        },
+        status_code=202,
+    )
 
 
 # Progress report logic moved to progress_report.py

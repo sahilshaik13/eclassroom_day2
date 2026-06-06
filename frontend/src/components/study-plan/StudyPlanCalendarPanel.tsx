@@ -14,7 +14,12 @@ import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
+import { formatStudyPlanPeriodLabel, isFlatScheduleTitle } from '@/lib/studyPlanLabels'
+import {
+  getCalendarDisplayTasks,
+  getCalendarTaskDisplayLabel,
+  isEmptySpreadsheetCell,
+} from '@/lib/studentStudyPlanTasks'
 
 /** Minimal shape from API / builder — avoids tight coupling to StudyPlanBuilder types */
 export interface CalendarPlanDay {
@@ -40,8 +45,10 @@ export interface CalendarPlanDay {
 
 function planDayHasTasks(day: CalendarPlanDay | null): boolean {
   if (!day) return false
-  return (day.periods ?? []).some((period) => (period.tasks ?? []).length > 0)
+  return getCalendarDisplayTasks(day).length > 0
 }
+
+const CALENDAR_CELL_MAX_TASKS = 3
 
 interface StudyPlanCalendarPanelProps {
   days: CalendarPlanDay[]
@@ -153,38 +160,66 @@ export function StudyPlanCalendarPanel({
             ))}
           </div>
           
-          {/* Calendar Grid - Compact equal sized cells */}
+          {/* Calendar Grid — taller cells so tasks read like Google Calendar month view */}
           <div className="grid grid-cols-7 auto-rows-fr">
             {gridDays.map((cell) => {
               const key = format(cell, 'yyyy-MM-dd')
               const pd = dayMap.get(key)
+              const tasks = pd ? getCalendarDisplayTasks(pd) : []
+              const visibleTasks = tasks.slice(0, CALENDAR_CELL_MAX_TASKS)
+              const overflowCount = tasks.length - visibleTasks.length
               const isSel = isSameDay(cell, selectedCal)
               const inMonth = isSameMonth(cell, cursor)
               const isToday = isSameDay(cell, new Date())
               return (
-                <div key={key} className="aspect-square border-b border-r border-slate-50 p-0.5 last:border-r-0">
+                <div key={key} className="min-h-[4.75rem] border-b border-r border-slate-50 p-0.5 last:border-r-0">
                   <button
                     type="button"
                     onClick={() => pickCell(cell)}
                     className={cn(
-                      'flex h-full w-full flex-col rounded-md border p-1 text-left transition-all',
+                      'flex h-full w-full flex-col gap-0.5 rounded-md border p-0.5 text-left transition-all',
                       inMonth ? 'border-transparent hover:bg-slate-50' : 'border-transparent bg-slate-50/60 text-slate-400',
                       isSel && 'border-indigo-400 bg-indigo-50/80 ring-1 ring-indigo-300',
                       isToday && !isSel && 'ring-1 ring-slate-200 bg-slate-50/30'
                     )}
                   >
-                    <span className={cn('text-xs font-semibold', inMonth ? 'text-slate-800' : 'text-slate-400')}>
-                      {format(cell, 'd')}
-                    </span>
-                    <div className="mt-auto">
+                    <div className="flex items-start justify-between gap-0.5 px-0.5">
+                      <span
+                        className={cn(
+                          'inline-flex h-5 min-w-5 items-center justify-center rounded-full text-[11px] font-semibold leading-none',
+                          isToday && inMonth && 'bg-indigo-600 text-white',
+                          !isToday && inMonth && 'text-slate-800',
+                          !inMonth && 'text-slate-400',
+                        )}
+                      >
+                        {format(cell, 'd')}
+                      </span>
                       {pd ? (
-                        <Badge variant="secondary" className="w-fit max-w-full truncate border-0 bg-emerald-50 px-1 py-0 text-[9px] font-medium text-emerald-800">
+                        <span className="shrink-0 text-[8px] font-semibold uppercase tracking-wide text-emerald-700">
                           D{pd.day_number}
-                        </Badge>
-                      ) : (
-                        <span className="text-[9px] text-slate-300">—</span>
-                      )}
+                        </span>
+                      ) : null}
                     </div>
+                    {visibleTasks.length > 0 ? (
+                      <div className="flex min-h-0 flex-1 flex-col gap-px overflow-hidden px-0.5 pb-0.5">
+                        {visibleTasks.map((task) => (
+                          <span
+                            key={task.id || `${pd?.day_number}-${task.label}`}
+                            className="block truncate rounded-sm bg-indigo-100/90 px-1 py-px text-[9px] font-medium leading-tight text-indigo-900"
+                            title={task.label}
+                          >
+                            {task.label}
+                          </span>
+                        ))}
+                        {overflowCount > 0 ? (
+                          <span className="truncate px-0.5 text-[8px] font-medium text-slate-500">
+                            +{overflowCount} more
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : pd ? (
+                      <span className="px-0.5 text-[8px] text-slate-400">No tasks</span>
+                    ) : null}
                   </button>
                 </div>
               )
@@ -242,25 +277,32 @@ export function StudyPlanCalendarPanel({
         ) : (
           <ul className="space-y-4">
             {selectedPlanDay.periods.map((period) => {
-              const tasks = period.tasks || []
+              const tasks = (period.tasks || []).filter((task) => !isEmptySpreadsheetCell(task))
               if (!tasks.length) return null
+              const periodLabel = formatStudyPlanPeriodLabel(period.title, {
+                scheduledDate: selectedPlanDay.scheduled_date,
+                dayNumber: selectedPlanDay.day_number,
+              })
               return (
                 <li key={period.id || period.title} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
-                    {formatStudyPlanPeriodLabel(period.title, {
-                      scheduledDate: selectedPlanDay.scheduled_date,
-                      dayNumber: selectedPlanDay.day_number,
-                    })}
-                  </p>
-                  <ul className="mt-2 space-y-2">
-                    {tasks.map((task) => (
+                  {!isFlatScheduleTitle(period.title) ? (
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                      {periodLabel}
+                    </p>
+                  ) : null}
+                  <ul className={cn(!isFlatScheduleTitle(period.title) && 'mt-2', 'space-y-2')}>
+                    {tasks.map((task) => {
+                      const label = getCalendarTaskDisplayLabel(task)
+                      if (!label) return null
+                      return (
                       <li key={task.id || task.title} className="rounded-lg bg-slate-50 px-3 py-2">
-                        <p className="text-sm font-medium text-slate-800">{task.title}</p>
+                        <p className="text-sm font-medium text-slate-800">{label}</p>
                         {task.description ? (
                           <p className="mt-1 text-xs leading-snug text-slate-600">{task.description}</p>
                         ) : null}
                       </li>
-                    ))}
+                      )
+                    })}
                   </ul>
                 </li>
               )

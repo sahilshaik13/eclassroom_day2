@@ -138,14 +138,25 @@ export interface Doubt {
   class_name?: string
   task_id?: string
   created_at: string
+  /** Set when the teacher opens the doubt in chat (read receipt). */
+  teacher_seen_at?: string | null
+  reply_type?: 'text' | 'audio' | 'file'
+  audio_url?: string | null
+  file_url?: string | null
+  file_name?: string | null
   responses?: DoubtResponse[]
 }
 
 export interface DoubtResponse {
   id: string
-  body: string
-  teacher_name: string
+  body?: string | null
+  reply_type?: 'text' | 'audio' | 'file'
+  audio_url?: string | null
+  file_url?: string | null
+  file_name?: string | null
+  teacher_name?: string
   created_at: string
+  users?: { name?: string }
 }
 
 // ── Teacher domain ────────────────────────────────────────────────────────────

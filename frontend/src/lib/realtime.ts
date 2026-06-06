@@ -35,7 +35,7 @@ export function setRealtimeQueryClient(qc: any) {
 function softRefetch(queryKey: readonly unknown[]) {
   const qc = getQueryClient();
   if (qc) {
-    void qc.invalidateQueries({ queryKey });
+    void qc.refetchQueries({ queryKey, type: 'active' });
   }
 }
 
@@ -358,6 +358,128 @@ export function subscribeToClassMeetings(
  * @param classIds - Array of class IDs the teacher manages
  * @returns Unsubscribe function
  */
+async function refreshTeacherDoubts(toastMessage?: string) {
+  const qc = getQueryClient();
+  if (qc) {
+    await qc.refetchQueries({ queryKey: ['teacher', 'doubts'], type: 'active' });
+    await qc.refetchQueries({ queryKey: queryKeys.teacher.pulseToday(), type: 'active' });
+  }
+  if (toastMessage) {
+    toast(toastMessage, { duration: 4000, icon: '❓' });
+  }
+}
+
+/**
+ * Supabase postgres_changes for doubts + replies (teacher inbox / dashboard chat).
+ */
+export type DoubtsSubscribeOptions = {
+  /** Skip toast notifications (e.g. while doubts chat is open). */
+  suppressToasts?: boolean
+  onRefresh?: () => void
+}
+
+export function subscribeToTeacherDoubts(
+  classIds: string[],
+  options?: DoubtsSubscribeOptions,
+) {
+  if (!USE_REALTIME || classIds.length === 0) {
+    return () => {};
+  }
+
+  const suppressToasts = options?.suppressToasts ?? false
+
+  const channels: ReturnType<typeof supabase.channel>[] = [];
+
+  const notify = (toastMessage?: string) => {
+    if (!suppressToasts) {
+      void refreshTeacherDoubts(toastMessage)
+    }
+    options?.onRefresh?.()
+  }
+
+  for (const classId of classIds) {
+    const channel = supabase
+      .channel(`teacher-doubts:class:${classId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'doubts', filter: `class_id=eq.${classId}` },
+        () => {
+          notify('New student doubt')
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'doubts', filter: `class_id=eq.${classId}` },
+        () => {
+          notify()
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'doubt_responses' },
+        () => {
+          notify()
+        },
+      )
+      .subscribe((status) => {
+        console.log(`[Realtime] Teacher doubts for ${classId}: ${status}`);
+      });
+
+    channels.push(channel);
+  }
+
+  return () => channels.forEach((ch) => ch.unsubscribe());
+}
+
+/**
+ * Student doubts page — new doubts and teacher replies (via doubt status / responses).
+ */
+export function subscribeToStudentDoubts(
+  studentId: string,
+  options?: DoubtsSubscribeOptions,
+) {
+  if (!USE_REALTIME || !studentId) {
+    return () => {};
+  }
+
+  const suppressToasts = options?.suppressToasts ?? false
+
+  const refresh = () => {
+    if (!suppressToasts) {
+      softRefetch(queryKeys.student.doubts());
+    }
+    options?.onRefresh?.();
+  };
+
+  const channel = supabase
+    .channel(`student:${studentId}:doubts`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'doubts',
+        filter: `student_id=eq.${studentId}`,
+      },
+      refresh,
+    )
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'doubt_responses' },
+      () => {
+        refresh();
+        if (!suppressToasts) {
+          toast('Your teacher replied to a doubt', { duration: 5000, icon: '💬' });
+        }
+      },
+    )
+    .subscribe((status) => {
+      console.log(`[Realtime] Student doubts ${studentId}: ${status}`);
+    });
+
+  return () => channel.unsubscribe();
+}
+
 export function subscribeToTeacherQueue(teacherId: string, classIds: string[]) {
   if (!USE_REALTIME || classIds.length === 0) {
     return () => {}; // No-op if realtime disabled or no classes
@@ -390,28 +512,6 @@ export function subscribeToTeacherQueue(teacherId: string, classIds: string[]) {
 
           // Optional: Show notification (might be noisy in large classes)
           // toast('New submission received');
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'doubts',
-          filter: `class_id=eq.${classId}`,
-        },
-        async () => {
-          const qc = getQueryClient();
-          if (qc) {
-            await qc.invalidateQueries({
-              queryKey: queryKeys.teacher.doubts('pending'),
-            });
-          }
-
-          toast(`New question from student`, {
-            duration: 4000,
-            icon: '❓',
-          });
         }
       )
       .subscribe((status) => {

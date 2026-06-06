@@ -167,6 +167,17 @@ class AuthService:
                 403,
             )
 
+        if settings.student_otp_disabled:
+            login_result = await AuthService._complete_student_phone_login(
+                phone, tenant_id, competition_id
+            )
+            return {
+                **login_result,
+                "otp_skipped": True,
+                "message": "Logged in without OTP (OTP=disable)",
+                "tenant_id": tenant_id,
+            }
+
         otp_code  = f"{random.randint(100000, 999999)}"
         expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
 
@@ -261,12 +272,25 @@ class AuthService:
         # 2. Consume the code
         admin.table("otp_codes").delete().eq("id", otp_res.data[0]["id"]).execute()
 
-        # 3. Handle Student Account Setup (Lazy Allocation)
+        return await AuthService._complete_student_phone_login(
+            phone, tenant_id, competition_id
+        )
+
+    @staticmethod
+    async def _complete_student_phone_login(
+        phone: str,
+        tenant_id: str,
+        competition_id: Optional[str] = None,
+    ) -> dict:
+        admin = get_admin_client()
+        phone = "".join(filter(lambda x: x.isdigit() or x == "+", phone))
+        tenant_id = str(tenant_id)
+
+        # Handle Student Account Setup (Lazy Allocation)
         is_existing_student = False
         student_record = None
-        
+
         try:
-            # First, check the students table for an invite/record
             stu_res = (
                 admin.table("students")
                 .select("id, user_id, name, tenant_id")
@@ -282,10 +306,9 @@ class AuthService:
         if not student_record and not competition_id:
             raise AuthError("NOT_REGISTERED", "Student record not found. Access is invite-only.", 401)
 
-        # 4. Find or Create User Record
+        # Find or Create User Record
         user_data = None
         try:
-            # Check if a user record already exists for this phone + tenant
             user_res = (
                 admin.table("users")
                 .select("id, name, role, tenant_id, has_password, is_registered")
@@ -299,10 +322,8 @@ class AuthService:
             pass
 
         if not user_data:
-            # First-time login: Create the user record
             new_user_id = str(uuid.uuid4())
             try:
-                # 1. Insert into users table
                 user_res = admin.table("users").insert({
                     "id":            new_user_id,
                     "name":          student_record.get("name", "Student") if student_record else "Participant",
@@ -312,17 +333,15 @@ class AuthService:
                     "is_registered": False,
                     "has_password":  False
                 }).execute()
-                
+
                 user_data = user_res.data[0]
-                
-                # 2. Link the student record to this new user
+
                 if student_record:
                     admin.table("students").update({"user_id": new_user_id}).eq("id", student_record["id"]).execute()
-                    
+
             except Exception as e:
                 raise AuthError("INTERNAL_ERROR", f"Failed to setup user account: {str(e)}", 500)
-        
-        # 6. Record login time (OTP flow bypasses Supabase Auth last_sign_in)
+
         try:
             login_ts = datetime.now(timezone.utc).isoformat()
             admin.table("users").update({"last_login_at": login_ts}).eq("id", user_data["id"]).execute()
@@ -366,7 +385,6 @@ class AuthService:
             except Exception:
                 pass
 
-        # 7. Issue full session immediately (no MFA for students)
         access_token = AuthService._issue_session(user_data, mfa_verified=True)
         return {
             "access_token": access_token,

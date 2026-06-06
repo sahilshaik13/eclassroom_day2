@@ -2,27 +2,27 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2, ArrowRight,
-  MessageCircle, CheckCircle2, Upload, Mic, Square, Trash2,
+  CheckCircle2, Upload, Mic, Square, Trash2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuthStore } from '@/stores/authStore'
-import type { Task } from '@/types'
+import type { Doubt, Task } from '@/types'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { LiveWaveform } from '@/components/ui/live-waveform'
 import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
-import { competitionListQueryOptions } from '@/lib/competitionQueries'
+import { fetchStudentDoubts, studentDoubtsQueryOptions } from '@/lib/doubtsQueries'
 import { softRefetchStudyPlan, studentTasksTodayQueryOptions } from '@/lib/studyPlanQueries'
-import { useStudentCompetitionRealtime } from '@/hooks/useCompetitionRealtime'
-import { competitionApi } from '@/services/competitionApi'
 import { requiresAudioOnToggle } from '@/lib/studentStudyPlanTasks'
 import { fetchStudentUpcomingMeetings } from '@/services/meetApi'
 import { pickNextMeeting } from '@/lib/studentMeetings'
 import { StudentUpcomingMeetHero } from '@/components/student/StudentUpcomingMeetHero'
+import { StudentDoubtsChatSection } from '@/components/student/StudentDoubtsChat'
+import { StudentTodayMeetingsSection } from '@/components/student/StudentTodayMeetingsSection'
 import { subscribeToClassMeetings, subscribeToStudyPlan } from '@/lib/realtime'
 
 async function fetchTodayTasks(): Promise<Task[]> {
@@ -55,7 +55,6 @@ function displayPeriodTitle(raw?: string): string | null {
 }
 
 export default function StudentDashboard() {
-  useStudentCompetitionRealtime()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
@@ -79,23 +78,17 @@ export default function StudentDashboard() {
 
   const { data: doubtsRaw = [] } = useQuery({
     queryKey: queryKeys.student.doubts(),
-    queryFn: async () => (await api.get('/student/doubts')).data?.data ?? [],
-    staleTime: 30_000,
+    queryFn: () =>
+      fetchStudentDoubts(
+        queryClient.getQueryData<Doubt[]>(queryKeys.student.doubts()),
+      ),
+    ...studentDoubtsQueryOptions(),
   })
 
   const pendingDoubts = useMemo(
     () => (doubtsRaw as any[]).filter((x) => x.status === 'pending').length,
     [doubtsRaw]
   )
-
-  const { data: competitions = [] } = useQuery({
-    queryKey: queryKeys.competitions.studentRegistrations(),
-    queryFn: async () => {
-      const r = await competitionApi.getStudentCompetitions()
-      return r.success ? r.data : []
-    },
-    ...competitionListQueryOptions(),
-  })
 
   const { data: myClasses = [] } = useQuery({
     queryKey: queryKeys.student.classesMy(),
@@ -117,6 +110,7 @@ export default function StudentDashboard() {
     const unsubs = myClasses.map((c) =>
       subscribeToClassMeetings(c.id, () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.student.upcomingMeetings() })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.student.meetingsToday() })
       }),
     )
     return () => {
@@ -515,80 +509,9 @@ export default function StudentDashboard() {
         </div>
       </section>
 
-      {/* Recent Doubts */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-bold text-slate-900">Recent Doubts</h2>
-          <Link to="/student/doubts" className="text-xs text-blue-600 font-semibold flex items-center gap-1 hover:underline">
-            View All <ArrowRight className="w-3 h-3" />
-          </Link>
-        </div>
-        <div className="space-y-3">
-          <DoubtCard
-            title="Pronunciation of 'Qalqalah'"
-            preview="I'm struggling to pronounce the Qalqalah letters properly when stopping..."
-            subject="Tajweed"
-            status="answered"
-            time="2h ago"
-          />
-        </div>
-      </section>
+      <StudentTodayMeetingsSection />
 
-      {/* Upcoming Classes */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-bold text-slate-900">Upcoming Classes</h2>
-          <span className="text-xs text-blue-600 font-semibold cursor-pointer hover:underline">Full Schedule</span>
-        </div>
-        <div className="space-y-3">
-          <UpcomingClass name="Advanced Hifz" day="Tomorrow" time="5:00 PM" teacher="Sheikh Abdullah" />
-          <UpcomingClass name="Islamic History" day="Wed" time="4:00 PM" teacher="Dr. Ahmed" />
-        </div>
-      </section>
-
-      {competitions.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-bold text-slate-900">My Competitions</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-2.5 md:gap-3">
-            {competitions.map(reg => {
-              const comp = reg.competitions
-              return (
-                <div key={reg.id} className="min-w-0 bg-white rounded-xl border border-slate-200 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-sm gap-2.5 sm:gap-3">
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-slate-900 truncate">{comp?.title}</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {comp?.start_date ? new Date(comp?.start_date).toLocaleDateString() : ''}
-                    </p>
-                    <div className="mt-2 inline-flex items-center">
-                      <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full uppercase">
-                        {reg.status}
-                      </span>
-                    </div>
-                  </div>
-                  {reg.competition_results &&
-                    reg.competition_results.length > 0 &&
-                    reg.results_released && (
-                    <div className="bg-green-50 px-3 py-2 rounded-lg border border-green-100 text-right shrink-0 self-start sm:self-auto">
-                      <p className="text-3xl leading-none font-bold text-green-700">{reg.competition_results[0].score}/100</p>
-                      {reg.competition_results[0].remarks && <p className="text-[10px] text-green-600 mt-0.5 max-w-[130px] truncate">{reg.competition_results[0].remarks}</p>}
-                    </div>
-                  )}
-                  {reg.competition_results &&
-                    reg.competition_results.length > 0 &&
-                    !reg.results_released && (
-                    <div className="bg-amber-50 px-3 py-2 rounded-lg border border-amber-100 text-right shrink-0 self-start sm:self-auto">
-                      <p className="text-[11px] font-bold text-amber-700 uppercase">Under review</p>
-                      <p className="text-[10px] text-amber-600 mt-0.5 max-w-[120px]">Results appear after grading.</p>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
+      <StudentDoubtsChatSection variant="embedded" />
     </div>
   )
 }
@@ -605,44 +528,3 @@ function QuickStat({ label, value, sub, from, to }: { label: string; value: stri
   )
 }
 
-function DoubtCard({ title, preview, subject, status, time }: {
-  title: string; preview: string; subject: string; status: 'answered' | 'pending'; time: string
-}) {
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <MessageCircle className="w-5 h-5 text-slate-300 mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-sm font-semibold text-slate-900 truncate">{title}</span>
-            <span className="text-[10px] text-slate-400 shrink-0">{time}</span>
-          </div>
-          <p className="text-xs text-slate-500 line-clamp-1 mb-2">{preview}</p>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{subject}</span>
-            <span className={clsx(
-              'text-[10px] font-bold px-2 py-0.5 rounded-full',
-              status === 'answered' ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'
-            )}>
-              {status === 'answered' ? 'Answered' : 'Pending'}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function UpcomingClass({ name, day, time, teacher }: { name: string; day: string; time: string; teacher: string }) {
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center justify-between shadow-sm">
-      <div>
-        <p className="text-sm font-semibold text-slate-900">{name}</p>
-        <p className="text-xs text-slate-400 mt-0.5">{day}, {time} • {teacher}</p>
-      </div>
-      <Button size="sm" variant="outline" className="rounded-xl text-xs font-semibold border-slate-200 shrink-0">
-        Remind Me
-      </Button>
-    </div>
-  )
-}

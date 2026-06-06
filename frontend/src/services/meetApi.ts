@@ -38,8 +38,13 @@ export async function fetchTeacherClassMeetings(classId: string): Promise<ClassM
 }
 
 export async function fetchTeacherTodayMeetings(): Promise<ClassMeeting[]> {
-  const res = await api.get('/meet/teacher/meetings/today')
-  return (res.data?.data ?? []) as ClassMeeting[]
+  try {
+    const res = await api.get('/meet/teacher/meetings/today')
+    const data = res.data?.data
+    return Array.isArray(data) ? (data as ClassMeeting[]) : []
+  } catch {
+    return []
+  }
 }
 
 export async function fetchStudentClassMeetings(classId: string): Promise<ClassMeeting[]> {
@@ -48,8 +53,23 @@ export async function fetchStudentClassMeetings(classId: string): Promise<ClassM
 }
 
 export async function fetchStudentUpcomingMeetings(): Promise<ClassMeeting[]> {
-  const res = await api.get('/meet/student/meetings/upcoming')
-  return (res.data?.data ?? []) as ClassMeeting[]
+  try {
+    const res = await api.get('/meet/student/meetings/upcoming')
+    const data = res.data?.data
+    return Array.isArray(data) ? (data as ClassMeeting[]) : []
+  } catch {
+    return []
+  }
+}
+
+export async function fetchStudentTodayMeetings(): Promise<ClassMeeting[]> {
+  try {
+    const res = await api.get('/meet/student/meetings/today')
+    const data = res.data?.data
+    return Array.isArray(data) ? (data as ClassMeeting[]) : []
+  } catch {
+    return []
+  }
 }
 
 export async function createClassMeeting(

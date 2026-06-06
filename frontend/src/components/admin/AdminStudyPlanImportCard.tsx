@@ -404,30 +404,30 @@ export function AdminStudyPlanImportCard({
 
   return (
     <>
-      <Card className="rounded-2xl border-slate-200/80 shadow-sm">
-        <CardHeader className="gap-2 pb-3">
+      <Card className="overflow-hidden rounded-3xl border border-slate-100/90 bg-gradient-to-br from-white via-slate-50/30 to-white shadow-sm">
+        <CardHeader className="gap-2 border-b border-slate-100/80 bg-white/60 pb-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle className="text-base font-black text-slate-900">AI PDF Import</CardTitle>
-              <p className="mt-1 text-xs text-slate-500">
+              <CardTitle className="text-base font-semibold text-slate-800">AI PDF Import</CardTitle>
+              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
                 Upload the Arabic study-plan PDF for this class, review the extracted table, then apply it for the teacher and students.
               </p>
             </div>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-slate-800">
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileUp className="h-4 w-4" />}
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50">
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : <FileUp className="h-4 w-4 text-slate-500" />}
               Upload PDF
               <input type="file" accept="application/pdf" className="hidden" onChange={handleUpload} disabled={uploading} />
             </label>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5 p-5 sm:p-6">
           {loading ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-500">
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-8 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading current import...
             </div>
           ) : !currentImport ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-2xl border border-dashed border-slate-200/90 bg-slate-50/40 px-5 py-10 text-center text-sm text-slate-500">
               No PDF has been uploaded for this class yet.
             </div>
           ) : (
@@ -459,24 +459,24 @@ export function AdminStudyPlanImportCard({
                 ) : null}
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <div className="rounded-2xl border border-slate-100 bg-gradient-to-br from-slate-50/70 to-white px-4 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">
+                    <p className="text-sm font-semibold text-slate-800">
                       OCR Progress: {currentImport.completed_chunks || 0} / {currentImport.total_chunks || 0}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
                       {currentImport.parse_message || 'Waiting for OCR updates.'}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" className="h-8 rounded-lg text-[11px] font-bold" onClick={handleRefresh} disabled={syncing}>
+                    <Button variant="outline" className="h-8 rounded-xl border-slate-200/80 bg-white/80 text-[11px] font-semibold shadow-none" onClick={handleRefresh} disabled={syncing}>
                       {syncing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="mr-2 h-3.5 w-3.5" />}
                       Refresh
                     </Button>
                     <Button
                       variant="outline"
-                      className="h-8 rounded-lg text-[11px] font-bold"
+                      className="h-8 rounded-xl border-slate-200/80 bg-white/80 text-[11px] font-semibold shadow-none"
                       onClick={() => setPdfOpen(true)}
                       disabled={!currentImport.pdf_url}
                     >
@@ -484,22 +484,22 @@ export function AdminStudyPlanImportCard({
                       Preview PDF
                     </Button>
                     {currentImport.ocr_status === 'failed' || currentImport.ocr_status === 'cancelled' ? (
-                      <Button variant="outline" className="h-8 rounded-lg text-[11px] font-bold" onClick={handleRetry} disabled={syncing}>
+                      <Button variant="outline" className="h-8 rounded-xl border-slate-200/80 bg-white/80 text-[11px] font-semibold shadow-none" onClick={handleRetry} disabled={syncing}>
                         <RotateCcw className="mr-2 h-3.5 w-3.5" />
                         Retry
                       </Button>
                     ) : null}
                     {['uploading', 'processing'].includes(currentImport.ocr_status) ? (
-                      <Button variant="outline" className="h-8 rounded-lg text-[11px] font-bold" onClick={handleCancel} disabled={syncing}>
+                      <Button variant="outline" className="h-8 rounded-xl border-slate-200/80 bg-white/80 text-[11px] font-semibold shadow-none" onClick={handleCancel} disabled={syncing}>
                         <SquareX className="mr-2 h-3.5 w-3.5" />
                         Cancel
                       </Button>
                     ) : null}
                   </div>
                 </div>
-                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
                   <div
-                    className="h-full rounded-full bg-slate-900 transition-all"
+                    className="h-full rounded-full bg-gradient-to-r from-slate-400 to-slate-500 transition-all"
                     style={{
                       width: `${currentImport.total_chunks ? Math.min(100, Math.round(((currentImport.completed_chunks || 0) / currentImport.total_chunks) * 100)) : 0}%`,
                     }}
@@ -508,18 +508,18 @@ export function AdminStudyPlanImportCard({
               </div>
 
               {(currentImport.detected_columns?.length || pendingColumns.length) ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="rounded-2xl border border-slate-100 bg-white/70 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-bold text-slate-900">Columns to keep in the final table</p>
-                      <p className="mt-1 text-[11px] text-slate-500">
+                      <p className="text-xs font-semibold text-slate-800">Columns to keep in the final table</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
                         Pick the columns that should stay visible and be converted into the class study plan.
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         variant="outline"
-                        className="h-8 rounded-lg text-[11px] font-bold"
+                        className="h-8 rounded-xl border-slate-200/80 bg-white/80 text-[11px] font-semibold shadow-none"
                         onClick={handleApplyColumnSelection}
                         disabled={syncing}
                       >
@@ -528,7 +528,7 @@ export function AdminStudyPlanImportCard({
                       </Button>
                       <Button
                         variant="outline"
-                        className="h-8 rounded-lg text-[11px] font-bold"
+                        className="h-8 rounded-xl border-slate-200/80 bg-white/80 text-[11px] font-semibold shadow-none"
                         onClick={handleApplyKpiOnly}
                         disabled={applyingKpi || syncing}
                       >
@@ -545,12 +545,14 @@ export function AdminStudyPlanImportCard({
                       return (
                         <div
                           key={column}
-                          className={`rounded-xl border p-2.5 ${
-                            checked ? 'border-slate-900 bg-slate-900/95 text-white' : 'border-slate-200 bg-slate-50 text-slate-700'
+                          className={`rounded-xl border p-3 transition-colors ${
+                            checked
+                              ? 'border-sky-200/80 bg-sky-50/50 text-slate-800 shadow-sm'
+                              : 'border-slate-100 bg-slate-50/40 text-slate-700'
                           }`}
                         >
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <label className="inline-flex items-center gap-2 text-xs font-bold">
+                            <label className="inline-flex items-center gap-2 text-xs font-medium">
                               <input
                                 type="checkbox"
                                 checked={checked}
@@ -559,21 +561,21 @@ export function AdminStudyPlanImportCard({
                                     event.target.checked ? [...prev, column] : prev.filter((item) => item !== column)
                                   )
                                 }}
-                                className="h-4 w-4 rounded"
+                                className="h-4 w-4 rounded border-slate-300"
                               />
                               <span>{column}</span>
                             </label>
                             {scheduleColumn ? (
                               <Badge
                                 variant="outline"
-                                className={checked ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-white text-slate-600'}
+                                className="border-slate-200/80 bg-white/80 text-slate-600"
                               >
                                 Schedule field
                               </Badge>
                             ) : supportingLabel ? (
                               <Badge
                                 variant="outline"
-                                className={checked ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-white text-slate-600'}
+                                className="border-slate-200/80 bg-white/80 text-slate-600"
                               >
                                 {supportingLabel}
                               </Badge>
@@ -585,7 +587,7 @@ export function AdminStudyPlanImportCard({
                                     setColumnBucketMap((prev) => ({ ...prev, [column]: value }))
                                   }
                                 >
-                                  <SelectTrigger className={`h-8 rounded-lg border text-[11px] font-bold ${checked ? 'border-white/20 bg-white/10 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>
+                                  <SelectTrigger className="h-8 rounded-lg border-slate-200/80 bg-white text-[11px] font-medium text-slate-700 shadow-none">
                                     <SelectValue placeholder="Academic bucket" />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -609,12 +611,12 @@ export function AdminStudyPlanImportCard({
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">Editable OCR Table</p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="text-sm font-semibold text-slate-800">Editable OCR Table</p>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
                       Edit any cell before applying. Selected rows will become the class study plan.
                     </p>
                   </div>
-                  <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
+                  <Badge variant="outline" className="border-slate-200/80 bg-white/80 font-normal text-slate-600">
                     {selectedRowIndexes.length} / {visibleRows.length} rows selected
                   </Badge>
                 </div>
@@ -631,19 +633,19 @@ export function AdminStudyPlanImportCard({
                 />
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-gradient-to-r from-slate-50/60 to-white px-4 py-3.5">
                 <div>
-                  <p className="text-xs text-slate-600">
-                    Applying this PDF will replace the current study plan for <span className="font-bold text-slate-900">{className}</span> and archive the previous one.
+                  <p className="text-xs leading-relaxed text-slate-600">
+                    Applying this PDF will replace the current study plan for <span className="font-semibold text-slate-800">{className}</span> and archive the previous one.
                   </p>
-                  <p className="mt-1 text-[11px] font-semibold text-indigo-700">
+                  <p className="mt-1 text-[11px] font-medium text-slate-500">
                     Full apply runs in background and can take up to 5 minutes.
                   </p>
                 </div>
                 <Button
                   onClick={handleApplyToClass}
                   disabled={applying || !displayedColumns.length || !visibleRows.length}
-                  className="h-9 rounded-lg bg-slate-900 px-4 text-xs font-bold text-white hover:bg-slate-800"
+                  className="h-9 rounded-xl bg-slate-700 px-4 text-xs font-semibold text-white shadow-sm hover:bg-slate-800"
                 >
                   {applying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Queue full apply

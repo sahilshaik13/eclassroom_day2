@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { ParticipantModal } from '@/components/admin/ParticipantModal'
 import { InviteUserModal } from '@/components/admin/InviteUserModal'
 import { clsx } from 'clsx'
+import { bandedTableHeadCellClass, bandedTableHeadClass, bandedTableRowClass } from '@/lib/tableBandStyles'
 import {
   Dialog,
   DialogContent,
@@ -647,16 +648,16 @@ export default function AdminTeachersPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[500px]">
-            <thead className="bg-slate-50">
+            <thead className={bandedTableHeadClass}>
               <tr>
-                <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Teacher Name</th>
-                <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Classes</th>
-                <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Students</th>
-                <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Status</th>
-                <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">Invite</th>
+                <th className={clsx('px-5 py-3 text-[10px] font-bold uppercase tracking-wider align-middle', bandedTableHeadCellClass)}>Teacher Name</th>
+                <th className={clsx('px-5 py-3 text-[10px] font-bold uppercase tracking-wider align-middle', bandedTableHeadCellClass)}>Classes</th>
+                <th className={clsx('px-5 py-3 text-[10px] font-bold uppercase tracking-wider align-middle', bandedTableHeadCellClass)}>Students</th>
+                <th className={clsx('px-5 py-3 text-[10px] font-bold uppercase tracking-wider align-middle', bandedTableHeadCellClass)}>Status</th>
+                <th className={clsx('px-5 py-3 text-[10px] font-bold uppercase tracking-wider align-middle', bandedTableHeadCellClass)}>Invite</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody>
               {loading ? (
                 [1, 2, 3].map(i => (
                   <tr key={i}>
@@ -672,13 +673,13 @@ export default function AdminTeachersPage() {
                   </td>
                 </tr>
               ) : (
-                filtered.map(t => {
+                filtered.map((t, index) => {
                   const status = t.deactivated_at ? 'leave' : 'active'
                   const statusStyle = STATUS_MAP[status]
                   return (
                     <tr
                       key={t.id}
-                      className="hover:bg-slate-50/70 transition-colors group cursor-pointer"
+                      className={clsx(bandedTableRowClass(index), 'group cursor-pointer')}
                       onClick={() => { setSelected(t); setModalOpen(true) }}
                     >
                       <td className="px-5 py-4">

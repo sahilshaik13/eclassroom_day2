@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
   ChevronLeft,
   Loader2,
@@ -23,7 +23,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import {
   Select,
   SelectContent,
@@ -33,6 +32,7 @@ import {
 } from '@/components/ui/select'
 import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
 import clsx from 'clsx'
+import { bandedTableHeadCellClass, bandedTableHeadClass, bandedTableRowClass, pendingReviewRowClass } from '@/lib/tableBandStyles'
 import { motion, AnimatePresence } from 'framer-motion'
 
 export type TeacherSubmissionsLayout = 'page' | 'embedded'
@@ -44,75 +44,86 @@ interface TeacherSubmissionsWorkspaceProps {
 export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissionsWorkspaceProps) {
   const navigate = useNavigate()
   const embedded = layout === 'embedded'
-  const [loading, setLoading] = useState(true)
-  const [students, setStudents] = useState<any[]>([])
-  const [classes, setClasses] = useState<any[]>([])
   const [selectedClassId, setSelectedClassId] = useState<string>('')
   const [selectedStudent, setSelectedStudent] = useState<any>(null)
   const [progressData, setProgressData] = useState<any>(null)
   const [loadingProgress, setLoadingProgress] = useState(false)
   const [expandedDay, setExpandedDay] = useState<string | null>(null)
-  const [applyingRubricId, setApplyingRubricId] = useState<string | null>(null)
   const [dayPage, setDayPage] = useState(0)
   const DAYS_PER_PAGE = 10
+  const classesErrorToastShown = useRef(false)
 
-  // React Query for pending submissions - enables real-time updates
-  const { 
-    data: pendingSubmissions = [], 
-    isLoading: loadingPending,
-    error: pendingError,
-    refetch: refetchPending 
+  const {
+    data: classes = [],
+    isPending: classesPending,
+    isError: classesError,
   } = useQuery({
+    queryKey: queryKeys.teacher.classes(),
+    queryFn: async () => {
+      const res = await api.get('/teacher/classes')
+      const list = res.data?.data
+      return Array.isArray(list) ? list : []
+    },
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+    retry: 1,
+  })
+
+  const {
+    data: students = [],
+    isError: studentsError,
+  } = useQuery({
+    queryKey: queryKeys.teacher.studentsByClass(selectedClassId),
+    enabled: !!selectedClassId,
+    queryFn: async () => {
+      const res = await api.get('/teacher/students', {
+        params: { class_id: selectedClassId, page: 1, limit: 100 },
+      })
+      const list = res.data?.data
+      return Array.isArray(list) ? list : []
+    },
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+    retry: 1,
+  })
+
+  const { data: pendingSubmissions = [] } = useQuery({
     queryKey: queryKeys.teacher.pendingSubmissions(),
     queryFn: async () => {
       const res = await api.get('/teacher/submissions/pending')
-      return res.data?.data || []
+      const list = res.data?.data
+      return Array.isArray(list) ? list : []
     },
-    // Stale-while-revalidate pattern
-    staleTime: 30_000,      // Consider fresh for 30s
-    gcTime: 2 * 60_000,     // Keep in cache for 2 minutes
+    staleTime: 30_000,
+    gcTime: 2 * 60_000,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    placeholderData: (previousData) => previousData,
+    placeholderData: keepPreviousData,
+    retry: 1,
   })
 
+  const loading = classesPending && classes.length === 0
+
   useEffect(() => {
-    loadInitialData()
-  }, [])
-
-  const loadInitialData = async () => {
-    setLoading(true)
-    try {
-      const classesRes = await api.get('/teacher/classes')
-      const classList = classesRes.data.data
-      setClasses(classList)
-
-      if (classList.length > 0) {
-        const firstClassId = classList[0].id
-        setSelectedClassId(firstClassId)
-        await loadStudents(firstClassId)
-        // Pending submissions already loading via React Query
-      }
-    } catch {
-      toast.error('Failed to load dashboard data')
-    } finally {
-      setLoading(false)
+    if (!selectedClassId && classes.length > 0) {
+      setSelectedClassId(classes[0].id)
     }
-  }
+  }, [classes, selectedClassId])
 
-  const loadStudents = async (classId: string) => {
-    try {
-      const studentsRes = await api.get('/teacher/students', { params: { class_id: classId } })
-      setStudents(studentsRes.data.data)
-    } catch (err) {
-      console.error('Failed to load students', err)
+  useEffect(() => {
+    if (!classesError) {
+      classesErrorToastShown.current = false
+      return
     }
-  }
+    if (classesErrorToastShown.current) return
+    classesErrorToastShown.current = true
+    toast.error('Could not load your classes')
+  }, [classesError])
 
-  // Manual refresh function
-  const loadPendingSubmissions = async () => {
-    await refetchPending()
-  }
+  useEffect(() => {
+    if (!studentsError || embedded) return
+    toast.error('Could not load students for this class')
+  }, [studentsError, embedded])
 
   const loadStudentProgress = async (studentId: string) => {
     if (!selectedClassId) return
@@ -133,53 +144,69 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
   }
 
   useEffect(() => {
-    if (selectedClassId) {
-      loadStudents(selectedClassId)
-    }
-
-    if (selectedStudent) {
-      const isInNewClass = selectedStudent.classes.some((c: any) => c.id === selectedClassId)
-      if (isInNewClass) {
-        loadStudentProgress(selectedStudent.id)
-      } else {
-        setSelectedStudent(null)
-        setProgressData(null)
-      }
+    if (!selectedStudent || !selectedClassId) return
+    const studentClasses = selectedStudent.classes
+    const isInNewClass =
+      Array.isArray(studentClasses) &&
+      studentClasses.some((c: { id?: string }) => c.id === selectedClassId)
+    if (isInNewClass) {
+      loadStudentProgress(selectedStudent.id)
+    } else {
+      setSelectedStudent(null)
+      setProgressData(null)
     }
   }, [selectedClassId])
 
-  const applyRubric = async (submission: any, rubric: 'excellent' | 'acceptable' | 'needs_repeat') => {
-    const preset = {
-      excellent: { score: 100, feedback: 'Excellent recitation. Keep this level.' },
-      acceptable: { score: 75, feedback: 'Acceptable attempt. Keep practicing for cleaner delivery.' },
-      needs_repeat: { score: 40, feedback: 'Needs repeat. Please re-record and submit again.' },
-    }[rubric]
-    setApplyingRubricId(submission.id)
-    try {
-      await api.patch(`/teacher/submissions/${submission.id}/review`, {
-        status: 'reviewed',
-        score: preset.score,
-        feedback: preset.feedback,
-      })
-      // Keep queue responsive even if the follow-up refresh is transiently failing.
-      toast.success('Review saved')
-      await loadPendingSubmissions()
-      if (selectedStudent?.id === submission.student_id) {
-        await loadStudentProgress(selectedStudent.id)
-      }
-    } catch {
-      toast.error('Could not save review')
-    } finally {
-      setApplyingRubricId(null)
-    }
-  }
+  const filteredStudents = useMemo(
+    () =>
+      students.filter(
+        (s: { classes?: { id: string }[] }) =>
+          Array.isArray(s.classes) &&
+          s.classes.some((c) => c.id === selectedClassId),
+      ),
+    [students, selectedClassId],
+  )
 
-  const filteredStudents = students.filter((s: any) => s.classes.some((c: any) => c.id === selectedClassId))
-  const visiblePending = pendingSubmissions.filter((item: { id?: string; class_id?: string; student_id?: string }) => {
-    if (selectedClassId && item.class_id && item.class_id !== selectedClassId) return false
-    if (selectedStudent?.id) return item.student_id === selectedStudent.id
-    return true
-  })
+  const classPendingSubmissions = useMemo(
+    () =>
+      pendingSubmissions.filter(
+        (item: { class_id?: string }) =>
+          !selectedClassId || !item.class_id || item.class_id === selectedClassId,
+      ),
+    [pendingSubmissions, selectedClassId],
+  )
+
+  /** Earliest pending submission per student (FCFS ordering). */
+  const pendingByStudent = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of classPendingSubmissions) {
+      const sid = String(item.student_id || '')
+      const at = String(item.submitted_at || '')
+      if (!sid) continue
+      const existing = map.get(sid)
+      if (!existing || (at && at < existing)) {
+        map.set(sid, at)
+      }
+    }
+    return map
+  }, [classPendingSubmissions])
+
+  const sortedStudents = useMemo(() => {
+    return [...filteredStudents].sort((a, b) => {
+      const aPending = pendingByStudent.has(a.id)
+      const bPending = pendingByStudent.has(b.id)
+      if (aPending && !bPending) return -1
+      if (!aPending && bPending) return 1
+      if (aPending && bPending) {
+        const aTime = pendingByStudent.get(a.id) || ''
+        const bTime = pendingByStudent.get(b.id) || ''
+        if (aTime && bTime && aTime !== bTime) return aTime.localeCompare(bTime)
+      }
+      return String(a.name || '').localeCompare(String(b.name || ''))
+    })
+  }, [filteredStudents, pendingByStudent])
+
+  const pendingStudentCount = pendingByStudent.size
 
   const pagedDays = useMemo(() => {
     const source = Array.isArray(progressData?.days) ? [...progressData.days] : []
@@ -261,246 +288,167 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
   }
 
   const inner = (
-    <div className={clsx('grid grid-cols-1 items-start gap-6 lg:grid-cols-12 lg:gap-8', embedded && 'gap-5 lg:gap-6')}>
+    <div
+      className={clsx(
+        'grid items-stretch gap-4',
+        embedded ? 'min-h-[min(520px,58vh)] grid-cols-12' : 'grid-cols-1 gap-6 md:grid-cols-12 md:gap-6 lg:gap-8',
+      )}
+    >
       {/* Student list */}
-      <div className={clsx('space-y-3 lg:col-span-3', embedded && 'lg:col-span-4')}>
-        <div className="flex items-center justify-between px-0.5">
-          <h3
+      <div
+        className={clsx(
+          'flex min-h-0 flex-col',
+          embedded ? 'col-span-4' : 'md:col-span-4 lg:col-span-3',
+        )}
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div
             className={clsx(
-              'uppercase tracking-wider text-slate-500',
-              embedded ? 'text-[10px] font-medium' : 'text-[10px] font-black tracking-widest text-slate-400'
+              'flex shrink-0 items-center justify-between border-b px-3 py-2.5',
+              bandedTableHeadClass,
+              bandedTableHeadCellClass,
             )}
           >
-            Students
-          </h3>
-          <Badge
-            variant="secondary"
-            className={clsx(
-              'rounded-md border-0 bg-slate-100 text-slate-600',
-              embedded ? 'text-[10px] px-1.5 py-0 h-5 font-normal' : 'rounded-lg px-2 py-0.5'
-            )}
-          >
-            {filteredStudents.length}
-          </Badge>
-        </div>
-
-        <div className={clsx('grid gap-2 overflow-y-auto pr-1', embedded ? 'max-h-[min(380px,50vh)]' : 'max-h-[70vh] pr-2')}>
-          {filteredStudents.map((student) => (
-            <Card
-              key={student.id}
+            <h3
               className={clsx(
-                'cursor-pointer border shadow-none transition-colors',
-                embedded ? 'rounded-xl border-slate-200' : 'rounded-2xl border-none shadow-sm',
-                selectedStudent?.id === student.id
-                  ? embedded
-                    ? 'border-indigo-300 bg-indigo-50/80 ring-1 ring-indigo-200'
-                    : 'bg-indigo-600 shadow-indigo-200'
-                  : embedded
-                    ? 'bg-white hover:bg-slate-50'
-                    : 'bg-white hover:bg-slate-50 group'
+                'uppercase tracking-wider text-slate-500',
+                embedded ? 'text-[10px] font-semibold' : 'text-[10px] font-bold tracking-widest',
               )}
-              onClick={() => handleStudentSelect(student)}
             >
-              <CardContent className={clsx('space-y-2', embedded ? 'p-3' : 'space-y-3 p-4')}>
-                <div className="flex items-center gap-3">
-                  <div
-                    className={clsx(
-                      'flex items-center justify-center rounded-lg transition-colors',
-                      embedded ? 'h-9 w-9' : 'h-10 w-10 rounded-xl',
-                      selectedStudent?.id === student.id
-                        ? embedded
-                          ? 'bg-white text-indigo-600'
-                          : 'bg-white/20 text-white'
-                        : embedded
-                          ? 'bg-slate-100 text-slate-500'
-                          : 'bg-slate-100 text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600'
-                    )}
-                  >
-                    <User className={embedded ? 'h-4 w-4' : 'h-5 w-5'} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={clsx(
-                        'truncate font-medium text-slate-900',
-                        embedded ? 'text-sm' : 'font-black text-sm',
-                        selectedStudent?.id === student.id && !embedded && 'text-white'
-                      )}
-                    >
-                      {student.name}
-                    </p>
-                    <p
-                      className={clsx(
-                        'truncate text-slate-500',
-                        embedded ? 'text-[11px]' : 'text-[10px] font-bold uppercase tracking-tight opacity-70',
-                        selectedStudent?.id === student.id && !embedded && 'text-indigo-100'
-                      )}
-                    >
-                      {student.phone || 'No phone'}
-                    </p>
-                  </div>
-                  {selectedStudent?.id === student.id && (
-                    <ChevronRight className={clsx('text-slate-400', embedded ? 'h-4 w-4' : 'h-4 w-4 text-white/50')} />
-                  )}
-                </div>
+              Students
+            </h3>
+            <div className="flex items-center gap-1.5">
+              {pendingStudentCount > 0 ? (
+                <Badge className="h-5 rounded-md border-0 bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-900">
+                  {pendingStudentCount} awaiting review
+                </Badge>
+              ) : null}
+              <Badge
+                variant="secondary"
+                className={clsx(
+                  'rounded-md border-0 bg-white/80 text-slate-600',
+                  embedded ? 'h-5 px-1.5 py-0 text-[10px] font-normal' : 'rounded-lg px-2 py-0.5',
+                )}
+              >
+                {filteredStudents.length}
+              </Badge>
+            </div>
+          </div>
 
-                {student.progress && (
-                  <div
-                    className={clsx(
-                      'flex items-center justify-between gap-4 border-t pt-2',
-                      selectedStudent?.id === student.id && !embedded ? 'border-white/10' : 'border-slate-100'
-                    )}
-                  >
-                    <div className="flex-1">
-                      <div className="mb-1 flex items-center justify-between text-[10px] text-slate-500">
-                        <span>{student.progress.average_score}%</span>
-                        <span className="font-medium text-slate-700">
-                          {student.progress.completed}/{student.progress.total}
-                        </span>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {(() => {
+              let bandIndex = 0
+              return sortedStudents.map((student) => {
+              const isSelected = selectedStudent?.id === student.id
+              const progress = student.progress
+              const hasPendingReview = pendingByStudent.has(student.id)
+              const pendingCount = classPendingSubmissions.filter(
+                (p: { student_id?: string }) => p.student_id === student.id,
+              ).length
+              const rowBandIndex = hasPendingReview ? -1 : bandIndex++
+              return (
+                <button
+                  key={student.id}
+                  type="button"
+                  onClick={() => handleStudentSelect(student)}
+                  className={clsx(
+                    'flex w-full min-h-[56px] flex-col justify-center gap-2 border-b border-slate-100/80 px-3 py-2.5 text-left transition-colors last:border-b-0',
+                    hasPendingReview ? pendingReviewRowClass : bandedTableRowClass(rowBandIndex),
+                    isSelected && 'ring-2 ring-inset ring-indigo-300/80',
+                    isSelected && !hasPendingReview && 'bg-indigo-50/70',
+                    isSelected && hasPendingReview && 'bg-amber-100/60',
+                  )}
+                >
+                  <div className="flex min-h-[36px] items-center gap-3">
+                    <div
+                      className={clsx(
+                        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors',
+                        hasPendingReview
+                          ? 'bg-amber-100 text-amber-700'
+                          : isSelected
+                            ? 'bg-indigo-100 text-indigo-600'
+                            : 'bg-slate-100 text-slate-500',
+                      )}
+                    >
+                      {hasPendingReview ? (
+                        <AlertCircle className="h-4 w-4" />
+                      ) : (
+                        <User className="h-4 w-4" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-slate-900">{student.name}</p>
+                        {hasPendingReview ? (
+                          <Badge className="h-4 shrink-0 border-0 bg-amber-200/80 px-1.5 text-[9px] font-semibold text-amber-950">
+                            {pendingCount > 1 ? `${pendingCount} pending` : 'Review'}
+                          </Badge>
+                        ) : null}
                       </div>
+                      <p className="truncate text-[11px] text-slate-500">{student.phone || 'No phone'}</p>
+                    </div>
+                    {isSelected ? <ChevronRight className="h-4 w-4 shrink-0 text-indigo-400" /> : null}
+                  </div>
+
+                  {progress ? (
+                    <div className="flex min-h-[24px] items-center gap-2 pl-12">
+                      <span className="w-9 shrink-0 text-right text-[11px] font-semibold tabular-nums text-slate-700">
+                        {progress.average_score ?? 0}%
+                      </span>
                       <Progress
-                        value={student.progress.pct}
-                        className="h-1 bg-black/5"
+                        value={progress.pct}
+                        className="h-1.5 min-w-[72px] flex-1 bg-slate-200/70"
                         indicatorClassName={
-                          selectedStudent?.id === student.id && !embedded ? 'bg-white' : 'bg-indigo-500'
+                          hasPendingReview ? 'bg-amber-500' : isSelected ? 'bg-indigo-500' : 'bg-indigo-500/90'
                         }
                       />
+                      <span className="shrink-0 text-[10px] font-medium tabular-nums text-slate-500">
+                        {progress.completed}/{progress.total}
+                      </span>
                     </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-          {filteredStudents.length === 0 && (
-            <div
-              className={clsx(
-                'rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center',
-                !embedded && 'rounded-3xl'
-              )}
-            >
-              <p className="text-xs text-slate-500">No students in this class.</p>
-            </div>
-          )}
+                  ) : null}
+                </button>
+              )
+            })
+            })()}
+            {sortedStudents.length === 0 && (
+              <div className="flex min-h-[120px] items-center justify-center px-4 py-10 text-center">
+                <p className="text-xs text-slate-500">No students in this class.</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Progress workspace */}
-      <div className={clsx('lg:col-span-9', embedded && 'lg:col-span-8')}>
-        <Card className={clsx('border border-slate-200 shadow-sm', embedded ? 'mb-3 rounded-xl' : 'mb-4 rounded-2xl')}>
-          <CardHeader className={clsx('border-b border-slate-100', embedded ? 'p-2.5' : 'p-3')}>
-            <div className="flex items-center justify-between gap-2">
-              <h3 className={clsx('font-semibold text-slate-900', embedded ? 'text-sm' : 'text-base')}>
-                Pending review queue
-              </h3>
-              <Badge className="border-0 bg-amber-50 text-[10px] font-semibold text-amber-800">
-                {visiblePending.length}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className={clsx(embedded ? 'p-2.5' : 'p-3')}>
-            {loadingPending ? (
-              <div className="flex items-center justify-center py-5">
-                <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
-              </div>
-            ) : pendingError ? (
-              <p className="text-xs text-rose-600">
-                {pendingError instanceof Error ? pendingError.message : 'Failed to load pending submissions'}
-              </p>
-            ) : visiblePending.length === 0 ? (
-              <p className="text-xs text-slate-500">
-                {selectedStudent ? 'No pending submissions for this student.' : 'No pending submissions in this class.'}
-              </p>
-            ) : (
-              <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
-                {visiblePending.map((item: any) => (
-                  <div
-                    key={item.id}
-                    className="rounded-md border border-slate-200 bg-white p-2.5"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-[11px] font-semibold text-slate-900">{item.student_name}</p>
-                        <p className="text-[10px] text-slate-500">
-                          {item.class_name || 'Class'} · Day {item.day_number ?? item.submission_meta?.day_number ?? '—'}
-                        </p>
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                        {item.scheduled_date ? new Date(item.scheduled_date).toLocaleDateString() : 'Date TBD'}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] font-medium text-slate-700">{item.task_title}</p>
-                    <p className="mt-0.5 text-[10px] text-slate-500">
-                      Marked done: {item.marked_done ? 'Yes' : 'No'}
-                    </p>
-                    {item.audio_url ? (
-                      <AudioWaveformPlayer src={item.audio_url} className="mt-1.5" height={32} />
-                    ) : (
-                      <p className="mt-1 text-[10px] italic text-slate-400">No audio clip attached</p>
-                    )}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                      <Button
-                        size="sm"
-                        disabled={applyingRubricId === item.id}
-                        onClick={() => applyRubric(item, 'excellent')}
-                        className="h-6 rounded-md bg-emerald-600 px-2 text-[10px] font-semibold text-white hover:bg-emerald-700"
-                      >
-                        Excellent
-                      </Button>
-                      <Button
-                        size="sm"
-                        disabled={applyingRubricId === item.id}
-                        onClick={() => applyRubric(item, 'acceptable')}
-                        className="h-6 rounded-md bg-blue-600 px-2 text-[10px] font-semibold text-white hover:bg-blue-700"
-                      >
-                        Acceptable
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={applyingRubricId === item.id}
-                        onClick={() => applyRubric(item, 'needs_repeat')}
-                        className="h-6 rounded-md px-2 text-[10px] font-semibold text-rose-700"
-                      >
-                        Needs Repeat
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={applyingRubricId === item.id}
-                        className="h-6 rounded-md px-2 text-[10px] font-medium text-indigo-600"
-                        onClick={() => navigate(`/teacher/evaluate/submission/${item.id}`)}
-                      >
-                        Open
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
+      {/* Progress workspace — right panel */}
+      <div
+        className={clsx(
+          'flex min-h-0 min-w-0 flex-col',
+          embedded ? 'col-span-8' : 'md:col-span-8 lg:col-span-9',
+        )}
+      >
         {selectedStudent ? (
-          <div className={clsx('space-y-4', !embedded && 'space-y-6')}>
+          <div className={clsx('flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto pr-0.5', !embedded && 'space-y-4 lg:space-y-6')}>
             <div
               className={clsx(
-                'flex flex-col gap-4 border border-slate-100 bg-white md:flex-row md:items-center md:justify-between',
-                embedded ? 'rounded-xl p-4 shadow-sm' : 'rounded-[2.5rem] border border-slate-100 p-8 shadow-sm'
+                'flex shrink-0 flex-col gap-3 border border-slate-100 bg-white sm:flex-row sm:items-center sm:justify-between',
+                embedded ? 'rounded-xl p-3 shadow-sm' : 'rounded-[2.5rem] border border-slate-100 p-6 shadow-sm lg:p-8',
               )}
             >
-              <div className="flex items-center gap-4">
+              <div className="flex min-w-0 items-center gap-3">
                 <div
                   className={clsx(
-                    'flex items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-200',
-                    embedded ? 'h-12 w-12' : 'h-16 w-16 rounded-[1.5rem] shadow-lg'
+                    'flex shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-200',
+                    embedded ? 'h-10 w-10' : 'h-14 w-14 rounded-[1.25rem] shadow-lg lg:h-16 lg:w-16 lg:rounded-[1.5rem]',
                   )}
                 >
-                  <User className={embedded ? 'h-6 w-6' : 'h-8 w-8'} />
+                  <User className={embedded ? 'h-5 w-5' : 'h-7 w-7 lg:h-8 lg:w-8'} />
                 </div>
-                <div>
-                  <h2 className={clsx('font-semibold text-slate-900', embedded ? 'text-base' : 'text-2xl font-black')}>
+                <div className="min-w-0">
+                  <h2 className={clsx('truncate font-semibold text-slate-900', embedded ? 'text-sm' : 'text-xl font-black lg:text-2xl')}>
                     {selectedStudent.name}
                   </h2>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                     <span>{selectedStudent.phone}</span>
                     {!embedded && (
                       <>
@@ -517,8 +465,8 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                 variant="outline"
                 size={embedded ? 'sm' : 'default'}
                 className={clsx(
-                  'rounded-lg border-slate-200 font-medium',
-                  !embedded && 'h-14 rounded-2xl px-6 font-black'
+                  'shrink-0 rounded-lg border-slate-200 font-medium',
+                  !embedded && 'h-11 rounded-2xl px-5 font-black lg:h-14 lg:px-6',
                 )}
                 onClick={() => navigate(`/student/progress-report/${selectedStudent.id}`)}
               >
@@ -530,8 +478,8 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
             {loadingProgress ? (
               <div
                 className={clsx(
-                  'flex items-center justify-center border border-slate-100 bg-white',
-                  embedded ? 'min-h-[220px] rounded-xl' : 'h-[40vh] rounded-[2.5rem]'
+                  'flex flex-1 items-center justify-center border border-slate-100 bg-white',
+                  embedded ? 'min-h-[200px] rounded-xl' : 'min-h-[40vh] rounded-[2.5rem]',
                 )}
               >
                 <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
@@ -539,8 +487,8 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
             ) : !progressData || !progressData.days || progressData.days.length === 0 ? (
               <div
                 className={clsx(
-                  'flex flex-col items-center justify-center border border-dashed border-slate-200 bg-white text-center',
-                  embedded ? 'min-h-[220px] rounded-xl p-6' : 'h-[40vh] rounded-[2.5rem] p-8'
+                  'flex flex-1 flex-col items-center justify-center border border-dashed border-slate-200 bg-white text-center',
+                  embedded ? 'min-h-[200px] rounded-xl p-6' : 'min-h-[40vh] rounded-[2.5rem] p-8',
                 )}
               >
                 <AlertCircle className={clsx('text-slate-300', embedded ? 'mb-3 h-10 w-10' : 'mb-4 h-10 w-10')} />
@@ -552,8 +500,8 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
                   <Button
                     variant="outline"
                     size="sm"
@@ -586,45 +534,47 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                   <Card
                     key={day.id}
                     className={clsx(
-                      'overflow-hidden border-slate-200 shadow-sm',
-                      embedded ? 'rounded-xl border' : 'rounded-[2rem] border-none'
+                      'overflow-hidden border-emerald-100/80 bg-gradient-to-r from-emerald-50/90 via-green-50/70 to-teal-50/50 shadow-sm',
+                      embedded ? 'rounded-lg border' : 'rounded-2xl border-none'
                     )}
                   >
                     <CardHeader
                       className={clsx(
                         'flex cursor-pointer flex-row items-center justify-between transition-colors',
-                        embedded ? 'p-4 hover:bg-slate-50/80' : 'p-6',
-                        expandedDay === day.id ? 'bg-slate-50' : !embedded && 'bg-white hover:bg-slate-50/50'
+                        embedded ? 'px-3 py-2.5 hover:from-emerald-100/80 hover:to-green-100/60' : 'px-4 py-3',
+                        expandedDay === day.id
+                          ? 'bg-emerald-100/40'
+                          : !embedded && 'hover:from-emerald-100/70 hover:to-green-100/50'
                       )}
                       onClick={() => setExpandedDay(expandedDay === day.id ? null : day.id)}
                     >
-                      <div className="flex flex-1 items-center gap-4">
+                      <div className="flex flex-1 items-center gap-3">
                         <div
                           className={clsx(
-                            'flex items-center justify-center rounded-xl',
-                            embedded ? 'h-10 w-10' : 'h-12 w-12 rounded-2xl',
-                            day.progress.pct === 100 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                            'flex shrink-0 items-center justify-center rounded-lg border border-emerald-100/60 bg-white/70',
+                            embedded ? 'h-8 w-8' : 'h-9 w-9',
+                            day.progress.pct === 100 ? 'text-emerald-600' : 'text-slate-400'
                           )}
                         >
-                          <Calendar className={embedded ? 'h-5 w-5' : 'h-6 w-6'} />
+                          <Calendar className={embedded ? 'h-4 w-4' : 'h-4 w-4'} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="mb-0.5 flex flex-wrap items-center gap-2">
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                          <div className="mb-0 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[9px] font-medium uppercase tracking-wide text-slate-500">
                               Day {day.day_number}
                             </span>
                             {day.progress.completed > 0 && day.progress.completed === day.progress.reviewed && (
-                              <Badge className="border-0 bg-indigo-50 px-1.5 text-[9px] font-medium text-indigo-700">
+                              <Badge className="border-0 bg-white/80 px-1.5 py-0 text-[8px] font-medium text-indigo-700">
                                 Corrected
                               </Badge>
                             )}
                             {day.progress.completed > day.progress.reviewed && (
-                              <Badge className="border-0 bg-amber-50 px-1.5 text-[9px] font-medium text-amber-800">
+                              <Badge className="border-0 bg-amber-50/90 px-1.5 py-0 text-[8px] font-medium text-amber-800">
                                 Pending review
                               </Badge>
                             )}
                           </div>
-                          <h3 className={clsx('truncate font-medium text-slate-900', embedded ? 'text-sm' : 'text-lg font-black')}>
+                          <h3 className={clsx('truncate font-semibold text-slate-900', embedded ? 'text-xs' : 'text-sm font-bold')}>
                             {day.scheduled_date
                               ? new Date(day.scheduled_date).toLocaleDateString(undefined, {
                                   weekday: 'long',
@@ -634,27 +584,27 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                               : `Day ${day.day_number}`}
                           </h3>
                         </div>
-                        <div className="hidden items-center gap-4 border-l border-slate-100 pl-4 sm:flex">
+                        <div className="hidden items-center gap-3 border-l border-emerald-200/60 pl-3 sm:flex">
                           <div className="text-center">
-                            <p className="mb-0.5 text-[9px] font-medium uppercase text-slate-400">Score</p>
-                            <p className="text-sm font-semibold text-slate-900">{day.progress.average_score}%</p>
-                            <p className="text-[10px] text-slate-500">
+                            <p className="mb-0 text-[8px] font-medium uppercase text-slate-500">Score</p>
+                            <p className="text-xs font-semibold leading-tight text-slate-900">{day.progress.average_score}%</p>
+                            <p className="text-[9px] leading-tight text-slate-500">
                               {day.progress.completed}/{day.progress.total}
                             </p>
                           </div>
-                          <div className="w-20">
+                          <div className="w-16">
                             <Progress
                               value={day.progress.pct}
-                              className="h-1 bg-slate-100"
-                              indicatorClassName={day.progress.pct === 100 ? 'bg-emerald-500' : 'bg-indigo-600'}
+                              className="h-1 bg-white/60"
+                              indicatorClassName={day.progress.pct === 100 ? 'bg-emerald-500' : 'bg-emerald-600/80'}
                             />
                           </div>
                         </div>
                       </div>
                       {expandedDay === day.id ? (
-                        <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
+                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
                       ) : (
-                        <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                       )}
                     </CardHeader>
 
@@ -778,16 +728,16 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
         ) : (
           <div
             className={clsx(
-              'flex flex-col items-center justify-center border border-dashed border-slate-200 bg-white text-center',
-              embedded ? 'min-h-[280px] rounded-xl py-10 px-6' : 'h-[60vh] rounded-[3rem] p-8'
+              'flex flex-1 flex-col items-center justify-center border border-dashed border-slate-200 bg-slate-50/50 text-center',
+              embedded ? 'min-h-[200px] rounded-xl px-4 py-10' : 'min-h-[40vh] rounded-[2rem] p-8 lg:rounded-[3rem]',
             )}
           >
-            <TrendingUp className={clsx('text-slate-200', embedded ? 'mb-4 h-10 w-10' : 'mb-6 h-12 w-12')} />
-            <h3 className={clsx('font-semibold text-slate-900', embedded ? 'text-sm' : 'text-2xl font-black')}>
+            <TrendingUp className={clsx('text-slate-300', embedded ? 'mb-3 h-9 w-9' : 'mb-6 h-12 w-12')} />
+            <h3 className={clsx('font-semibold text-slate-900', embedded ? 'text-sm' : 'text-xl font-black lg:text-2xl')}>
               Select a student
             </h3>
-            <p className="mt-2 max-w-sm text-xs text-slate-500">
-              Choose someone from the list to see their plan, submissions, and grading actions.
+            <p className="mt-2 max-w-sm text-xs leading-relaxed text-slate-500">
+              Choose someone from the list on the left to review their plan and grade submissions.
             </p>
           </div>
         )}
@@ -805,7 +755,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">{classSelect}</div>
         </header>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">{inner}</div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">{inner}</div>
       </section>
     )
   }

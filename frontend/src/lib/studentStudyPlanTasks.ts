@@ -172,6 +172,46 @@ export function getTeacherTaskRowParts(task: {
   return { column, value }
 }
 
+/** Spreadsheet cell with a column but no entered value — hide from calendar and task lists. */
+export function isEmptySpreadsheetCell(task: {
+  title?: string
+  config?: Record<string, unknown>
+}): boolean {
+  const sourceColumn = String(task.config?.source_column ?? '').trim()
+  if (!sourceColumn) return false
+  const { value } = getTeacherTaskRowParts(task)
+  return !value
+}
+
+/** Single-line calendar label — the cell value when present, not the bare column name. */
+export function getCalendarTaskDisplayLabel(task: {
+  title?: string
+  config?: Record<string, unknown>
+}): string | null {
+  if (isEmptySpreadsheetCell(task)) return null
+  const { column, value } = getTeacherTaskRowParts(task)
+  if (value) return value
+  const title = String(task.title ?? '').trim()
+  return title || column || null
+}
+
+export type CalendarDisplayTask = {
+  id?: string
+  label: string
+}
+
+export function getCalendarDisplayTasks(day: PlanDayWithPeriods): CalendarDisplayTask[] {
+  const items: CalendarDisplayTask[] = []
+  for (const period of day.periods ?? []) {
+    for (const task of period.tasks ?? []) {
+      const label = getCalendarTaskDisplayLabel(task)
+      if (!label) continue
+      items.push({ id: (task as { id?: string }).id, label })
+    }
+  }
+  return items
+}
+
 /** Day-shaped plan slice (teacher calendar, student portal). */
 export type PlanDayWithPeriods = {
   page_target?: string | null

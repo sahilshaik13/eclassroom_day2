@@ -1,0 +1,27 @@
+<!-- Optional: sent via backend SMTP if student applications include email later. -->
+<!-- Subject: Welcome to {{OrganizationName}} — your application was approved -->
+
+<div style="font-family: 'DM Sans', sans-serif; color: #1a1a1a; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 16px; padding: 32px;">
+  <h2 style="color: #C9A84C; font-size: 24px; margin-bottom: 16px;">Welcome to ThinkTarteeb!</h2>
+
+  <p>Hello <strong>{{ApplicantName}}</strong>,</p>
+
+  <p>Your application to join <strong>{{OrganizationName}}</strong> has been <strong>approved</strong>.</p>
+
+  <p>You have been assigned to class: <strong>{{ClassName}}</strong>.</p>
+
+  <p>Log in with your registered phone number using the one-time code sent to your phone:</p>
+
+  <div style="margin: 32px 0;">
+    <a href="{{LoginURL}}"
+       style="background-color: #C9A84C; color: white; padding: 12px 24px; text-decoration: none; border-radius: 12px; font-weight: 600; display: inline-block;">
+      Go to student login
+    </a>
+  </div>
+
+  <p style="color: #666; font-size: 14px;">We look forward to seeing you in class!</p>
+
+  <hr style="border: 0; border-top: 1px solid #eee; margin: 32px 0;" />
+
+  <p style="color: #999; font-size: 12px;">ThinkTarteeb E-Classroom Portal</p>
+</div>

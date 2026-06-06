@@ -6,7 +6,6 @@ import { z } from 'zod'
 import toast from 'react-hot-toast'
 import { 
   Loader2, 
-  CheckCircle2, 
   User, 
   Mail, 
   Phone, 
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react'
 import api from '@/services/api'
 import { Button } from '@/components/ui/button'
+import { ApplicationSubmittedNotice } from '@/components/public/ApplicationSubmittedNotice'
 
 const applySchema = z.object({
   name: z.string().min(2, 'Full name is required'),
@@ -99,19 +99,7 @@ export default function TeacherApplyPage() {
 
         <div className="bg-white rounded-3xl shadow-2xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
           {submitted ? (
-            <div className="p-12 text-center animate-in fade-in zoom-in duration-500">
-              <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <CheckCircle2 className="h-10 w-10 text-emerald-600" />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-900 mb-2">Application Received!</h2>
-              <p className="text-slate-500 mb-8 max-w-sm mx-auto">
-                Thank you for your interest in joining <strong>{tenant.name}</strong>. 
-                Our team will review your details and contact you via email shortly.
-              </p>
-              <Button asChild className="rounded-xl px-8 h-12">
-                <Link to="/auth/login">Back to Login</Link>
-              </Button>
-            </div>
+            <ApplicationSubmittedNotice tenantName={tenant.name} channel="email" />
           ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="p-5 sm:p-8 lg:p-12 space-y-6 sm:space-y-8">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

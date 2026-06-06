@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import api from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 
 const STORAGE_KEY = 'student-portal-attendance-in'
@@ -42,54 +41,39 @@ function markInPinged() {
   }
 }
 
-/** Call after student login so attendance is recorded even before layout mounts. */
-export async function pingStudentPortalIn(force = false) {
-  if (!force && !shouldPingIn()) return
+/** Fire-and-forget — attendance must never block login or dashboard load. */
+function sendPortalEvent(event: 'in' | 'out') {
   const token = getAccessToken()
   if (!token) return
-  try {
-    await api.post('/student/portal-access', { event: 'in' })
+
+  if (event === 'in') {
+    if (!shouldPingIn()) return
     markInPinged()
-  } catch (err) {
-    console.warn('[attendance] portal IN failed', err)
   }
+
+  try {
+    void fetch(`${BASE_URL}/student/portal-access`, {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ event }),
+    })
+  } catch {
+    /* tab may already be closing */
+  }
+}
+
+/** Call after student login so attendance is recorded even before layout mounts. */
+export function pingStudentPortalIn(force = false) {
+  if (!force && !shouldPingIn()) return
+  sendPortalEvent('in')
 }
 
 export function recordStudentPortalOut() {
-  recordPortalEvent('out')
-}
-
-async function recordPortalEvent(event: 'in' | 'out') {
-  const token = getAccessToken()
-  if (!token) return
-
-  const url = `${BASE_URL}/student/portal-access`
-  const body = JSON.stringify({ event })
-
-  if (event === 'out') {
-    try {
-      fetch(url, {
-        method: 'POST',
-        keepalive: true,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body,
-      })
-    } catch {
-      /* tab may already be closing */
-    }
-    return
-  }
-
-  if (!shouldPingIn()) return
-  try {
-    await api.post('/student/portal-access', { event: 'in' })
-    markInPinged()
-  } catch (err) {
-    console.warn('[attendance] portal IN failed', err)
-  }
+  sendPortalEvent('out')
 }
 
 /**
@@ -105,12 +89,12 @@ export function useStudentPortalAttendance(enabled: boolean) {
     if (!enabled || !hasHydrated || !isAuthenticated) return
 
     outSentRef.current = false
-    void recordPortalEvent('in')
+    sendPortalEvent('in')
 
     const onPageHide = () => {
       if (outSentRef.current) return
       outSentRef.current = true
-      recordPortalEvent('out')
+      sendPortalEvent('out')
     }
 
     window.addEventListener('pagehide', onPageHide)

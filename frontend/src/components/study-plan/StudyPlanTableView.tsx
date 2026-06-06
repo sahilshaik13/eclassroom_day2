@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { clsx } from 'clsx'
+import { bandedTableHeadCellClass, bandedTableHeadClass, bandedTableRowClass } from '@/lib/tableBandStyles'
 
 export interface StudyPlanTableRow {
   [key: string]: string | number | null | undefined
@@ -91,7 +93,7 @@ export function StudyPlanTableView({
   const headerToggle = paginated ? togglePageAll : toggleAll
 
   const paginationBar = paginated ? (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
       <p className="text-xs font-semibold text-slate-600">
         Rows {startIndex + 1}–{endIndex} of {rows.length}
       </p>
@@ -128,10 +130,12 @@ export function StudyPlanTableView({
   return (
     <div className={cn('space-y-2', className)}>
       {paginationBar}
-      <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
         <div className="min-w-[600px]">
-          {/* Table Header - Compact fixed height, equal columns */}
-          <div className="grid bg-slate-50 border-b border-slate-200" style={{ gridTemplateColumns: editable ? `36px repeat(${columns.length}, minmax(100px, 1fr))` : `repeat(${columns.length}, minmax(100px, 1fr))` }}>
+          <div
+            className={clsx('grid border-b', bandedTableHeadClass, bandedTableHeadCellClass)}
+            style={{ gridTemplateColumns: editable ? `36px repeat(${columns.length}, minmax(100px, 1fr))` : `repeat(${columns.length}, minmax(100px, 1fr))` }}
+          >
             {editable && onSelectedRowIndexesChange ? (
               <div className="flex h-9 items-center justify-center px-1" title={paginated ? 'Select all rows on this page' : 'Select all rows'}>
                 <input
@@ -145,15 +149,14 @@ export function StudyPlanTableView({
             {columns.map((column) => (
               <div
                 key={column}
-                className="flex h-9 items-center px-2 text-[10px] font-bold uppercase tracking-wide text-slate-500"
+                className="flex h-9 items-center px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500"
               >
                 <span className="truncate">{column}</span>
               </div>
             ))}
           </div>
-          
-          {/* Table Body - Compact equal row heights */}
-          <div className="divide-y divide-slate-100">
+
+          <div>
             {rows.length === 0 ? (
               <div className="flex items-center justify-center px-3 py-6 text-xs text-slate-500" style={{ minHeight: '80px' }}>
                 {emptyMessage}
@@ -163,11 +166,12 @@ export function StudyPlanTableView({
                 const rowIndex = startIndex + localIndex
                 const isSelected = selectedRowIndexes?.includes(rowIndex) ?? false
                 return (
-                  <div 
-                    key={rowIndex} 
+                  <div
+                    key={rowIndex}
                     className={cn(
-                      'grid items-stretch transition-colors hover:bg-slate-50/50',
-                      isSelected && 'bg-blue-50/40'
+                      'grid items-stretch',
+                      bandedTableRowClass(rowIndex),
+                      isSelected && 'ring-1 ring-inset ring-sky-200/90',
                     )}
                     style={{ gridTemplateColumns: editable ? `36px repeat(${columns.length}, minmax(100px, 1fr))` : `repeat(${columns.length}, minmax(100px, 1fr))` }}
                   >
@@ -189,10 +193,10 @@ export function StudyPlanTableView({
                             <Input
                               value={value == null ? '' : String(value)}
                               onChange={(event) => updateCell(rowIndex, column, event.target.value)}
-                              className="h-8 w-full rounded-lg border-slate-200 bg-white px-2 text-xs"
+                              className="h-8 w-full rounded-lg border-slate-200/80 bg-white/90 px-2 text-xs shadow-none"
                             />
                           ) : (
-                            <div className="flex w-full items-center whitespace-pre-wrap rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-700 min-h-[28px]">
+                            <div className="flex w-full items-center whitespace-pre-wrap rounded-lg bg-white/60 px-2 py-1.5 text-xs text-slate-700 min-h-[28px]">
                               {value == null || String(value).trim() === '' ? (
                                 <span className="text-slate-300">—</span>
                               ) : (

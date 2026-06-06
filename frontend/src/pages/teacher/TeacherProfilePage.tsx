@@ -11,10 +11,20 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 export default function TeacherProfilePage() {
   const { user, setSession, accessToken, refreshToken } = useAuthStore()
   const [saving, setSaving] = useState(false)
+  const [disableMfaOpen, setDisableMfaOpen] = useState(false)
+  const [disablingMfa, setDisablingMfa] = useState(false)
   const navigate = useNavigate()
   
   useEffect(() => {
@@ -54,16 +64,19 @@ export default function TeacherProfilePage() {
     navigate('/auth/mfa-setup')
   }
 
-  const handleDisableMFA = async () => {
-    if (!window.confirm('Are you sure you want to disable two-factor authentication? Your account will be less secure.')) return
+  const confirmDisableMFA = async () => {
+    setDisablingMfa(true)
     try {
       await authApi.mfaUnenroll()
       if (user && accessToken && refreshToken) {
         setSession({ ...user, mfa_enabled: false }, accessToken, refreshToken)
       }
+      setDisableMfaOpen(false)
       toast.success('Two-factor authentication has been disabled.')
     } catch {
       toast.error('Failed to disable MFA. Please try again.')
+    } finally {
+      setDisablingMfa(false)
     }
   }
 
@@ -131,7 +144,7 @@ export default function TeacherProfilePage() {
                 </div>
                 {user?.mfa_enabled ? (
                   <Button 
-                    onClick={handleDisableMFA}
+                    onClick={() => setDisableMfaOpen(true)}
                     variant="outline" 
                     className="w-full rounded-xl border-rose-200 bg-rose-50/50 h-10 text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500 hover:text-white transition-all duration-300"
                   >
@@ -240,6 +253,36 @@ export default function TeacherProfilePage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={disableMfaOpen} onOpenChange={(open) => !disablingMfa && setDisableMfaOpen(open)}>
+        <DialogContent className="max-w-md rounded-2xl border-slate-200">
+          <DialogHeader>
+            <DialogTitle className="text-slate-900">Disable two-factor authentication?</DialogTitle>
+            <DialogDescription className="text-left text-slate-600">
+              Your account will be less secure. You can turn MFA back on anytime from this page.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl"
+              disabled={disablingMfa}
+              onClick={() => setDisableMfaOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={disablingMfa}
+              className="rounded-xl bg-rose-600 text-white hover:bg-rose-700"
+              onClick={() => void confirmDisableMFA()}
+            >
+              {disablingMfa ? 'Disabling…' : 'Disable MFA'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardPageLayout>
   )
 }

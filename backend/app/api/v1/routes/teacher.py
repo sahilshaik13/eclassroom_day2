@@ -18,7 +18,8 @@ GET  /api/v1/teacher/submissions/pending    ← NEW: get all submitted tasks nee
 import asyncio
 import json
 import logging
-from datetime import date, timedelta, datetime
+import uuid
+from datetime import date, timedelta, datetime, timezone
 from typing import Optional, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, Request
@@ -39,7 +40,16 @@ from app.services.study_plan_change_service import (
     record_teacher_study_plan_change,
     snapshot_for_entity,
 )
-from app.services.realtime_events import broadcast_submission_reviewed
+from app.services.realtime_events import (
+    broadcast_submission_reviewed,
+    broadcast_doubt_replied,
+    broadcast_doubt_chat_message,
+)
+from app.services.doubts_query import (
+    fetch_teacher_class_doubts,
+    insert_doubt_response,
+    mark_doubts_seen_by_teacher,
+)
 
 from app.core import cache_keys, cache_ttl
 from app.core.cache_service import get_or_set_cache, invalidate_teacher_caches
@@ -967,21 +977,168 @@ async def get_class_doubts(
     if not class_ids:
         return success([])
 
-    q = (
-        client.table("doubts")
-        .select("*, students(name), doubt_responses(id, body, created_at)")
-        .in_("class_id", class_ids)
-        .order("created_at", desc=True)
-    )
-    if status:
-        q = q.eq("status", status)
+    try:
+        rows = fetch_teacher_class_doubts(client, class_ids, status)
+        return success(rows)
+    except Exception as exc:
+        _logger.exception("get_class_doubts failed: %s", exc)
+        return error("QUERY_ERROR", f"Failed to load doubts: {exc}", 500)
 
-    res = q.execute()
-    return success(res.data or [])
+
+class MarkDoubtsSeenBody(BaseModel):
+    doubt_ids: list[str]
+
+
+@router.delete("/doubts/students/{student_id}/chat")
+async def clear_student_doubt_thread(
+    student_id: str,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    """Archive all doubt messages with this student (hidden from chat, kept in DB)."""
+    client = get_user_client(request.state.jwt_token)
+    classes_res = (
+        client.table("classes")
+        .select("id")
+        .eq("teacher_id", token.user_id)
+        .execute()
+    )
+    class_ids = [str(c["id"]) for c in (classes_res.data or [])]
+    if not class_ids:
+        return success({"deleted": 0})
+
+    from app.services.doubts_query import archive_teacher_student_thread
+
+    try:
+        archived = archive_teacher_student_thread(
+            client, class_ids, student_id, archived_by=str(token.user_id)
+        )
+        if token.tenant_id:
+            await invalidate_teacher_caches(str(token.tenant_id), str(token.user_id))
+        return success({"archived": archived, "student_id": student_id})
+    except Exception as exc:
+        _logger.exception("clear_student_doubt_thread failed: %s", exc)
+        return error("QUERY_ERROR", f"Failed to clear chat: {exc}", 500)
+
+
+@router.post("/doubts/mark-seen")
+async def mark_doubts_seen(
+    body: MarkDoubtsSeenBody,
+    request: Request,
+    token: TokenData = Depends(require_teacher),
+):
+    """Mark student doubts as seen when the teacher opens the chat thread."""
+    if not body.doubt_ids:
+        return success({"updated": 0})
+
+    client = get_user_client(request.state.jwt_token)
+    classes_res = (
+        client.table("classes").select("id")
+        .eq("teacher_id", token.user_id)
+        .execute()
+    )
+    class_ids = {c["id"] for c in (classes_res.data or [])}
+    if not class_ids:
+        return success({"updated": 0})
+
+    ids = [str(d) for d in body.doubt_ids[:50]]
+    rows = (
+        client.table("doubts")
+        .select("id, class_id")
+        .in_("id", ids)
+        .execute()
+    )
+    allowed = [
+        str(r["id"])
+        for r in (rows.data or [])
+        if r.get("class_id") in class_ids
+    ]
+
+    updated = mark_doubts_seen_by_teacher(client, allowed)
+    if token.tenant_id and updated:
+        await invalidate_teacher_caches(str(token.tenant_id), str(token.user_id))
+    return success({"updated": updated})
 
 
 class ReplyBody(BaseModel):
-    body: str
+    body: Optional[str] = None
+    audio_url: Optional[str] = None
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
+    reply_type: Optional[str] = "text"
+    client_message_id: Optional[str] = None
+    client_sent_at: Optional[str] = None
+
+
+def _infer_reply_type(body: ReplyBody) -> str:
+    explicit = (body.reply_type or "").strip().lower()
+    if explicit in ("text", "audio", "file"):
+        return explicit
+    if body.file_url:
+        return "file"
+    if body.audio_url:
+        return "audio"
+    return "text"
+
+
+def _reply_preview_text(
+    text: str,
+    reply_type: str,
+    file_name: Optional[str],
+) -> str:
+    if text:
+        return text
+    if reply_type == "audio":
+        return "Voice message"
+    if reply_type == "file":
+        return file_name or "File attachment"
+    return ""
+
+
+async def _persist_teacher_reply_background(
+    jwt_token: str,
+    doubt_id: str,
+    row: dict,
+    tenant_id: str,
+    teacher_user_id: str,
+    client_message_id: str,
+    chat_payload: dict,
+) -> None:
+    try:
+        client = get_user_client(jwt_token)
+        inserted = insert_doubt_response(client, row)
+        seen_at = datetime.now(timezone.utc).isoformat()
+        try:
+            client.table("doubts").update(
+                {"status": "resolved", "teacher_seen_at": seen_at},
+            ).eq("id", doubt_id).execute()
+        except Exception:
+            client.table("doubts").update({"status": "resolved"}).eq("id", doubt_id).execute()
+
+        doubt_row = (
+            client.table("doubts")
+            .select("student_id, class_id")
+            .eq("id", doubt_id)
+            .maybe_single()
+            .execute()
+        )
+        if doubt_row.data:
+            class_id = str(doubt_row.data["class_id"])
+            student_id = str(doubt_row.data["student_id"])
+            await invalidate_teacher_caches(tenant_id, teacher_user_id)
+            preview = str(chat_payload.get("text") or "")
+            await broadcast_doubt_replied(
+                tenant_id,
+                class_id,
+                student_id,
+                doubt_id,
+                preview or None,
+            )
+            reply_id = str((inserted or {}).get("id", ""))
+            persisted = {**chat_payload, "doubtId": doubt_id, "replyId": reply_id, "persisted": True}
+            await broadcast_doubt_chat_message(tenant_id, class_id, persisted)
+    except Exception:
+        _logger.exception("Background persist teacher reply failed")
 
 
 @router.post("/doubts/{doubt_id}/reply")
@@ -993,23 +1150,119 @@ async def reply_to_doubt(
 ):
     client = get_user_client(request.state.jwt_token)
 
-    resp_res = (
-        client.table("doubt_responses")
-        .insert({
-            "doubt_id": doubt_id,
-            "teacher_id": token.user_id,
-            "tenant_id": token.tenant_id,
-            "body": body.body,
-        })
+    text = (body.body or "").strip()
+    audio_url = (body.audio_url or "").strip() or None
+    file_url = (body.file_url or "").strip() or None
+    file_name = (body.file_name or "").strip() or None
+    reply_type = _infer_reply_type(body)
+
+    if not text and not audio_url and not file_url:
+        return error("BAD_REQUEST", "Reply must include text, audio, or a file", 400)
+
+    if reply_type == "file" and not file_url:
+        return error("BAD_REQUEST", "File reply requires file_url", 400)
+
+    if reply_type == "audio" and not audio_url:
+        return error("BAD_REQUEST", "Audio reply requires audio_url", 400)
+
+    client_sent_at = (body.client_sent_at or "").strip() or datetime.now(timezone.utc).isoformat()
+
+    row = {
+        "doubt_id": doubt_id,
+        "teacher_id": token.user_id,
+        "tenant_id": token.tenant_id,
+        "body": text or None,
+        "reply_type": reply_type,
+        "audio_url": audio_url,
+        "file_url": file_url,
+        "file_name": file_name,
+        "client_sent_at": client_sent_at,
+    }
+
+    doubt_row = (
+        client.table("doubts")
+        .select("student_id, class_id")
+        .eq("id", doubt_id)
+        .maybe_single()
         .execute()
     )
+    if not doubt_row.data:
+        return error("NOT_FOUND", "Doubt not found", 404)
 
-    client.table("doubts").update({"status": "resolved"}).eq("id", doubt_id).execute()
+    client_message_id = (body.client_message_id or "").strip() or str(uuid.uuid4())
+    class_id = str(doubt_row.data["class_id"])
+    student_id = str(doubt_row.data["student_id"])
+    tenant_id = str(token.tenant_id)
+    preview_text = _reply_preview_text(text, reply_type, file_name)
+
+    chat_payload = {
+        "clientId": client_message_id,
+        "kind": "teacher_reply",
+        "classId": class_id,
+        "studentId": student_id,
+        "doubtId": doubt_id,
+        "text": preview_text,
+        "replyType": reply_type,
+        "createdAt": client_sent_at,
+        "senderUserId": str(token.user_id),
+    }
+    if audio_url:
+        chat_payload["audioUrl"] = audio_url
+    if file_url:
+        chat_payload["fileUrl"] = file_url
+        chat_payload["fileName"] = file_name
+
+    await broadcast_doubt_chat_message(tenant_id, class_id, chat_payload)
+
+    is_text_only = reply_type == "text" and not audio_url and not file_url
+    if is_text_only:
+        asyncio.create_task(
+            _persist_teacher_reply_background(
+                request.state.jwt_token,
+                doubt_id,
+                row,
+                tenant_id,
+                str(token.user_id),
+                client_message_id,
+                chat_payload,
+            ),
+        )
+        return success(
+            {"accepted": True, "client_message_id": client_message_id, "doubt_id": doubt_id},
+            status_code=202,
+        )
+
+    try:
+        inserted = insert_doubt_response(client, row)
+    except Exception as exc:
+        _logger.exception("reply_to_doubt insert failed: %s", exc)
+        return error("QUERY_ERROR", f"Failed to save reply: {exc}", 500)
+
+    seen_at = datetime.now(timezone.utc).isoformat()
+    try:
+        client.table("doubts").update(
+            {"status": "resolved", "teacher_seen_at": seen_at},
+        ).eq("id", doubt_id).execute()
+    except Exception:
+        client.table("doubts").update({"status": "resolved"}).eq("id", doubt_id).execute()
 
     if token.tenant_id:
         await invalidate_teacher_caches(str(token.tenant_id), str(token.user_id))
+        await broadcast_doubt_replied(
+            tenant_id,
+            class_id,
+            student_id,
+            doubt_id,
+            preview_text or None,
+        )
+        reply_id = str((inserted or {}).get("id", ""))
+        await broadcast_doubt_chat_message(
+            tenant_id,
+            class_id,
+            {**chat_payload, "replyId": reply_id, "persisted": True},
+        )
 
-    return success(resp_res.data[0] if resp_res.data else {}, status_code=201)
+    return success(inserted, status_code=201)
 
 
 # ── Grades ────────────────────────────────────────────────────
@@ -1181,6 +1434,7 @@ async def get_classroom_study_plan_source(
     class_id: str,
     token: TokenData = Depends(require_teacher)
 ):
+    """PDF source metadata for a classroom. Returns null when no import/plan exists (not an error)."""
     admin = get_admin_client()
 
     try:
@@ -1195,12 +1449,13 @@ async def get_classroom_study_plan_source(
         if not class_row:
             return error("FORBIDDEN", "Class not found or access denied", 403)
 
-        payload, cache_hit = await get_cached_study_plan_source(token.tenant_id, class_id)
-        response = success(payload)
+        payload, cache_hit = await get_cached_study_plan_source(str(token.tenant_id), class_id)
+        response = success(payload)  # data may be null
         response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
         return response
     except Exception as exc:
-        return error("QUERY_ERROR", f"Failed to load classroom source: {exc}", 500)
+        _logger.exception("study-plan-source failed class_id=%s: %s", class_id, exc)
+        return success(None)
 
 
 def _is_present_uuid(val) -> bool:
@@ -2222,18 +2477,4 @@ async def get_teacher_classroom_study_plan(
     response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
     return response
 
-
-@router.get("/classrooms/{class_id}/study-plan-source")
-async def get_teacher_classroom_study_plan_source(
-    class_id: str,
-    token: TokenData = Depends(require_teacher)
-):
-    """
-    Returns the PDF source metadata for a classroom study plan.
-    Uses Redis caching for improved performance.
-    """
-    payload, cache_hit = await get_cached_study_plan_source(str(token.tenant_id), class_id)
-    response = success(payload)
-    response.headers["X-Cache"] = "HIT" if cache_hit else "MISS"
-    return response
 

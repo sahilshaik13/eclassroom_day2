@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog"
 import { GraderStatusList } from '@/components/competition/GraderStatusList'
 import { CompetitionTypeBadge } from '@/components/competition/CompetitionTypeBadge'
+import { BlockingLoadingOverlay } from '@/components/ui/BlockingLoadingOverlay'
 import {
   COMPETITION_FILTER_OPTIONS,
   type CompetitionFilterType,
@@ -147,6 +148,7 @@ export default function AdminCompetitionsPage() {
 
   // Form state
   const [showCreate, setShowCreate] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [newComp, setNewComp] = useState<Partial<Competition>>({ 
     title: '', 
     description: '', 
@@ -228,11 +230,13 @@ export default function AdminCompetitionsPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (creating) return
     const payload = buildCompetitionWritePayload(newComp, { requireStartDate: true })
     if (!payload) {
       toast.error('Start date is required')
       return
     }
+    setCreating(true)
     try {
       const res = await competitionApi.createCompetition(payload)
       if (res.success) {
@@ -247,6 +251,8 @@ export default function AdminCompetitionsPage() {
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: { message?: string } } } }
       toast.error(err?.response?.data?.error?.message || 'Failed to create competition')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -530,7 +536,8 @@ export default function AdminCompetitionsPage() {
         <Button
           className="min-h-0 h-8 gap-1 px-3 text-xs font-semibold sm:h-9 sm:gap-2 sm:px-4"
           size="sm"
-          onClick={() => setShowCreate(!showCreate)}
+          disabled={creating}
+          onClick={() => { if (!creating) setShowCreate(!showCreate) }}
         >
           <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           <span>{showCreate ? 'Cancel' : 'New'}</span>
@@ -538,10 +545,12 @@ export default function AdminCompetitionsPage() {
         </Button>
       }
     >
+      <BlockingLoadingOverlay open={creating} message="Creating competition..." />
       {showCreate && (
         <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 md:rounded-xl md:p-5">
           <h2 className="text-lg font-bold mb-4">Create Competition</h2>
-          <form onSubmit={handleCreate} className="space-y-4 max-w-2xl">
+          <form onSubmit={handleCreate} className="space-y-4 max-w-2xl" aria-busy={creating}>
+            <fieldset disabled={creating} className="space-y-4 border-0 p-0 m-0 min-w-0">
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="block text-sm font-medium mb-1 uppercase text-[10px] text-slate-400 font-bold">Title</label>
@@ -651,9 +660,12 @@ export default function AdminCompetitionsPage() {
                 )}
               </div>
             </div>
+            </fieldset>
             <div className="flex justify-end gap-2 mt-4">
-              <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-              <Button type="submit" className="bg-blue-600 hover:bg-blue-700">Save</Button>
+              <Button type="button" variant="outline" disabled={creating} onClick={() => setShowCreate(false)}>Cancel</Button>
+              <Button type="submit" disabled={creating} className="bg-blue-600 hover:bg-blue-700">
+                {creating ? 'Saving…' : 'Save'}
+              </Button>
             </div>
           </form>
         </div>

@@ -34,6 +34,8 @@ thinktarteeb-*.json
 
 rediscli.txt
 commit.txt
+.dev-launcher.pids
+.dev-launcher.detach
 Book1.csv
 walkthrough*/
 

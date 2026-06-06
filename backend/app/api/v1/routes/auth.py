@@ -223,9 +223,6 @@ async def mfa_unenroll(
     if token.role == "student":
         return error("FORBIDDEN", "MFA is not available for students", 403)
 
-    if token.role == "admin":
-        return error("FORBIDDEN", "MFA is mandatory for administrators", 403)
-
     try:
         result = await AuthService.mfa_unenroll(request.state.jwt_token)
         return success(result)

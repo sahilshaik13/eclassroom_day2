@@ -7,8 +7,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { CalendarPlanDay } from '@/components/study-plan/StudyPlanCalendarPanel'
 import { cn } from '@/lib/utils'
-import { formatStudyPlanPeriodLabel } from '@/lib/studyPlanLabels'
-import { getDayPageTarget, getTeacherTaskRowParts, isSubmittableTask } from '@/lib/studentStudyPlanTasks'
+import { formatStudyPlanPeriodLabel, isFlatScheduleTitle } from '@/lib/studyPlanLabels'
+import { getDayPageTarget, getTeacherTaskRowParts, isEmptySpreadsheetCell, isSubmittableTask } from '@/lib/studentStudyPlanTasks'
 
 function planDayHasTasks(day: CalendarPlanDay | null): boolean {
   if (!day) return false
@@ -151,25 +151,37 @@ export function TeacherStudyPlanDaySection({
           <>
           <ul className="space-y-4">
             {planDay.periods.map((period) => {
-              const tasks = (period.tasks || []).filter(isSubmittableTask)
+              const tasks = (period.tasks || [])
+                .filter(isSubmittableTask)
+                .filter((task) => !isEmptySpreadsheetCell(task))
               if (!tasks.length) return null
+              const periodLabel = formatStudyPlanPeriodLabel(period.title, {
+                scheduledDate: planDay.scheduled_date,
+                dayNumber: planDay.day_number,
+              })
+              const showPeriodHeading = !isFlatScheduleTitle(period.title)
               return (
                 <li key={period.id || period.title} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
-                    {formatStudyPlanPeriodLabel(period.title, {
-                      scheduledDate: planDay.scheduled_date,
-                      dayNumber: planDay.day_number,
-                    })}
-                  </p>
-                  <ul className="mt-2 space-y-2">
+                  {showPeriodHeading ? (
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+                      {periodLabel}
+                    </p>
+                  ) : null}
+                  <ul className={cn(showPeriodHeading && 'mt-2', 'space-y-2')}>
                     {tasks.map((task) => {
                       const { column, value } = getTeacherTaskRowParts(task)
+                      const display = value ?? column
+                      if (!display) return null
                       return (
                       <li key={task.id || task.title} className="rounded-lg bg-slate-50 px-3 py-2">
-                        <p className="text-sm font-semibold text-slate-800">{column}</p>
                         {value ? (
-                          <p className="mt-0.5 text-xs font-medium leading-snug text-slate-600">{value}</p>
-                        ) : null}
+                          <>
+                            <p className="text-sm font-semibold text-slate-800">{column}</p>
+                            <p className="mt-0.5 text-xs font-medium leading-snug text-slate-600">{value}</p>
+                          </>
+                        ) : (
+                          <p className="text-sm font-semibold text-slate-800">{display}</p>
+                        )}
                         {task.description ? (
                           <p className="mt-1 text-xs leading-snug text-slate-500">{task.description}</p>
                         ) : null}

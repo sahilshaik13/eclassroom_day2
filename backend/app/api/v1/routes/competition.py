@@ -1524,9 +1524,57 @@ async def submit_competition_exam(
 @router.delete("/admin/competitions/{competition_id}", dependencies=[Depends(RequireRole(["admin"])), Depends(RequireActiveTenant())])
 async def delete_competition(competition_id: UUID, token: TokenData = Depends(get_current_user)):
     from app.db.supabase import get_admin_client
+    from app.services.data_archive_service import DataArchiveService
+
     admin = get_admin_client()
-    # HARD DELETE
-    res = admin.table("competitions").delete().eq("id", str(competition_id)).eq("tenant_id", str(token.tenant_id)).execute()
+    cid = str(competition_id)
+    tid = str(token.tenant_id)
+
+    comp_res = (
+        admin.table("competitions")
+        .select("*")
+        .eq("id", cid)
+        .eq("tenant_id", tid)
+        .maybe_single()
+        .execute()
+    )
+    if not comp_res.data:
+        return error("NOT_FOUND", "Competition not found", 404)
+
+    regs_res = (
+        admin.table("competition_registrations")
+        .select("*")
+        .eq("competition_id", cid)
+        .execute()
+    )
+    graders_res = (
+        admin.table("competition_graders")
+        .select("*")
+        .eq("competition_id", cid)
+        .execute()
+    )
+    setup_teachers: list = []
+    try:
+        setup_res = (
+            admin.table("competition_setup_teachers")
+            .select("*")
+            .eq("competition_id", cid)
+            .execute()
+        )
+        setup_teachers = setup_res.data or []
+    except Exception:
+        pass
+
+    DataArchiveService.archive_competition(
+        tenant_id=tid,
+        competition=comp_res.data,
+        registrations=regs_res.data or [],
+        graders=graders_res.data or [],
+        setup_teachers=setup_teachers,
+        archived_by=str(token.user_id),
+    )
+
+    admin.table("competitions").delete().eq("id", cid).eq("tenant_id", tid).execute()
     return success({"message": "Competition deleted permanently"})
 
 
@@ -1651,7 +1699,9 @@ async def list_student_competitions(token: TokenData = Depends(get_current_user)
         )
         return success(rows or [])
     except Exception as exc:
-        return error("INTERNAL", str(exc), 500)
+        import logging
+        logging.getLogger(__name__).exception("list_student_competitions failed user_id=%s", uid)
+        return success([])
 
 
 @router.get(

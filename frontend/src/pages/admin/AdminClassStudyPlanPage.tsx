@@ -374,10 +374,10 @@ export default function AdminClassStudyPlanPage() {
                                 onApplied={onImportApplied}
                             />
                             {!plan ? (
-                                <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-14 text-center">
+                                <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-200/80 bg-slate-50/50 px-6 py-14 text-center">
                                     <BookOpen className="mb-3 h-10 w-10 text-slate-300" />
-                                    <h3 className="text-base font-bold text-slate-900">No study plan yet</h3>
-                                    <p className="mt-2 max-w-md text-sm text-slate-500">
+                                    <h3 className="text-base font-semibold text-slate-800">No study plan yet</h3>
+                                    <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
                                         Upload and apply a study-plan PDF above. The teacher and students will see it
                                         once applied.
                                     </p>

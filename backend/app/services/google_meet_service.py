@@ -445,52 +445,65 @@ def _meeting_on_calendar_day(row: dict, day_iso: str) -> bool:
 
 async def list_teacher_meetings_today(token: Any, *, day_iso: Optional[str] = None) -> list[dict]:
     """Meetings scheduled for today across the teacher's classes (or all tenant classes for admins)."""
-    admin = get_admin_client()
-    today = day_iso or date.today().isoformat()
-    role = getattr(token, "role", "teacher")
+    try:
+        admin = get_admin_client()
+        today = day_iso or date.today().isoformat()
+        role = getattr(token, "role", "teacher")
 
-    classes_q = (
-        admin.table("classes")
-        .select("id, name")
-        .eq("tenant_id", str(token.tenant_id))
-    )
-    if role not in ("admin", "platform_admin"):
-        classes_q = classes_q.eq("teacher_id", str(token.user_id))
-    classes_res = classes_q.execute()
-    class_names: dict[str, str] = {}
-    class_ids: list[str] = []
-    for row in classes_res.data or []:
-        cid = str(row.get("id", ""))
-        if not cid:
-            continue
-        class_ids.append(cid)
-        class_names[cid] = row.get("name") or "Class"
+        classes_q = (
+            admin.table("classes")
+            .select("id, name")
+            .eq("tenant_id", str(token.tenant_id))
+        )
+        if role not in ("admin", "platform_admin"):
+            classes_q = classes_q.eq("teacher_id", str(token.user_id))
+        classes_res = classes_q.execute()
+        class_names: dict[str, str] = {}
+        class_ids: list[str] = []
+        for row in classes_res.data or []:
+            cid = str(row.get("id", ""))
+            if not cid:
+                continue
+            class_ids.append(cid)
+            class_names[cid] = row.get("name") or "Class"
 
-    if not class_ids:
+        if not class_ids:
+            return []
+
+        tenant_id = str(token.tenant_id)
+        try:
+            await archive_ended_meetings(tenant_id=tenant_id, class_ids=class_ids)
+        except Exception as exc:
+            _logger.warning("archive_ended_meetings skipped: %s", exc)
+
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            res = (
+                admin.table("class_meetings")
+                .select("*")
+                .eq("tenant_id", tenant_id)
+                .in_("class_id", class_ids)
+                .gte("end_at", now)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as exc:
+            _logger.warning("class_meetings query unavailable: %s", exc)
+            return []
+
+        meetings = [
+            r
+            for r in rows
+            if _meeting_on_calendar_day(r, today) and _meeting_is_active(r, now_iso=now)
+        ]
+        meetings.sort(key=lambda r: r.get("start_at") or "")
+        for row in meetings:
+            cid = str(row.get("class_id", ""))
+            row["class_name"] = class_names.get(cid, "Class")
+        return meetings
+    except Exception as exc:
+        _logger.exception("list_teacher_meetings_today failed: %s", exc)
         return []
-
-    tenant_id = str(token.tenant_id)
-    await archive_ended_meetings(tenant_id=tenant_id, class_ids=class_ids)
-
-    now = datetime.now(timezone.utc).isoformat()
-    res = (
-        admin.table("class_meetings")
-        .select("*")
-        .eq("tenant_id", tenant_id)
-        .in_("class_id", class_ids)
-        .gte("end_at", now)
-        .execute()
-    )
-    meetings = [
-        r
-        for r in (res.data or [])
-        if _meeting_on_calendar_day(r, today) and _meeting_is_active(r, now_iso=now)
-    ]
-    meetings.sort(key=lambda r: r.get("start_at") or "")
-    for row in meetings:
-        cid = str(row.get("class_id", ""))
-        row["class_name"] = class_names.get(cid, "Class")
-    return meetings
 
 
 async def list_upcoming_meetings(
@@ -529,55 +542,140 @@ async def list_upcoming_meetings(
 
 async def list_student_upcoming_meetings(user_id: str, *, limit: int = 20) -> list[dict]:
     """Upcoming meetings across all classes the student is enrolled in."""
-    admin = get_admin_client()
-    stu_res = (
-        admin.table("students")
-        .select("id, tenant_id")
-        .eq("user_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not stu_res or not stu_res.data:
+    try:
+        admin = get_admin_client()
+        stu_res = (
+            admin.table("students")
+            .select("id, tenant_id")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if not stu_res.data:
+            return []
+
+        student_row = stu_res.data[0]
+        enroll_res = (
+            admin.table("class_enrollments")
+            .select("class_id, classes(id, name)")
+            .eq("student_id", student_row["id"])
+            .execute()
+        )
+        class_names: dict[str, str] = {}
+        class_ids: list[str] = []
+        for row in enroll_res.data or []:
+            cid = row.get("class_id")
+            if not cid:
+                continue
+            class_ids.append(str(cid))
+            cls = row.get("classes") or {}
+            class_names[str(cid)] = cls.get("name") or "Class"
+
+        if not class_ids:
+            return []
+
+        student_tenant = str(student_row.get("tenant_id") or "")
+        if student_tenant:
+            try:
+                await archive_ended_meetings(tenant_id=student_tenant, class_ids=class_ids)
+            except Exception as exc:
+                _logger.warning("archive_ended_meetings skipped: %s", exc)
+
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            res = (
+                admin.table("class_meetings")
+                .select("*")
+                .in_("class_id", class_ids)
+                .gte("end_at", now)
+                .order("start_at", desc=False)
+                .limit(limit)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as exc:
+            _logger.warning("class_meetings query unavailable: %s", exc)
+            return []
+
+        out: list[dict] = []
+        for row in rows:
+            cid = str(row.get("class_id", ""))
+            out.append({**row, "class_name": class_names.get(cid, "Class")})
+        return out
+    except Exception as exc:
+        _logger.exception("list_student_upcoming_meetings failed user_id=%s: %s", user_id, exc)
         return []
 
-    enroll_res = (
-        admin.table("class_enrollments")
-        .select("class_id, classes(id, name)")
-        .eq("student_id", stu_res.data["id"])
-        .execute()
-    )
-    class_names: dict[str, str] = {}
-    class_ids: list[str] = []
-    for row in enroll_res.data or []:
-        cid = row.get("class_id")
-        if not cid:
-            continue
-        class_ids.append(str(cid))
-        cls = row.get("classes") or {}
-        class_names[str(cid)] = cls.get("name") or "Class"
 
-    if not class_ids:
+async def list_student_meetings_today(user_id: str, *, day_iso: Optional[str] = None) -> list[dict]:
+    """Meetings scheduled for today across all classes the student is enrolled in."""
+    try:
+        admin = get_admin_client()
+        today = day_iso or date.today().isoformat()
+        stu_res = (
+            admin.table("students")
+            .select("id, tenant_id")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if not stu_res.data:
+            return []
+
+        student_row = stu_res.data[0]
+        enroll_res = (
+            admin.table("class_enrollments")
+            .select("class_id, classes(id, name)")
+            .eq("student_id", student_row["id"])
+            .execute()
+        )
+        class_names: dict[str, str] = {}
+        class_ids: list[str] = []
+        for row in enroll_res.data or []:
+            cid = row.get("class_id")
+            if not cid:
+                continue
+            class_ids.append(str(cid))
+            cls = row.get("classes") or {}
+            class_names[str(cid)] = cls.get("name") or "Class"
+
+        if not class_ids:
+            return []
+
+        student_tenant = str(student_row.get("tenant_id") or "")
+        if student_tenant:
+            try:
+                await archive_ended_meetings(tenant_id=student_tenant, class_ids=class_ids)
+            except Exception as exc:
+                _logger.warning("archive_ended_meetings skipped: %s", exc)
+
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            res = (
+                admin.table("class_meetings")
+                .select("*")
+                .in_("class_id", class_ids)
+                .gte("end_at", now)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as exc:
+            _logger.warning("class_meetings query unavailable: %s", exc)
+            return []
+
+        meetings = [
+            r
+            for r in rows
+            if _meeting_on_calendar_day(r, today) and _meeting_is_active(r, now_iso=now)
+        ]
+        meetings.sort(key=lambda r: r.get("start_at") or "")
+        for row in meetings:
+            cid = str(row.get("class_id", ""))
+            row["class_name"] = class_names.get(cid, "Class")
+        return meetings
+    except Exception as exc:
+        _logger.exception("list_student_meetings_today failed user_id=%s: %s", user_id, exc)
         return []
-
-    student_tenant = str(stu_res.data.get("tenant_id") or "")
-    if student_tenant:
-        await archive_ended_meetings(tenant_id=student_tenant, class_ids=class_ids)
-
-    now = datetime.now(timezone.utc).isoformat()
-    res = (
-        admin.table("class_meetings")
-        .select("*")
-        .in_("class_id", class_ids)
-        .gte("end_at", now)
-        .order("start_at", desc=False)
-        .limit(limit)
-        .execute()
-    )
-    out: list[dict] = []
-    for row in res.data or []:
-        cid = str(row.get("class_id", ""))
-        out.append({**row, "class_name": class_names.get(cid, "Class")})
-    return out
 
 
 async def get_meeting_row(meeting_id: str, tenant_id: str) -> dict:

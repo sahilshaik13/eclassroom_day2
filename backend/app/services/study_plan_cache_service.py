@@ -23,6 +23,7 @@ from app.services.study_plan_pdf_import_service import build_import_payload
 _logger = logging.getLogger(__name__)
 
 _SENTINEL_NO_PLAN = {"__study_plan_none__": True}
+_SENTINEL_NO_SOURCE = {"__study_plan_source_none__": True}
 _RETRIABLE_HTTP_ERRORS = (
     httpx.RemoteProtocolError,
     httpx.ReadTimeout,
@@ -260,7 +261,11 @@ def load_study_plan_source(admin: Any, tenant_id: str, class_id: str) -> Optiona
     import_row = _get_editable_import_row(admin, tenant_id, class_id)
     if not import_row:
         return None
-    return build_import_payload(import_row, admin)
+    try:
+        return build_import_payload(import_row, admin)
+    except Exception:
+        _logger.exception("build_import_payload failed class_id=%s", class_id)
+        return None
 
 
 async def get_cached_teacher_study_plan(tenant_id: str, class_id: str) -> tuple[Optional[dict], bool]:
@@ -321,10 +326,23 @@ async def get_cached_study_plan_source(tenant_id: str, class_id: str) -> tuple[O
     admin = get_admin_client()
     key = cache_keys.classroom_study_plan_source(tenant_id, class_id)
 
-    async def _load() -> Optional[dict]:
-        return await run_sync(lambda: load_study_plan_source(admin, tenant_id, class_id))
+    cached = await cache_get(key)
+    if cached is not None:
+        if isinstance(cached, dict) and cached.get("__study_plan_source_none__"):
+            return None, True
+        return cached, True
 
-    return await get_or_set_cache(key, cache_ttl.STUDY_PLAN, _load)
+    try:
+        payload = await run_sync(lambda: load_study_plan_source(admin, tenant_id, class_id))
+    except Exception:
+        _logger.exception("load_study_plan_source failed class_id=%s", class_id)
+        payload = None
+
+    if payload is not None:
+        await cache_set(key, payload, cache_ttl.STUDY_PLAN)
+    else:
+        await cache_set(key, _SENTINEL_NO_SOURCE, cache_ttl.STUDY_PLAN)
+    return payload, False
 
 
 def resolve_class_id_from_period_id(admin: Any, period_id: str) -> Optional[str]:

@@ -1,17 +1,21 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
-import { Phone, ArrowRight, RefreshCw } from 'lucide-react'
+import { ArrowRight, RefreshCw } from 'lucide-react'
+import { PhoneCountryInput } from '@/components/ui/PhoneCountryInput'
 import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
 import { pingStudentPortalIn } from '@/hooks/useStudentPortalAttendance'
 import { ApiClientError } from '@/services/api'
 
 const phoneSchema = z.object({
-  phone: z.string().min(7, 'Enter a valid phone number'),
+  phone: z
+    .string()
+    .min(8, 'Enter a valid phone number')
+    .regex(/^\+\d{8,15}$/, 'Enter a valid phone number with country code'),
 })
 type PhoneForm = z.infer<typeof phoneSchema>
 type Step = 'phone' | 'otp'
@@ -39,23 +43,52 @@ export default function StudentLoginPage() {
     }
   }, [resendCooldown])
 
-  const { register: regPhone, handleSubmit: handlePhone, formState: { errors: phoneErrors } } = useForm<PhoneForm>({
-    resolver: zodResolver(phoneSchema)
+  const {
+    control,
+    handleSubmit: handlePhone,
+    formState: { errors: phoneErrors },
+  } = useForm<PhoneForm>({
+    resolver: zodResolver(phoneSchema),
+    defaultValues: { phone: '' },
   })
+
+  const finishLogin = (
+    user: { is_registered?: boolean },
+    access_token: string,
+    refresh_token: string,
+  ) => {
+    setSession(user, access_token, refresh_token)
+    void pingStudentPortalIn(true)
+    toast.success('Welcome back!')
+
+    if (competitionId) {
+      navigate(user.is_registered ? '/student/competitions' : '/competition-portal')
+    } else if (user.is_registered) {
+      navigate('/student')
+    } else {
+      navigate('/auth/student-registration')
+    }
+  }
 
   const onSendOtp = async (data: PhoneForm) => {
     setLoading(true)
     try {
-      // No tenant_id needed — backend resolves it from the phone number
       const res = await authApi.sendOtp(
         data.phone,
         undefined,
         competitionId ? 'competition' : 'classroom',
         competitionId || undefined,
       )
+      const payload = res.data.data
       setPhone(data.phone)
-      setResolvedTenantId(res.data.data.tenant_id)
-      setDevOtp(res.data.data.dev_otp)
+      setResolvedTenantId(payload.tenant_id)
+
+      if (payload.otp_skipped && payload.access_token && payload.user) {
+        finishLogin(payload.user, payload.access_token, payload.refresh_token ?? '')
+        return
+      }
+
+      setDevOtp(payload.dev_otp)
       setStep('otp')
       setResendCooldown(30)
       toast.success('OTP sent!')
@@ -96,19 +129,7 @@ export default function StudentLoginPage() {
     try {
       const res = await authApi.verifyOtp(phone, code, resolvedTenantId, competitionId || undefined)
       const { user, access_token, refresh_token } = res.data.data
-
-      // No MFA for students — proceed directly to session
-      setSession(user, access_token, refresh_token)
-      void pingStudentPortalIn(true)
-      toast.success('Welcome back!')
-
-      if (competitionId) {
-        navigate(user.is_registered ? '/student/competitions' : '/competition-portal')
-      } else if (user.is_registered) {
-        navigate('/student')
-      } else {
-        navigate('/auth/student-registration')
-      }
+      finishLogin(user, access_token, refresh_token)
     } catch (e) {
       setAttempts((a) => a + 1)
       if (e instanceof ApiClientError) toast.error(e.message)
@@ -147,48 +168,51 @@ export default function StudentLoginPage() {
       <div className="w-full max-w-sm">
 
         {/* Logo */}
-        <div className="flex items-center justify-center mb-10">
+        <div className="flex items-center justify-center mb-6">
           <img
             src="/logo.png"
             alt="ThinkTarteeb"
-            className="h-16 w-auto"
+            className="h-14 w-auto"
             onError={(e) => { e.currentTarget.style.display = 'none' }}
           />
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 sm:p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
 
           {step === 'phone' ? (
             <>
               <h1 className="text-2xl font-bold text-gray-900 mb-1">
                 {competitionId ? 'Join Competition' : 'Student Login'}
               </h1>
-              <p className="text-sm text-gray-500 mb-8">
+              <p className="mb-4 text-sm text-gray-500">
                 {competitionId ? 'Enter your phone to participate' : 'Enter your registered phone number'}
               </p>
 
-              <form onSubmit={handlePhone(onSendOtp)} className="space-y-5">
+              <form onSubmit={handlePhone(onSendOtp)} className="space-y-3">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
-                  <div className="relative">
-                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      {...regPhone('phone')}
-                      type="tel"
-                      placeholder="+971 50 123 4567"
-                      autoFocus
-                      className="w-full bg-gray-50 border border-gray-200 text-gray-900 placeholder:text-gray-400 rounded-full pl-11 pr-4 py-3.5 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                    />
-                  </div>
-                  {phoneErrors.phone && <p className="mt-1.5 text-xs text-red-500 font-medium">{phoneErrors.phone.message}</p>}
+                  <label className="mb-1 block text-sm font-semibold text-gray-700">Phone Number</label>
+                  <Controller
+                    name="phone"
+                    control={control}
+                    render={({ field }) => (
+                      <PhoneCountryInput
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        autoFocus
+                        error={phoneErrors.phone?.message}
+                        placeholder="50 123 4567"
+                      />
+                    )}
+                  />
                 </div>
 
-                <div className="pt-2">
+                <div>
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full min-h-11 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold px-4 py-3 rounded-full transition-all shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-indigo-700 active:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {loading ? (
                       <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Sending OTP…</>
@@ -199,7 +223,7 @@ export default function StudentLoginPage() {
                 </div>
               </form>
 
-              <p className="mt-8 text-center text-sm text-gray-500">
+              <p className="mt-5 text-center text-sm text-gray-500">
                 Staff member?{' '}
                 <a href="/auth/login" className="text-indigo-600 font-semibold hover:text-indigo-700 transition-colors">
                   Login here

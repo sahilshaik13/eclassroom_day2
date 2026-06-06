@@ -126,8 +126,12 @@ async def google_disconnect(token: TokenData = Depends(require_teacher)):
 
 @router.get("/teacher/meetings/today")
 async def teacher_today_meetings(token: TokenData = Depends(require_teacher)):
-    meetings = await meet_svc.list_teacher_meetings_today(token)
-    return success(meetings)
+    try:
+        meetings = await meet_svc.list_teacher_meetings_today(token)
+        return success(meetings or [])
+    except Exception as exc:
+        _logger.exception("teacher_today_meetings failed: %s", exc)
+        return success([])
 
 
 @router.get("/classes/{class_id}/meetings")
@@ -252,8 +256,22 @@ async def delete_class_meeting(
 
 @router.get("/student/meetings/upcoming")
 async def student_upcoming_meetings(token: TokenData = Depends(require_student)):
-    meetings = await meet_svc.list_student_upcoming_meetings(str(token.user_id))
-    return success(meetings)
+    try:
+        meetings = await meet_svc.list_student_upcoming_meetings(str(token.user_id))
+        return success(meetings or [])
+    except Exception as exc:
+        _logger.exception("student_upcoming_meetings failed: %s", exc)
+        return success([])
+
+
+@router.get("/student/meetings/today")
+async def student_today_meetings(token: TokenData = Depends(require_student)):
+    try:
+        meetings = await meet_svc.list_student_meetings_today(str(token.user_id))
+        return success(meetings or [])
+    except Exception as exc:
+        _logger.exception("student_today_meetings failed: %s", exc)
+        return success([])
 
 
 @router.get("/student/classes/{class_id}/meetings")

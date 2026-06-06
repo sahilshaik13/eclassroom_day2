@@ -1,0 +1,24 @@
+<!-- Supabase Dashboard → Authentication → Email Templates → Invite user -->
+<!-- Used for: direct admin teacher invite AND password setup after application approval -->
+<!-- Subject: You're invited to join ThinkTarteeb E-Classroom -->
+
+<div style="font-family: 'DM Sans', sans-serif; color: #1a1a1a; max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 16px; padding: 32px;">
+  <h2 style="color: #C9A84C; font-size: 24px; margin-bottom: 16px;">Welcome to ThinkTarteeb!</h2>
+  
+  <p>Hello <strong>{{ .Data.name }}</strong>,</p>
+  
+  <p>You have been invited to join the platform as a <strong>{{ .Data.role }}</strong>. Please follow the link below to set up your account password and get started.</p>
+  
+  <div style="margin: 32px 0;">
+    <a href="{{ .ConfirmationURL }}" 
+       style="background-color: #C9A84C; color: white; padding: 12px 24px; text-decoration: none; border-radius: 12px; font-weight: 600; display: inline-block;">
+      Set My Password
+    </a>
+  </div>
+  
+  <p style="color: #666; font-size: 14px;">This link will take you to our secure setup page. If you did not expect this invitation, you can ignore this email.</p>
+  
+  <hr style="border: 0; border-top: 1px solid #eee; margin: 32px 0;" />
+  
+  <p style="color: #999; font-size: 12px;">ThinkTarteeb E-Classroom Portal</p>
+</div>
