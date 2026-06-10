@@ -32,7 +32,11 @@ from app.services.realtime_events import (
 )
 
 from app.core import cache_keys, cache_ttl
-from app.core.cache_service import get_or_set_cache, invalidate_caches_for_student_activity
+from app.core.cache_service import (
+    get_or_set_cache,
+    coalesced_get_or_set,
+    invalidate_caches_for_student_activity,
+)
 from app.core.db_async import gather_sync, run_sync
 from app.core.deps import require_student, TokenData
 from app.core.response import success, error
@@ -246,7 +250,7 @@ async def get_today_tasks(request: Request, token: TokenData = Depends(require_s
         async def _load_tasks() -> list:
             return await _fetch_today_tasks(admin, student_id, today)
 
-        tasks, hit = await get_or_set_cache(cache_key, cache_ttl.STUDENT_TASKS_TODAY, _load_tasks)
+        tasks, hit = await coalesced_get_or_set(cache_key, cache_ttl.STUDENT_TASKS_TODAY, _load_tasks)
         response = success(tasks)
         response.headers["X-Cache"] = "HIT" if hit else "MISS"
         return response

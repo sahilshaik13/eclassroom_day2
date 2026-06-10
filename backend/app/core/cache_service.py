@@ -1,6 +1,7 @@
 """Redis response cache + invalidation helpers."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -14,6 +15,13 @@ from app.core.cache_tags import invalidate_by_tag, build_tags as _build_cache_ta
 
 _logger = logging.getLogger(__name__)
 T = TypeVar("T")
+
+# In-flight factory tasks keyed by cache key. Concurrent requests for the
+# same missing key share one factory invocation (request coalescing) instead
+# of all hitting the DB / Supabase in parallel. Especially valuable for the
+# study-plan endpoint where 20 students opening the same class within ~200ms
+# would otherwise fan out 20 identical queries.
+_in_flight: dict[str, asyncio.Future] = {}
 
 # Cache metrics for performance monitoring
 _cache_metrics = {
@@ -179,6 +187,64 @@ async def get_or_set_cache(
     value = await factory()
     await cache_set(key, value, ttl_seconds)
     return value, False
+
+
+async def coalesced_get_or_set(
+    key: str,
+    ttl_seconds: int,
+    factory: Callable[[], Awaitable[T]],
+) -> tuple[T, bool]:
+    """
+    Same as get_or_set_cache but with request coalescing: when N coroutines
+    ask for the same missing key at the same time, only one factory runs and
+    the rest await the same Future. Eliminates thundering-herd on hot keys
+    like the per-class study plan when 20 students open the same class.
+
+    Race-free exception handling: the in-flight Future is the single
+    source of truth. The first caller awaits the factory directly and
+    sets the result/exception on the Future; all subsequent callers
+    await the Future and receive the same outcome. No orphan tasks,
+    no "future exception was never retrieved" warnings.
+    """
+    cached = await cache_get(key)
+    if cached is not None:
+        return cached, True
+
+    existing = _in_flight.get(key)
+    if existing is not None and not existing.done():
+        value = await existing
+        return value, False
+
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future = loop.create_future()
+    _in_flight[key] = fut
+
+    try:
+        value = await factory()
+        # Schedule the cache write without blocking the hot path.
+        try:
+            loop.create_task(cache_set(key, value, ttl_seconds))
+        except RuntimeError:
+            await cache_set(key, value, ttl_seconds)
+        if not fut.done():
+            fut.set_result(value)
+        return value, False
+    except Exception as exc:
+        if not fut.done():
+            fut.set_exception(exc)
+        raise
+    finally:
+        # If no one awaited the future (no other waiters), the future
+        # still holds the exception. Call .exception() to mark it
+        # retrieved so asyncio doesn't warn. The first caller already
+        # has the value/exception from the direct return/raise above.
+        _in_flight.pop(key, None)
+        if fut.done() and not fut.cancelled():
+            try:
+                # This marks the future as "retrieved" internally.
+                fut.exception()
+            except (asyncio.CancelledError, asyncio.InvalidStateError):
+                pass
 
 
 async def invalidate_caches_for_student_activity(tenant_id: str, student_id: str) -> None:

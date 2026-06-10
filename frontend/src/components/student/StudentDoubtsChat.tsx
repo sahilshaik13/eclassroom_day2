@@ -353,24 +353,32 @@ export function StudentDoubtsChat({
     if (isError) toast.error('Could not load your doubts')
   }, [isError])
 
-  useEffect(() => {
-    const threadId = activeThread?.classId ?? null
-    const behavior: ScrollBehavior =
-      lastScrollThreadRef.current === threadId ? 'smooth' : 'auto'
-    lastScrollThreadRef.current = threadId
-    scrollChatPaneToBottom(messagesScrollRef.current, behavior)
-  }, [activeThread?.classId, activeThread?.messages.length])
+  // Combined: scroll-to-bottom + outbox-prune both depend on the
+  // active thread. Previously split into two effects that each
+  // re-ran on any message change, doubling the work per update.
+  const activeThreadId = activeThread?.classId ?? null
+  const activeMessageCount = activeThread?.messages.length ?? 0
 
   useEffect(() => {
-    if (!activeThread?.messages?.length) return
-    if (
-      pruneDeliveredOutbox((clientId) =>
-        serverHasClientMessage(activeThread.messages as DoubtChatMessage[], clientId),
-      )
-    ) {
-      setOutboxTick((n) => n + 1)
+    if (activeThreadId == null) return
+    const behavior: ScrollBehavior =
+      lastScrollThreadRef.current === activeThreadId ? 'smooth' : 'auto'
+    lastScrollThreadRef.current = activeThreadId
+    scrollChatPaneToBottom(messagesScrollRef.current, behavior)
+
+    if (activeMessageCount > 0 && activeThread) {
+      if (
+        pruneDeliveredOutbox((clientId) =>
+          serverHasClientMessage(activeThread.messages as DoubtChatMessage[], clientId),
+        )
+      ) {
+        setOutboxTick((n) => n + 1)
+      }
     }
-  }, [activeThread?.messages, activeThread?.classId])
+    // activeMessageCount is sufficient as a proxy for the messages
+    // array reference; the actual messages are read via activeThread.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeThreadId, activeMessageCount])
 
   const refresh = () => {
     softRefetchStudentDoubts(queryClient)

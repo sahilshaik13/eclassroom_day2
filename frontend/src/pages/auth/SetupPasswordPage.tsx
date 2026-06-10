@@ -53,7 +53,7 @@ const Logo = () => (
 
 export default function SetupPasswordPage() {
   const navigate = useNavigate()
-  const { storeTokenOnly } = useAuthStore()
+  const {} = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [token, setToken] = useState<string | null>(null)
@@ -128,15 +128,7 @@ export default function SetupPasswordPage() {
         return
       }
       setLoggingIn(true)
-      const res = await authApi.login(email, data.password)
-      const { user, access_token, refresh_token, mfa_required, mfa_enrolled } = res.data.data
-      if (mfa_required) {
-        storeTokenOnly(user, access_token, refresh_token)
-        localStorage.removeItem('temp_invite_token')
-        localStorage.removeItem('temp_invite_email')
-        navigate(mfa_enrolled ? '/auth/mfa-verify' : '/auth/mfa-setup')
-        return
-      }
+      
       localStorage.removeItem('temp_invite_token')
       localStorage.removeItem('temp_invite_email')
       localStorage.removeItem('access_token')

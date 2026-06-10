@@ -1,5 +1,15 @@
 /** Central React Query keys — keeps invalidation and prefetch aligned */
 
+import { getStudyPlanVersion } from './studyPlanVersion'
+
+/**
+ * Append the current study-plan version to a query key. When the realtime
+ * layer bumps the version, every key built with this helper automatically
+ * misses cache on next render. This replaces the previous 7-parallel
+ * softRefetch fan-out with a single version increment.
+ */
+const v = (classId: string) => getStudyPlanVersion(classId)
+
 export const queryKeys = {
   admin: {
     stats: () => ['admin', 'stats'] as const,
@@ -12,9 +22,9 @@ export const queryKeys = {
     students: (limit: number) => ['admin', 'students', limit] as const,
     classes: () => ['admin', 'classes'] as const,
     classroomStudyPlan: (classId: string) =>
-      ['admin', 'classroom', classId, 'study-plan'] as const,
+      ['admin', 'classroom', classId, 'study-plan', v(classId)] as const,
     classroomStudyPlanSource: (classId: string) =>
-      ['admin', 'classroom', classId, 'study-plan-source'] as const,
+      ['admin', 'classroom', classId, 'study-plan-source', v(classId)] as const,
     competitions: () => ['admin', 'competitions'] as const,
   },
   teacher: {
@@ -23,9 +33,9 @@ export const queryKeys = {
     doubts: (filter?: string) =>
       ['teacher', 'doubts', filter ?? 'all'] as const,
     classroomStudyPlan: (classId: string) =>
-      ['teacher', 'classroom', classId, 'study-plan'] as const,
+      ['teacher', 'classroom', classId, 'study-plan', v(classId)] as const,
     classroomStudyPlanSource: (classId: string) =>
-      ['teacher', 'classroom', classId, 'study-plan-source'] as const,
+      ['teacher', 'classroom', classId, 'study-plan-source', v(classId)] as const,
     classMeetings: (classId: string) =>
       ['teacher', 'classroom', classId, 'meetings'] as const,
     meetingsToday: () => ['teacher', 'meetings', 'today'] as const,
@@ -47,7 +57,7 @@ export const queryKeys = {
     doubts: () => ['student', 'doubts'] as const,
     classesMy: () => ['student', 'classes', 'my'] as const,
     classStudyPlan: (classId: string) =>
-      ['student', 'classes', classId, 'study-plan'] as const,
+      ['student', 'classes', classId, 'study-plan', v(classId)] as const,
     classMeetings: (classId: string) =>
       ['student', 'classes', classId, 'meetings'] as const,
     upcomingMeetings: () => ['student', 'meetings', 'upcoming'] as const,

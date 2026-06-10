@@ -13,6 +13,7 @@
 
 import { supabase, supabaseRealtimeEnabled } from './supabase';
 import { queryKeys } from './queryKeys';
+import { bumpStudyPlanVersion } from './studyPlanVersion';
 import toast from 'react-hot-toast';
 import {
   competitionDisplayTitle,
@@ -44,6 +45,62 @@ function getQueryClient() {
     console.warn('[Realtime] QueryClient not set - invalidation will not work');
   }
   return _queryClient;
+}
+
+/**
+ * Wrap a realtime callback in a try/catch error boundary.
+ *
+ * Supabase realtime callbacks run as event-listener dispatches; any
+ * unhandled throw (e.g. queryClient is null after logout, a JSON parse
+ * on a malformed payload, a toast that throws on iOS Safari) surfaces
+ * as an unhandled promise rejection that can crash the tab — especially
+ * in PWA / iOS Safari where unhandled rejections are fatal.
+ */
+function safeCallback<T>(name: string, fn: (payload: T) => void | Promise<void>) {
+  return (payload?: T) => {
+    try {
+      const result = fn(payload as T);
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        (result as Promise<void>).catch((err: unknown) => {
+          console.error(`[Realtime] ${name} async handler failed`, err);
+        });
+      }
+    } catch (err) {
+      console.error(`[Realtime] ${name} handler threw`, err);
+    }
+  };
+}
+
+/**
+ * Coalesce a batch of (invalidate / refetch) calls into a single flush.
+ * Realtime channels can fire dozens of events within ~1s during a teacher
+ * publishing a new plan (or a flurry of student submissions). Without this,
+ * every event triggers a fresh refetch; with it, we run exactly one flush
+ * per 400ms window keyed by `key`.
+ */
+const _flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const _flushWaiters = new Map<string, Array<() => void>>();
+
+function debouncedInvalidate(key: string, run: () => void, waitMs = 400) {
+  const existing = _flushWaiters.get(key);
+  if (existing) {
+    existing.push(run);
+    return;
+  }
+  _flushWaiters.set(key, [run]);
+  const t = setTimeout(() => {
+    const waiters = _flushWaiters.get(key) ?? [];
+    _flushWaiters.delete(key);
+    _flushTimers.delete(key);
+    for (const w of waiters) {
+      try {
+        w();
+      } catch (err) {
+        console.error('[realtime] flush handler failed', err);
+      }
+    }
+  }, waitMs);
+  _flushTimers.set(key, t);
 }
 
 function toastExamActiveChange(title: string, isActive: boolean) {
@@ -132,8 +189,8 @@ export function subscribeToCompetitionExamStatus(
         }
       },
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Competition exam status (${competitionId}): ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => {
@@ -212,8 +269,8 @@ export function subscribeToStudentClass(classId: string, studentId: string) {
         invalidateStudyPlanForClass(classId);
       },
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Student subscription status: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   const qc = getQueryClient();
@@ -326,8 +383,8 @@ export function subscribeToClassMeetings(
         onChange?.('insert');
       },
     )
-    .subscribe((status) => {
-        console.log(`[Realtime] Class meetings subscription: ${status}`);
+    .subscribe((_status) => {
+        void 0;
       });
     entry = { channel, refs: 0 };
     classMeetingsChannels.set(classId, entry);
@@ -359,13 +416,23 @@ export function subscribeToClassMeetings(
  * @returns Unsubscribe function
  */
 async function refreshTeacherDoubts(toastMessage?: string) {
-  const qc = getQueryClient();
-  if (qc) {
-    await qc.refetchQueries({ queryKey: ['teacher', 'doubts'], type: 'active' });
-    await qc.refetchQueries({ queryKey: queryKeys.teacher.pulseToday(), type: 'active' });
+  try {
+    debouncedInvalidate('teacher-doubts:pulse', () => {
+      const qc = getQueryClient();
+      if (qc) {
+        void qc.refetchQueries({ queryKey: ['teacher', 'doubts'], type: 'active' });
+        void qc.refetchQueries({ queryKey: queryKeys.teacher.pulseToday(), type: 'active' });
+      }
+    });
+  } catch (err) {
+    console.error('[Realtime] refreshTeacherDoubts failed', err);
   }
   if (toastMessage) {
-    toast(toastMessage, { duration: 4000, icon: '❓' });
+    try {
+      toast(toastMessage, { duration: 4000, icon: '❓' });
+    } catch (err) {
+      console.error('[Realtime] refreshTeacherDoubts toast failed', err);
+    }
   }
 }
 
@@ -421,8 +488,8 @@ export function subscribeToTeacherDoubts(
           notify()
         },
       )
-      .subscribe((status) => {
-        console.log(`[Realtime] Teacher doubts for ${classId}: ${status}`);
+      .subscribe((_status) => {
+        void 0;
       });
 
     channels.push(channel);
@@ -444,12 +511,14 @@ export function subscribeToStudentDoubts(
 
   const suppressToasts = options?.suppressToasts ?? false
 
-  const refresh = () => {
+  const refresh = safeCallback('student-doubts', () => {
     if (!suppressToasts) {
-      softRefetch(queryKeys.student.doubts());
+      debouncedInvalidate(`student-doubts:${studentId}`, () =>
+        softRefetch(queryKeys.student.doubts()),
+      );
     }
     options?.onRefresh?.();
-  };
+  });
 
   const channel = supabase
     .channel(`student:${studentId}:doubts`)
@@ -473,8 +542,8 @@ export function subscribeToStudentDoubts(
         }
       },
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Student doubts ${studentId}: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => channel.unsubscribe();
@@ -514,8 +583,8 @@ export function subscribeToTeacherQueue(teacherId: string, classIds: string[]) {
           // toast('New submission received');
         }
       )
-      .subscribe((status) => {
-        console.log(`[Realtime] Teacher subscription for ${classId}: ${status}`);
+      .subscribe((_status) => {
+        void 0;
       });
 
     channels.push(channel);
@@ -526,14 +595,21 @@ export function subscribeToTeacherQueue(teacherId: string, classIds: string[]) {
   };
 }
 
-/** Invalidate/refetch study plan queries for a classroom across teacher, student, admin. */
+/**
+ * Invalidate/refetch study plan queries for a classroom across teacher, student, admin.
+ *
+ * Implementation note: the previous version did 7 parallel `softRefetch`
+ * calls on every study-plan DB change. With ~20 students viewing the same
+ * class, that was 140 requests per change.
+ *
+ * The current approach bumps an in-memory version counter; every query
+ * key built with `getStudyPlanVersion(classId)` automatically misses
+ * cache on next render and React Query refetches exactly once per
+ * subscriber. tasksToday is keyed without classId so we still touch it
+ * explicitly to keep today's list in sync.
+ */
 export function invalidateStudyPlanForClass(classId: string) {
-  softRefetch(queryKeys.teacher.classroomStudyPlan(classId));
-  softRefetch(queryKeys.teacher.classroomStudyPlanSource(classId));
-  softRefetch(queryKeys.student.classStudyPlan(classId));
-  softRefetch(['student', 'classes', classId, 'study-plan']);
-  softRefetch(queryKeys.admin.classroomStudyPlan(classId));
-  softRefetch(queryKeys.admin.classroomStudyPlanSource(classId));
+  bumpStudyPlanVersion(classId);
   softRefetch(queryKeys.student.tasksToday());
 }
 
@@ -564,7 +640,7 @@ export function subscribeToStudyPlan(
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const handleChange = (source: string) => {
+  const handleChange = (_source: string) => {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       invalidateStudyPlanForClass(classId);
@@ -579,7 +655,7 @@ export function subscribeToStudyPlan(
           toast('Study plan updated remotely', { duration: 3000 });
         }
       }
-      console.log(`[Realtime] Study plan refresh (${source}) class=${classId}`);
+      void 0;
     }, 400);
   };
 
@@ -641,8 +717,8 @@ export function subscribeToStudyPlan(
     );
   }
 
-  channel.subscribe((status) => {
-    console.log(`[Realtime] Study plan subscription (${role}): ${status}`);
+  channel.subscribe((_status) => {
+    void 0;
   });
 
   return () => {
@@ -712,8 +788,8 @@ export function subscribeToAdminUpdates(tenantId: string) {
         }
       }
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Admin subscription: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => {
@@ -733,18 +809,20 @@ export function subscribeToTeacherStudentProfile(
     return () => {};
   }
 
-  const refreshProfile = () => {
-    softRefetch(queryKeys.teacher.studentOverview(studentId));
+  const refreshProfile = safeCallback('teacher-profile', () => {
     const now = new Date();
-    softRefetch(
-      queryKeys.teacher.studentReport(
-        studentId,
-        now.getMonth() + 1,
-        now.getFullYear(),
-        'all',
-      ),
-    );
-  };
+    debouncedInvalidate(`teacher-profile:${studentId}`, () => {
+      softRefetch(queryKeys.teacher.studentOverview(studentId));
+      softRefetch(
+        queryKeys.teacher.studentReport(
+          studentId,
+          now.getMonth() + 1,
+          now.getFullYear(),
+          'all',
+        ),
+      );
+    });
+  });
 
   let channel = supabase.channel(`teacher:${teacherId}:student-profile:${studentId}`);
 
@@ -818,8 +896,8 @@ export function subscribeToTeacherStudentProfile(
     );
   }
 
-  channel.subscribe((status) => {
-    console.log(`[Realtime] Teacher student profile subscription: ${status}`);
+  channel.subscribe((_status) => {
+    void 0;
   });
 
   return () => {
@@ -904,8 +982,8 @@ export function subscribeToAdminCompetitions(tenantId: string) {
         if (result.competition_id) refreshRegistrations(result.competition_id);
       },
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Admin competitions subscription: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => {
@@ -928,11 +1006,13 @@ export function subscribeToStudentProgress(studentId: string) {
     return () => {};
   }
 
-  const refresh = () => {
-    softRefetch(['student', 'progress-report']);
-    softRefetch(queryKeys.student.tasksToday());
-    softRefetch(queryKeys.student.classesMy());
-  };
+  const refresh = safeCallback('student-progress', () => {
+    debouncedInvalidate(`student-progress:${studentId}`, () => {
+      softRefetch(['student', 'progress-report']);
+      softRefetch(queryKeys.student.tasksToday());
+      softRefetch(queryKeys.student.classesMy());
+    });
+  });
 
   const channel = supabase
     .channel(`student:${studentId}:progress`)
@@ -946,8 +1026,8 @@ export function subscribeToStudentProgress(studentId: string) {
       },
       refresh,
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Student progress subscription: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => {
@@ -1044,8 +1124,8 @@ export function subscribeToStudentCompetitions(tenantId: string, studentId: stri
         softRefetch(queryKeys.competitions.studentRegistrations());
       },
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Student competitions subscription: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => {
@@ -1147,8 +1227,8 @@ export function subscribeToTeacherCompetitions(tenantId: string, teacherId: stri
         softRefetch(queryKeys.teacher.competitions());
       }
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Teacher competitions subscription: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => {
@@ -1220,8 +1300,8 @@ export function subscribeToCompetitionGrading(
         refresh();
       },
     )
-    .subscribe((status) => {
-      console.log(`[Realtime] Competition grading subscription: ${status}`);
+    .subscribe((_status) => {
+      void 0;
     });
 
   return () => {
@@ -1240,8 +1320,8 @@ export async function checkRealtimeHealth(): Promise<boolean> {
 
   try {
     const channel = supabase.channel('health-check');
-    channel.subscribe((status) => {
-      console.log(`[Realtime] Health check status: ${status}`);
+    channel.subscribe((_status) => {
+      void 0;
     });
 
     // Quick unsubscribe

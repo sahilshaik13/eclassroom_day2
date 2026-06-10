@@ -11,7 +11,6 @@ export interface AuthUser {
   email?: string
   phone?: string
   is_registered?: boolean
-  mfa_enabled?: boolean
 }
 
 export interface AuthTokens {
@@ -22,16 +21,6 @@ export interface AuthTokens {
 
 export interface LoginResponse extends AuthTokens {
   user: AuthUser
-  mfa_required?: boolean
-  mfa_enrolled?: boolean
-  mfa_token?: string
-}
-
-export interface MFAEnrollResponse {
-  factor_id: string
-  qr_code: string    // data URI
-  secret: string
-  uri: string
 }
 
 // ── API standard envelope ─────────────────────────────────────────────────────

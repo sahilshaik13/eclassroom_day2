@@ -38,10 +38,14 @@ export default function StudentLoginPage() {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   useEffect(() => {
-    if (resendCooldown > 0) {
-      const t = setTimeout(() => setResendCooldown((c) => c - 1), 1000)
-      return () => clearTimeout(t)
-    }
+    if (resendCooldown <= 0) return
+    // Single setInterval instead of setTimeout-per-second: previously
+    // the effect re-ran every 1s (cleanup + recreate), causing GC
+    // churn and a brief render gap where the button flickered.
+    const id = window.setInterval(() => {
+      setResendCooldown((c) => (c > 0 ? c - 1 : 0))
+    }, 1000)
+    return () => window.clearInterval(id)
   }, [resendCooldown])
 
   const {

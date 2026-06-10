@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { User, Phone, Shield, Save, Camera, Mail, BadgeCheck, Fingerprint } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
-import { useNavigate } from 'react-router-dom'
 import api from '@/services/api'
 import { authApi } from '@/services/authApi'
 import { useAuthStore } from '@/stores/authStore'
@@ -11,21 +10,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 
 export default function TeacherProfilePage() {
   const { user, setSession, accessToken, refreshToken } = useAuthStore()
   const [saving, setSaving] = useState(false)
-  const [disableMfaOpen, setDisableMfaOpen] = useState(false)
-  const [disablingMfa, setDisablingMfa] = useState(false)
-  const navigate = useNavigate()
   
   useEffect(() => {
     const refreshStatus = async () => {
@@ -57,26 +45,6 @@ export default function TeacherProfilePage() {
       toast.error('Failed to update profile. Please check your connection.')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const handleEnableMFA = () => {
-    navigate('/auth/mfa-setup')
-  }
-
-  const confirmDisableMFA = async () => {
-    setDisablingMfa(true)
-    try {
-      await authApi.mfaUnenroll()
-      if (user && accessToken && refreshToken) {
-        setSession({ ...user, mfa_enabled: false }, accessToken, refreshToken)
-      }
-      setDisableMfaOpen(false)
-      toast.success('Two-factor authentication has been disabled.')
-    } catch {
-      toast.error('Failed to disable MFA. Please try again.')
-    } finally {
-      setDisablingMfa(false)
     }
   }
 
@@ -136,29 +104,12 @@ export default function TeacherProfilePage() {
                     <Fingerprint className="h-5 w-5" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-bold text-slate-900">Multi-factor Auth</p>
+                    <p className="text-xs font-bold text-slate-900">Account Protected</p>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      {user?.mfa_enabled ? 'Enabled' : 'Not Enabled'}
+                      Password &amp; RLS Secured
                     </p>
                   </div>
                 </div>
-                {user?.mfa_enabled ? (
-                  <Button 
-                    onClick={() => setDisableMfaOpen(true)}
-                    variant="outline" 
-                    className="w-full rounded-xl border-rose-200 bg-rose-50/50 h-10 text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500 hover:text-white transition-all duration-300"
-                  >
-                    Disable MFA Protection
-                  </Button>
-                ) : (
-                  <Button 
-                    onClick={handleEnableMFA}
-                    variant="outline" 
-                    className="w-full rounded-xl border-primary/20 bg-primary/5 h-10 text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary hover:text-white transition-all duration-300"
-                  >
-                    Enable MFA Protection
-                  </Button>
-                )}
                 <Button variant="outline" className="w-full rounded-xl border-slate-200 h-10 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50">
                   Privacy Settings
                 </Button>
@@ -253,36 +204,6 @@ export default function TeacherProfilePage() {
           </div>
         </div>
       </div>
-
-      <Dialog open={disableMfaOpen} onOpenChange={(open) => !disablingMfa && setDisableMfaOpen(open)}>
-        <DialogContent className="max-w-md rounded-2xl border-slate-200">
-          <DialogHeader>
-            <DialogTitle className="text-slate-900">Disable two-factor authentication?</DialogTitle>
-            <DialogDescription className="text-left text-slate-600">
-              Your account will be less secure. You can turn MFA back on anytime from this page.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-xl"
-              disabled={disablingMfa}
-              onClick={() => setDisableMfaOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={disablingMfa}
-              className="rounded-xl bg-rose-600 text-white hover:bg-rose-700"
-              onClick={() => void confirmDisableMFA()}
-            >
-              {disablingMfa ? 'Disabling…' : 'Disable MFA'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </DashboardPageLayout>
   )
 }

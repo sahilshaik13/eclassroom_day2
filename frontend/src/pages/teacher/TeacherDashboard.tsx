@@ -87,9 +87,14 @@ export default function TeacherDashboard() {
     return unsubscribe
   }, [user?.id, classes])
 
+  // Clear teacher doubts session cache when the user changes (e.g. logout/login
+  // on a shared device). Empty-deps would only run on mount and could leak the
+  // previous teacher's cached data into a new session.
+  const userId = user?.id
   useEffect(() => {
+    if (!userId) return
     clearTeacherDoubtsSessionCache()
-  }, [])
+  }, [userId])
 
   useEffect(() => {
     if (classes.length === 0) return

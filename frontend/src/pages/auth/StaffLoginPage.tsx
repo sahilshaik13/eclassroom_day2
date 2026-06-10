@@ -17,7 +17,7 @@ type Form = z.infer<typeof schema>
 
 export default function StaffLoginPage() {
   const navigate = useNavigate()
-  const { setSession, storeTokenOnly } = useAuthStore()
+  const { setSession } = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [showPass, setShowPass] = useState(false)
 
@@ -29,13 +29,7 @@ export default function StaffLoginPage() {
     setLoading(true)
     try {
       const res = await authApi.login(data.email, data.password)
-      const { user, access_token, refresh_token, mfa_required, mfa_enrolled } = res.data.data
-
-      if (mfa_required) {
-        storeTokenOnly(user, access_token, refresh_token)
-        navigate(mfa_enrolled ? '/auth/mfa-verify' : '/auth/mfa-setup')
-        return
-      }
+      const { user, access_token, refresh_token } = res.data.data
 
       setSession(user, access_token, refresh_token)
       toast.success(`Welcome, ${user.name}!`)

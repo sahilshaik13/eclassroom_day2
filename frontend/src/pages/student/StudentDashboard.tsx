@@ -16,7 +16,7 @@ import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
 import { fetchStudentDoubts, studentDoubtsQueryOptions } from '@/lib/doubtsQueries'
-import { softRefetchStudyPlan, studentTasksTodayQueryOptions } from '@/lib/studyPlanQueries'
+import { studentTasksTodayQueryOptions } from '@/lib/studyPlanQueries'
 import { requiresAudioOnToggle } from '@/lib/studentStudyPlanTasks'
 import { fetchStudentUpcomingMeetings } from '@/services/meetApi'
 import { pickNextMeeting } from '@/lib/studentMeetings'
@@ -105,8 +105,16 @@ export default function StudentDashboard() {
 
   const nextMeeting = useMemo(() => pickNextMeeting(upcomingMeetings), [upcomingMeetings])
 
+  // Stable key for class ids — prevents effect re-runs when the array reference changes
+  // but the contents haven't (e.g. on every refetch of useQuery).
+  const classIdsKey = useMemo(
+    () => (myClasses.length ? myClasses.map((c) => c.id).sort().join(',') : ''),
+    [myClasses]
+  )
+  const firstClassId = myClasses[0]?.id
+
   useEffect(() => {
-    if (!myClasses.length) return
+    if (!classIdsKey) return
     const unsubs = myClasses.map((c) =>
       subscribeToClassMeetings(c.id, () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.student.upcomingMeetings() })
@@ -116,20 +124,17 @@ export default function StudentDashboard() {
     return () => {
       unsubs.forEach((fn) => fn())
     }
-  }, [myClasses, queryClient])
+  }, [classIdsKey, queryClient])
 
   const studentUserId = useAuthStore((s) => s.user?.id)
   const tenantId = useAuthStore((s) => s.user?.tenant_id ?? undefined)
 
   useEffect(() => {
-    const firstClassId = myClasses[0]?.id
     if (!firstClassId || !studentUserId) return
     return subscribeToStudyPlan(firstClassId, studentUserId, 'student', { tenantId })
-  }, [myClasses, studentUserId, tenantId])
+  }, [firstClassId, studentUserId, tenantId])
 
   useEffect(() => {
-    if (!myClasses.length) return
-    const firstClassId = myClasses[0]?.id
     if (!firstClassId) return
     void queryClient.prefetchQuery({
       queryKey: ['student', 'classes', firstClassId, 'study-plan'],
@@ -143,7 +148,7 @@ export default function StudentDashboard() {
           .data?.data ?? null,
       staleTime: 60_000,
     })
-  }, [myClasses, queryClient])
+  }, [firstClassId, queryClient])
 
   const planName = tasks[0]?.plan_name || 'Study plan'
   const todayHeading = useMemo(() => {
@@ -209,9 +214,11 @@ export default function StudentDashboard() {
     setRecordingTaskId(null)
   }
 
-  const refreshTodayTasks = () => {
-    softRefetchStudyPlan(queryClient, queryKeys.student.tasksToday())
-  }
+  // Previously `refreshTodayTasks` was called at the end of `handleToggleTask`
+  // to refetch the today-tasks key after a successful PATCH. That raced with
+  // the optimistic update done by `patchTodayTask` and sometimes reverted it.
+  // The function is intentionally not exported / not called — React Query's
+  // stale-while-revalidate handles background sync.
 
   const patchTodayTask = (taskId: string, completed: boolean) => {
     queryClient.setQueryData(
@@ -258,7 +265,11 @@ export default function StudentDashboard() {
         patchTodayTask(task.id, completed)
         toast.success(completed ? 'Task marked complete' : 'Task unmarked')
       }
-      refreshTodayTasks()
+      // No manual refetch: patchTodayTask() already updated the cache
+      // optimistically. The previous code called refreshTodayTasks()
+      // here, which triggered a refetch that raced with the optimistic
+      // update and sometimes reverted it. Let React Query's stale-while-
+      // revalidate handle the background sync.
     } catch {
       patchTodayTask(task.id, previousCompleted)
       toast.error('Could not update task')

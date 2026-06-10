@@ -340,10 +340,32 @@ async def _fetch_log_page(
     tenant_id: Optional[str],
     limit: int,
     offset: int,
+    before_id: Optional[int] = None,
 ) -> list[Any]:
     pool = get_neon_pool()
     assert pool is not None
-    if tenant_id:
+    # Keyset path: `WHERE id < $before_id` uses the PK index for an
+    # O(log n + limit) scan. OFFSET path stays for shallow pages.
+    if before_id is not None:
+        if tenant_id:
+            list_sql = f"""
+                SELECT {_LOG_LIST_COLUMNS}
+                FROM application_logs
+                WHERE tenant_id = $1::uuid AND id < $2::bigint
+                ORDER BY id DESC
+                LIMIT $3
+            """
+            list_args: tuple[Any, ...] = (tenant_id, before_id, limit)
+        else:
+            list_sql = f"""
+                SELECT {_LOG_LIST_COLUMNS}
+                FROM application_logs
+                WHERE id < $1::bigint
+                ORDER BY id DESC
+                LIMIT $2
+            """
+            list_args = (before_id, limit)
+    elif tenant_id:
         list_sql = f"""
             SELECT {_LOG_LIST_COLUMNS}
             FROM application_logs
@@ -392,6 +414,7 @@ async def list_application_logs(
     page: int = 1,
     limit: int = 100,
     tenant_id: Optional[str] = None,
+    before_id: Optional[int] = None,
 ) -> tuple[list[dict[str, Any]], int, bool]:
     pool = get_neon_pool()
     if not pool:
@@ -402,14 +425,20 @@ async def list_application_logs(
     offset = (page - 1) * limit
     tid = _safe_uuid(tenant_id)
 
+    # Keyset pagination: when `before_id` is provided, we use
+    # `WHERE id < $before_id` instead of OFFSET. This stays O(limit)
+    # regardless of how deep the user has scrolled. OFFSET is still
+    # used for shallow pages (legacy compatibility).
+    use_keyset = before_id is not None
+
     async def _load_page() -> tuple[list[dict[str, Any]], int]:
         rows, total = await asyncio.gather(
-            _fetch_log_page(tenant_id=tid, limit=limit, offset=offset),
+            _fetch_log_page(tenant_id=tid, limit=limit, offset=offset, before_id=before_id),
             _audit_total_cached(tid),
         )
         return [_row_to_dict(r) for r in rows], total
 
-    if page == 1:
+    if page == 1 and not use_keyset:
         cache_key = cache_keys.super_admin_audit_page(page, limit, tid)
         payload, hit = await get_or_set_cache(
             cache_key,

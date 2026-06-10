@@ -61,7 +61,7 @@ const Logo = () => (
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate()
-  const { setSession, storeTokenOnly } = useAuthStore()
+  const { setSession } = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [token, setToken] = useState<string | null>(null)
@@ -130,16 +130,10 @@ export default function ResetPasswordPage() {
 
       setLoggingIn(true)
       const res = await authApi.login(email, data.password)
-      const { user, access_token, refresh_token, mfa_required, mfa_enrolled } = res.data.data
+      const { user, access_token, refresh_token } = res.data.data
 
       localStorage.removeItem('temp_reset_token')
       localStorage.removeItem('temp_reset_email')
-
-      if (mfa_required) {
-        storeTokenOnly(user, access_token, refresh_token)
-        navigate(mfa_enrolled ? '/auth/mfa-verify' : '/auth/mfa-setup', { replace: true })
-        return
-      }
 
       setSession(user, access_token, refresh_token)
       toast.success(`Welcome back, ${user.name}!`)

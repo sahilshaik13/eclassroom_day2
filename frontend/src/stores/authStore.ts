@@ -13,7 +13,6 @@ interface AuthState {
   lastActivityTimestamp: number | null
 
   setSession: (user: AuthUser, accessToken: string, refreshToken: string) => void
-  storeTokenOnly: (user: AuthUser, accessToken: string, refreshToken: string) => void
   updateTokens: (accessToken: string, refreshToken: string) => void
   touchActivity: () => void
   clearSession: () => void
@@ -46,18 +45,6 @@ export const useAuthStore = create<AuthState>()(
           lastActivityTimestamp: Date.now() 
         })
         void syncSupabaseRealtimeAuth()
-      },
-
-      storeTokenOnly: (user, accessToken, refreshToken) => {
-        localStorage.setItem('access_token', accessToken)
-        localStorage.setItem('refresh_token', refreshToken)
-        set({ 
-          user, 
-          accessToken, 
-          refreshToken, 
-          isAuthenticated: false, 
-          lastActivityTimestamp: Date.now() 
-        })
       },
 
       updateTokens: (accessToken, refreshToken) => {

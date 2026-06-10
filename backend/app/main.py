@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -159,6 +160,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Compress JSON responses >= 1KB. ~70% bandwidth reduction on list endpoints
+# (study plan, students, audit logs). Outer-most so it wraps everything.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+# ── Cache-Control headers ─────────────────────────────────────
+# Hot read endpoints get a short private cache + stale-while-revalidate so the
+# browser can serve the next request instantly while a background fetch updates
+# the cache. Pairs with the Redis layer for the full speedup.
+_CACHE_RULES: list[tuple[str, str]] = [
+    ("/api/v1/student/tasks/today", "private, max-age=10, stale-while-revalidate=30"),
+    ("/api/v1/teacher/pulse/today", "private, max-age=10, stale-while-revalidate=30"),
+    ("/api/v1/teacher/dashboard", "private, max-age=10, stale-while-revalidate=30"),
+    ("/api/v1/admin/stats", "private, max-age=15, stale-while-revalidate=45"),
+    ("/api/v1/admin/tenant-info", "private, max-age=60, stale-while-revalidate=120"),
+    ("/api/v1/teacher/classes", "private, max-age=30, stale-while-revalidate=60"),
+    ("/api/v1/student/classes/my", "private, max-age=30, stale-while-revalidate=60"),
+    ("/api/v1/teacher/meetings/today", "private, max-age=10, stale-while-revalidate=30"),
+    ("/api/v1/student/meetings/upcoming", "private, max-age=10, stale-while-revalidate=30"),
+]
+
+_CACHE_PREFIX_PUBLIC = "/api/v1/public/"
+
+
+@app.middleware("http")
+async def cache_control_middleware(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+
+    if path.startswith(_CACHE_PREFIX_PUBLIC):
+        # Public endpoints (tenant info, apply pages) — fully cacheable on
+        # shared caches (CDN, Cloudflare) since they are tenant-keyed slugs.
+        if "Cache-Control" not in response.headers:
+            response.headers["Cache-Control"] = (
+                "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+            )
+        return response
+
+    for prefix, value in _CACHE_RULES:
+        if path.startswith(prefix) and "Cache-Control" not in response.headers:
+            response.headers["Cache-Control"] = value
+            break
+    return response
 
 # ── Global error handler ──────────────────────────────────────
 @app.exception_handler(Exception)

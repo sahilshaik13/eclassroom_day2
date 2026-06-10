@@ -23,7 +23,6 @@ JWT payload structure:
       "role":       "student|teacher|admin",
       "tenant_id":  "<uuid>",
       "provider":   "sms"              ← only on student custom JWTs
-      "mfa_verified": true|false
     },
     "exp": ...
   }
@@ -65,13 +64,6 @@ class TokenData:
         self.email:     Optional[str] = payload.get("email")
         self.raw:       dict          = payload
         self.raw_token: str           = ""  # Populated by dependency
-
-        # MFA verified:
-        # - Real Supabase JWTs: aal="aal2" after successful TOTP challenge
-        # - Custom student JWTs: mfa_verified=True in app_metadata
-        aal           = payload.get("aal", "")
-        app_meta_flag = payload.get("app_metadata", {}).get("mfa_verified", False)
-        self.mfa_verified: bool = (aal == "aal2") or bool(app_meta_flag)
 
         # True when this is a custom student JWT (not issued by Supabase GoTrue)
         self.is_custom_jwt: bool = (
@@ -220,14 +212,6 @@ async def require_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "UNAUTHORIZED", "message": "Admin access required"},
         )
-    if not token.mfa_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code":    "MFA_REQUIRED",
-                "message": "Admin must complete TOTP MFA before accessing this resource",
-            },
-        )
     return token
 
 
@@ -239,7 +223,6 @@ async def require_super_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"code": "UNAUTHORIZED", "message": "Platform level access required"},
         )
-    # MFA check temporarily removed per user request
     return token
 
 

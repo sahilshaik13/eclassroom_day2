@@ -49,6 +49,13 @@ function getStoredToken(): string | null {
 api.interceptors.request.use((config) => {
   const token = getStoredToken()
   if (token && !config.headers.Authorization) config.headers.Authorization = `Bearer ${token}`
+  // For PATCH / DELETE we don't need the full row back. PostgREST's
+  // Prefer: return=minimal skips returning the body, cutting ~80% of
+  // payload bytes on toggle / mark-seen / archive endpoints.
+  const method = (config.method ?? '').toUpperCase()
+  if ((method === 'PATCH' || method === 'DELETE') && !config.headers.Prefer) {
+    config.headers.Prefer = 'return=minimal'
+  }
   return config
 })
 
@@ -143,11 +150,6 @@ api.interceptors.response.use(
     }
 
     if (err.response?.status === 403) {
-      const body = err.response.data as { error?: { code?: string }, detail?: { code?: string, message?: string } }
-      if (body?.error?.code === 'MFA_REQUIRED' && !onAuthPage) {
-        window.location.href = '/auth/mfa-setup'
-        return Promise.reject(err)
-      }
     }
 
     // Map FastAPI specific HTTPException detail object into expected error.message

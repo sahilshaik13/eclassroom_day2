@@ -14,8 +14,6 @@ import PortalLayout from '@/components/shared/PortalLayout'
 // Auth pages (eager — first paint)
 import StudentLoginPage from '@/pages/auth/StudentLoginPage'
 import StaffLoginPage from '@/pages/auth/StaffLoginPage'
-import MFASetupPage from '@/pages/auth/MFASetupPage'
-import MFAVerifyPage from '@/pages/auth/MFAVerifyPage'
 import AuthCallback from '@/pages/auth/AuthCallback'
 import SetupPasswordPage from '@/pages/auth/SetupPasswordPage'
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
@@ -204,8 +202,6 @@ export default function App() {
           path="/auth/login"
           element={<RedirectIfAuthed><StaffLoginPage /></RedirectIfAuthed>}
         />
-        <Route path="/auth/mfa-setup" element={<MFASetupPage />} />
-        <Route path="/auth/mfa-verify" element={<MFAVerifyPage />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/auth/setup-password" element={<SetupPasswordPage />} />
         <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />

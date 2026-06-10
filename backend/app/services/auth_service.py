@@ -385,13 +385,11 @@ class AuthService:
             except Exception:
                 pass
 
-        access_token = AuthService._issue_session(user_data, mfa_verified=True)
+        access_token = AuthService._issue_session(user_data)
         return {
             "access_token": access_token,
             "refresh_token": "manual-otp-verified",
             "token_type": "bearer",
-            "mfa_required": False,
-            "mfa_enrolled": False,
             "is_existing_student": is_existing_student,
             "is_competition_participant": bool(competition_id),
             "user": {
@@ -407,7 +405,6 @@ class AuthService:
     @staticmethod
     def _issue_session(
         user_data: dict,
-        mfa_verified: bool = True,
         expires_in: timedelta = timedelta(days=7)
     ) -> str:
         """Sign HS256 JWTs for the student manual-OTP flow."""
@@ -424,7 +421,6 @@ class AuthService:
                 "role":          user_data["role"],
                 "tenant_id":     user_data["tenant_id"],
                 "is_registered": user_data.get("is_registered", False),
-                "mfa_verified":  mfa_verified,
             },
             "user_metadata": {
                 "name": user_data.get("name", "")
@@ -471,7 +467,7 @@ class AuthService:
                 .execute()
             )
             if platform_admin_row and platform_admin_row.data:
-                # Super admin found - mandatory MFA
+                # Super admin found
                 u_data = platform_admin_row.data
                 user_data = {
                     "id": u_data["id"],
@@ -491,8 +487,6 @@ class AuthService:
                     "refresh_token": session.refresh_token,
                     "token_type":    "bearer",
                     "user":          user_data,
-                    "mfa_required":  False,  # Temporarily disabled per user request
-                    "mfa_enrolled":  False,
                 }
             else:
                 raise AuthError("NOT_FOUND", "User profile not found", 404)
@@ -545,43 +539,11 @@ class AuthService:
             except Exception:
                 pass
 
-        # ── Robust MFA status detection (Admin API) ────────────────
-        mfa_enrolled = False
-        try:
-            auth_headers = {
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-                "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
-            }
-            async with httpx.AsyncClient() as http:
-                resp = await http.get(
-                    f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user.id}",
-                    headers=auth_headers
-                )
-                if resp.status_code == 200:
-                    auth_user_data = resp.json()
-                    factors = auth_user_data.get("factors", [])
-                    for f in factors:
-                        if f.get("factor_type") == "totp" and f.get("status") == "verified":
-                            mfa_enrolled = True
-                            break
-                pass
-        except Exception:
-            pass
-
-        user_data = user_row.data
-
-        # ── MFA decision ──────────────────────────────────────
-        # Admin:   always require MFA (mandatory per security architecture)
-        # Teacher: only require MFA if they have enrolled a TOTP factor
-        mfa_required = (role == "admin") or (role == "teacher" and mfa_enrolled)
-
         return {
             "access_token":  session.access_token,
             "refresh_token": session.refresh_token,
             "token_type":    "bearer",
-            "user":          user_data,
-            "mfa_required":  mfa_required,
-            "mfa_enrolled":  mfa_enrolled,
+            "user":          user_row.data,
         }
 
     @staticmethod
@@ -632,148 +594,7 @@ class AuthService:
 
         return {"message": "Password updated successfully"}
 
-    # ── TOTP MFA enroll (Admin / Teacher via Supabase) ────────
-
-    @staticmethod
-    async def mfa_enroll(user_jwt: str, refresh_token: str = "") -> dict:
-        auth_headers = {
-            "Authorization": f"Bearer {user_jwt}",
-            "apikey":        settings.SUPABASE_ANON_KEY,
-            "Content-Type":  "application/json",
-        }
-
-        async with httpx.AsyncClient() as client:
-            # 1. Clean up any existing unverified factors to avoid name conflicts (422)
-            try:
-                admin_headers = {
-                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-                    "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
-                }
-                user_id = jwt.decode(user_jwt, options={"verify_signature": False})["sub"]
-
-                list_resp = await client.get(
-                    f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
-                    headers=admin_headers,
-                )
-                if list_resp.status_code == 200:
-                    factors = list_resp.json().get("factors", [])
-                    for f in factors:
-                        if f.get("factor_type") == "totp" and f.get("status") != "verified":
-                            await client.delete(
-                                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}/factors/{f['id']}",
-                                headers=admin_headers,
-                            )
-            except Exception:
-                pass
-
-            # 2. Proceed with enrollment (User-level action)
-            resp = await client.post(
-                f"{settings.SUPABASE_URL}/auth/v1/factors",
-                json={
-                    "factor_type":   "totp",
-                    "friendly_name": "Authenticator App",
-                    "issuer":        "ThinkTarteeb",
-                },
-                headers=auth_headers,
-            )
-
-            if resp.status_code >= 400:
-                raise AuthError("MFA_ERROR", f"Supabase MFA enroll failed: {resp.text}", resp.status_code)
-
-            data = resp.json()
-
-        totp = data.get("totp", {})
-        return {
-            "factor_id": data["id"],
-            "qr_code":   totp.get("qr_code", ""),
-            "secret":    totp.get("secret", ""),
-            "uri":       totp.get("uri", ""),
-        }
-
-    # ── TOTP MFA verify (Admin / Teacher via Supabase) ────────
-
-    @staticmethod
-    async def mfa_verify(user_jwt: str, refresh_token: str, factor_id: str, code: str) -> dict:
-        auth_headers = {
-            "Authorization": f"Bearer {user_jwt}",
-            "apikey":        settings.SUPABASE_ANON_KEY,
-            "Content-Type":  "application/json",
-        }
-
-        async with httpx.AsyncClient() as http:
-            challenge_resp = await http.post(
-                f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/challenge",
-                headers=auth_headers,
-            )
-            if challenge_resp.status_code >= 400:
-                raise AuthError("MFA_ERROR", f"Challenge failed: {challenge_resp.text}", 401)
-
-            challenge_id = challenge_resp.json().get("id")
-
-            verify_resp = await http.post(
-                f"{settings.SUPABASE_URL}/auth/v1/factors/{factor_id}/verify",
-                json={"challenge_id": challenge_id, "code": code},
-                headers=auth_headers,
-            )
-            if verify_resp.status_code >= 400:
-                raise AuthError("INVALID_CREDENTIALS", "Invalid TOTP code. Try again.", 401)
-
-            data = verify_resp.json()
-
-        # ── Sync mfa_enabled = True in users table ────────────
-        try:
-            user_id = jwt.decode(user_jwt, options={"verify_signature": False})["sub"]
-            admin = get_admin_client()
-            admin.table("users").update({"mfa_enabled": True}).eq("id", user_id).execute()
-        except Exception:
-            pass
-
-        return {
-            "access_token":  data["access_token"],
-            "refresh_token": data.get("refresh_token", ""),
-            "token_type":    "bearer",
-            "mfa_verified":  True,
-        }
-
-    @staticmethod
-    async def mfa_unenroll(user_jwt: str) -> dict:
-        try:
-            user_id = jwt.decode(user_jwt, options={"verify_signature": False})["sub"]
-        except Exception as e:
-            raise AuthError("UNAUTHORIZED", "Invalid token", 401)
-            
-        admin_headers = {
-            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-            "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
-        }
-        
-        async with httpx.AsyncClient() as client:
-            list_resp = await client.get(
-                f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
-                headers=admin_headers,
-            )
-            if list_resp.status_code != 200:
-                raise AuthError("MFA_ERROR", f"Failed to fetch user factors: {list_resp.text}", list_resp.status_code)
-
-            user_data_api = list_resp.json()
-            factors = user_data_api.get("factors", [])
-            for f in factors:
-                if f.get("factor_type") == "totp":
-                    await client.delete(
-                        f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}/factors/{f['id']}",
-                        headers=admin_headers,
-                    )
-
-        # ── Sync mfa_enabled = False in users table ───────────
-        try:
-            admin = get_admin_client()
-            admin.table("users").update({"mfa_enabled": False}).eq("id", user_id).execute()
-        except Exception:
-            pass
-
-        return {"message": "MFA disabled successfully"}
-
-    # ── JWT Metadata Sync ─────────────────────────────────────
+    # ── User Status ───────────────────────────────────────────
 
     @staticmethod
     async def update_auth_app_metadata(user_id: str, metadata: dict) -> bool:
@@ -982,33 +803,6 @@ class AuthService:
 
         user_data = res.data
 
-        # Check MFA status from Supabase auth factors (only for non-students)
-        if user_data.get("role") != "student":
-            try:
-                auth_headers = {
-                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-                    "apikey":        settings.SUPABASE_SERVICE_ROLE_KEY,
-                }
-                async with httpx.AsyncClient() as http:
-                    resp = await http.get(
-                        f"{settings.SUPABASE_URL}/auth/v1/admin/users/{user_id}",
-                        headers=auth_headers
-                    )
-                    if resp.status_code == 200:
-                        factors = resp.json().get("factors", [])
-                        mfa_enabled = False
-                        for f in factors:
-                            if f.get("factor_type") == "totp" and f.get("status") == "verified":
-                                mfa_enabled = True
-                                break
-                        user_data["mfa_enabled"] = mfa_enabled
-                    else:
-                        user_data["mfa_enabled"] = False
-            except Exception:
-                user_data["mfa_enabled"] = False
-        else:
-            user_data["mfa_enabled"] = False
-
         return user_data
 
     # ── Refresh Session ───────────────────────────────────────
@@ -1018,7 +812,7 @@ class AuthService:
         admin = get_admin_client()
 
         # Student manual-OTP sessions use a placeholder refresh token — not refreshable
-        if refresh_token in ("manual-otp-verified", "pending-mfa"):
+        if refresh_token in ("manual-otp-verified",):
             raise AuthError("INVALID_CREDENTIALS", "Manual OTP sessions cannot be refreshed. Please log in again.", 401)
 
         try:
@@ -1041,11 +835,6 @@ class AuthService:
         )
 
         user_data   = user_row.data
-        mfa_enabled = any(
-            getattr(f, 'factor_type', '') == 'totp' and getattr(f, 'status', '') == 'verified'
-            for f in (user.factors or [])
-        )
-        user_data["mfa_enabled"] = mfa_enabled
 
         return {
             "access_token":  session.access_token,

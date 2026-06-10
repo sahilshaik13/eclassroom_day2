@@ -56,11 +56,26 @@ supabase/
 
 # Python
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
 *.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.eggs/
+.tox/
+.nox/
 venv/
+venv.bak/
 env/
 .venv/
+
+# Local AI/tool scratch (not part of the app)
+.commandcode/
 
 # Node
 node_modules/
@@ -96,4 +111,7 @@ walkthrough*
 
 skills-lock.json
 
-envsec/
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

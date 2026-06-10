@@ -89,12 +89,20 @@ async def get_platform_stats(token: TokenData = Depends(require_super_admin)):
 async def list_audit_logs(
     page: int = 1,
     limit: int = 100,
+    before_id: Optional[int] = None,
     tenant_id: Optional[str] = None,
     token: TokenData = Depends(require_super_admin),
 ):
     """
     Paginated application log trail from Neon Postgres (DATABASE_URL).
     HTTP requests, warnings, and errors. Retention trimmed by cron.
+
+    Supports two pagination modes:
+    - OFFSET (legacy): `?page=2&limit=100` — fine for shallow pages, but
+      `OFFSET 10000` scans 10k rows. Use for first page only.
+    - Keyset (preferred): `?before_id=12345&limit=100` — constant-time
+      regardless of depth. The response includes `next_before_id` so
+      the client can keep scrolling.
     """
     limit = max(1, min(limit, 200))
     page = max(1, page)
@@ -102,9 +110,15 @@ async def list_audit_logs(
     try:
         from app.services.audit_log_service import list_audit_events
 
-        rows, total, hit = await list_audit_events(page=page, limit=limit, tenant_id=tenant_id)
+        rows, total, hit = await list_audit_events(
+            page=page, limit=limit, tenant_id=tenant_id, before_id=before_id,
+        )
         response = paginated(rows, page, limit, total)
-        if page == 1:
+        # When keyset pagination is in use, surface the next cursor
+        # so the client can keep scrolling without OFFSET scans.
+        if before_id is not None and rows:
+            response.headers["X-Next-Before-Id"] = str(rows[-1].get("id", ""))
+        if page == 1 and before_id is None:
             response.headers["X-Cache"] = "HIT" if hit else "MISS"
         return response
     except RuntimeError as e:

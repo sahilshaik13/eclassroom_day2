@@ -6,9 +6,6 @@ POST /api/v1/auth/otp/verify
 POST /api/v1/auth/login
 POST /api/v1/auth/forgot-password
 POST /api/v1/auth/set-password
-POST /api/v1/auth/mfa/enroll
-GET  /api/v1/auth/mfa/factors
-POST /api/v1/auth/mfa/verify
 POST /api/v1/auth/logout
 11: """
 from uuid import UUID
@@ -52,11 +49,6 @@ class LoginRequest(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
     redirect_to: str | None = None
-
-
-class MFAVerifyRequest(BaseModel):
-    factor_id: str
-    code: str
 
 
 class RefreshRequest(BaseModel):
@@ -129,102 +121,6 @@ async def set_password(
 ):
     try:
         result = await AuthService.set_password(request.state.jwt_token, body.new_password)
-        return success(result)
-    except AuthError as e:
-        return error(e.code, e.message, e.status)
-
-
-@router.post("/mfa/enroll")
-async def mfa_enroll(
-    request: Request,
-    token: TokenData = Depends(get_current_user),
-):
-    if token.role == "student":
-        return error("FORBIDDEN", "MFA is not available for students", 403)
-
-    try:
-        refresh_token = request.headers.get("x-refresh-token", "")
-        result = await AuthService.mfa_enroll(request.state.jwt_token, refresh_token)
-        return success(result)
-    except AuthError as e:
-        return error(e.code, e.message, e.status)
-    except Exception as e:
-        return error("INTERNAL_ERROR", str(e), 500)
-
-
-@router.get("/mfa/factors")
-async def mfa_get_factors(
-    request: Request,
-    token: TokenData = Depends(get_current_user),
-):
-    import httpx
-
-    if token.role == "student":
-        return error("FORBIDDEN", "MFA is not available for students", 403)
-
-    auth_headers = {
-        "Authorization": f"Bearer {request.state.jwt_token}",
-        "apikey": settings.SUPABASE_ANON_KEY,
-    }
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{settings.SUPABASE_URL}/auth/v1/user",
-            headers=auth_headers,
-        )
-
-    if resp.status_code >= 400:
-        return error("NOT_FOUND", "User not found or session expired", resp.status_code)
-
-    user_data = resp.json()
-    factors = user_data.get("factors", [])
-    totp = next(
-        (f for f in factors if f.get("factor_type") == "totp" and f.get("status") == "verified"),
-        None
-    )
-
-    if not totp:
-        return error("NOT_FOUND", "No TOTP factor found — please set up MFA first", 404)
-
-    return success({
-        "factor_id": totp["id"],
-        "type": "totp",
-        "status": totp["status"]
-    })
-
-
-@router.post("/mfa/verify")
-async def mfa_verify(
-    body: MFAVerifyRequest,
-    request: Request,
-    token: TokenData = Depends(get_current_user),
-):
-    if token.role == "student":
-        return error("FORBIDDEN", "MFA is not available for students", 403)
-
-    try:
-        refresh_token = request.headers.get("x-refresh-token", "")
-        result = await AuthService.mfa_verify(
-            request.state.jwt_token,
-            refresh_token,
-            body.factor_id,
-            body.code,
-        )
-        return success(result)
-    except AuthError as e:
-        return error(e.code, e.message, e.status)
-
-
-@router.delete("/mfa/unenroll")
-async def mfa_unenroll(
-    request: Request,
-    token: TokenData = Depends(get_current_user),
-):
-    if token.role == "student":
-        return error("FORBIDDEN", "MFA is not available for students", 403)
-
-    try:
-        result = await AuthService.mfa_unenroll(request.state.jwt_token)
         return success(result)
     except AuthError as e:
         return error(e.code, e.message, e.status)

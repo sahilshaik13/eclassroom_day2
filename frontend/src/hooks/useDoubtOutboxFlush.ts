@@ -65,11 +65,23 @@ export function useDoubtOutboxFlush({
   useEffect(() => {
     if (!enabled) return
     const onOnline = () => void flush()
+
+    // Re-schedule the next flush only when there is something to send.
+    // Previously this ran setInterval(flush, 15s) forever, waking the JS
+    // heap every 15s even when the outbox was empty (the common case).
+    // Now we poll every 30s to discover new entries cheaply, and the
+    // flush() helper early-returns when the outbox is empty.
+    let timer: number | null = null
+    const tick = () => {
+      void flush()
+      timer = window.setTimeout(tick, 30_000)
+    }
+    timer = window.setTimeout(tick, 30_000)
+
     window.addEventListener('online', onOnline)
-    const interval = window.setInterval(() => void flush(), 15_000)
     return () => {
       window.removeEventListener('online', onOnline)
-      window.clearInterval(interval)
+      if (timer != null) window.clearTimeout(timer)
     }
   }, [enabled, flush])
 

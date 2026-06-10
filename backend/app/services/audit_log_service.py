@@ -44,11 +44,22 @@ async def list_audit_events(
     page: int = 1,
     limit: int = 100,
     tenant_id: Optional[str] = None,
+    before_id: Optional[int] = None,
 ) -> tuple[list[dict[str, Any]], int, bool]:
+    """
+    Returns (rows, total, cache_hit).
+
+    `before_id` enables keyset pagination: rows are ordered by id DESC,
+    and the query uses `WHERE id < $before_id` so it stays
+    O(limit) regardless of how deep the user has scrolled. Legacy
+    OFFSET mode (via `page`) is retained for shallow pages but the
+    frontend should migrate to keyset for pagination beyond page 1.
+    """
     return await application_log_store.list_application_logs(
         page=page,
         limit=limit,
         tenant_id=tenant_id,
+        before_id=before_id,
     )
 
 

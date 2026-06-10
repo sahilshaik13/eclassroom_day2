@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr
 from typing import Any, Optional
+import hashlib
+import json
 
 from app.core import cache_keys, cache_ttl
 from app.core.cache_service import get_or_set_cache
@@ -26,7 +28,7 @@ class StudentApplicationSubmit(BaseModel):
     notes: Optional[str] = None
 
 @router.get("/tenants/{slug}")
-async def get_tenant_public(slug: str, response: Response):
+async def get_tenant_public(slug: str, request: Request, response: Response):
     """Fetch basic tenant info for the recruitment page."""
     cache_key = cache_keys.public_tenant(slug)
 
@@ -46,9 +48,24 @@ async def get_tenant_public(slug: str, response: Response):
     if not data:
         return error("NOT_FOUND", "Organization not found", 404)
 
+    # ETag/304: skip the body round-trip when the client already has the
+    # same content. The body is tiny (id/name/slug) so the hash is cheap.
+    body_bytes = json.dumps(data, sort_keys=True, default=str).encode("utf-8")
+    etag = f'W/"{hashlib.sha1(body_bytes).hexdigest()}"'
+    if_none_match = request.headers.get("if-none-match")
+    if if_none_match and if_none_match == etag:
+        # 304 with empty body — client uses its cached version.
+        resp = Response(status_code=304, headers={
+            "ETag": etag,
+            "Cache-Control": _PUBLIC_CACHE,
+            "X-Cache": "HIT",
+        })
+        return resp
+
     out = success(data)
     out.headers["Cache-Control"] = _PUBLIC_CACHE
     out.headers["X-Cache"] = "HIT" if hit else "MISS"
+    out.headers["ETag"] = etag
     return out
 
 @router.post("/tenants/{slug}/apply")

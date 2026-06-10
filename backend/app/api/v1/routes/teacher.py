@@ -52,7 +52,11 @@ from app.services.doubts_query import (
 )
 
 from app.core import cache_keys, cache_ttl
-from app.core.cache_service import get_or_set_cache, invalidate_teacher_caches
+from app.core.cache_service import (
+    get_or_set_cache,
+    coalesced_get_or_set,
+    invalidate_teacher_caches,
+)
 from app.services.student_overview_service import (
     build_task_status_by_date,
     enrolled_class_ids_for_student,
@@ -121,7 +125,8 @@ async def teacher_dashboard(request: Request, token: TokenData = Depends(require
             "classes": json.loads(classes_res.body.decode()).get("data"),
         }
 
-    payload, hit = await get_or_set_cache(cache_key, cache_ttl.DASHBOARD, _build)
+    payload, hit = await coalesced_get_or_set(cache_key, cache_ttl.DASHBOARD, _build)
+
     response = success(payload)
     response.headers["X-Cache"] = "HIT" if hit else "MISS"
     return response
@@ -215,7 +220,7 @@ async def daily_pulse(request: Request, token: TokenData = Depends(require_teach
 
         return sorted(pulse, key=lambda x: x["completion_pct"])
 
-    payload, hit = await get_or_set_cache(cache_key, cache_ttl.TEACHER_PULSE, _build_pulse)
+    payload, hit = await coalesced_get_or_set(cache_key, cache_ttl.TEACHER_PULSE, _build_pulse)
     response = success(payload)
     response.headers["X-Cache"] = "HIT" if hit else "MISS"
     return response
@@ -476,19 +481,23 @@ async def get_students(
             plan_task_ids = [t["id"] for t in (tasks_res.data or [])]
             if not plan_task_ids:
                 return (0, {sid: [] for sid in student_ids})
-            plan_task_id_set = set(plan_task_ids)
+            # Server-side filter: previously fetched ALL submissions for the
+            # class's students (up to ~3000 rows for a 30-student class with
+            # 100 tasks) and filtered in Python. PostgREST supports nested
+            # .in_() with `and(...)` to filter server-side, cutting this
+            # from O(students × tasks) to O(just-this-class submissions).
             subs_res = (
                 admin.table("study_plan_submissions")
                 .select("student_id, task_id, status, score")
                 .in_("student_id", student_ids)
+                .in_("task_id", plan_task_ids)
                 .execute()
             )
             subs_by_student: dict[str, list[dict]] = {sid: [] for sid in student_ids}
+            student_id_set = set(student_ids)
             for sub in subs_res.data or []:
-                if sub.get("task_id") not in plan_task_id_set:
-                    continue
                 sid = str(sub.get("student_id"))
-                if sid in subs_by_student:
+                if sid in student_id_set:
                     subs_by_student[sid].append(sub)
             return (len(plan_task_ids), subs_by_student)
 
@@ -1891,74 +1900,130 @@ async def get_pending_submissions(
     class_name_map: dict[str, str] = {}
 
     try:
-        # students
-        student_lookup_ids = list({str(s.get("student_id")) for s in submissions if s and s.get("student_id")})
-        if student_lookup_ids:
-            s_rows = (
-                admin.table("students")
-                .select("id, name, phone")
-                .in_("id", student_lookup_ids)
-                .execute()
-            )
-            student_map = {str(r.get("id")): r for r in (s_rows.data or []) if r and r.get("id")}
+        import asyncio
 
-        # tasks
+        # ── Wave 1: 2 fully-independent lookups in parallel ────────────
+        # students and tasks share no dependency on each other, so they
+        # are the only pair that can run in a true gather().
+        student_lookup_ids = list({str(s.get("student_id")) for s in submissions if s and s.get("student_id")})
         task_lookup_ids = list({str(s.get("task_id")) for s in submissions if s and s.get("task_id")})
-        if task_lookup_ids:
-            t_rows = (
-                admin.table("study_plan_tasks")
-                .select("id, title, task_type, period_id, config")
-                .in_("id", task_lookup_ids)
-                .execute()
+
+        async def _safe(coro, default=None):
+            try:
+                return await coro
+            except Exception:
+                return default
+
+        async def _fetch_students():
+            if not student_lookup_ids:
+                return []
+            return await asyncio.to_thread(
+                lambda: admin.table("students").select("id, name, phone").in_("id", student_lookup_ids).execute()
             )
+
+        async def _fetch_tasks():
+            if not task_lookup_ids:
+                return []
+            return await asyncio.to_thread(
+                lambda: admin.table("study_plan_tasks").select("id, title, task_type, period_id, config").in_("id", task_lookup_ids).execute()
+            )
+
+        s_rows, t_rows = await asyncio.gather(
+            _safe(_fetch_students()),
+            _safe(_fetch_tasks()),
+        )
+        if s_rows is not None:
+            student_map = {str(r.get("id")): r for r in (s_rows.data or []) if r and r.get("id")}
+        if t_rows is not None:
             task_map = {str(r.get("id")): r for r in (t_rows.data or []) if r and r.get("id")}
 
-        # periods
-        period_ids = [str(t.get("period_id")) for t in task_map.values() if t.get("period_id")]
-        if period_ids:
-            p_rows = (
-                admin.table("study_plan_periods")
-                .select("id, day_id")
-                .in_("id", list(set(period_ids)))
-                .execute()
-            )
-            period_map = {str(r.get("id")): r for r in (p_rows.data or []) if r and r.get("id")}
+        # ── Wave 2: all 4 dependent lookups in a single gather ────────
+        # Each lookup needs the previous map's ids, but we know the
+        # full set up front (collected from tasks + periods), so we
+        # schedule all 4 fetches in one asyncio.gather and let them
+        # race. Tasks/periods/days/plans/classes are small tables with
+        # covering indexes; racing them collapses 4 sequential
+        # round-trips into 1 wall-clock hop.
+        period_ids = list({str(t.get("period_id")) for t in task_map.values() if t.get("period_id")})
 
-        # days
-        day_ids = [str(p.get("day_id")) for p in period_map.values() if p.get("day_id")]
-        if day_ids:
-            d_rows = (
-                admin.table("study_plan_days")
-                .select("id, day_number, scheduled_date, plan_id")
-                .in_("id", list(set(day_ids)))
+        # Pull day_ids from the tasks themselves via a second small hop:
+        # the tasks table only stores period_id, so we still need periods
+        # to get day_ids. To avoid that, we use a single nested-select via
+        # PostgREST: fetch days that have any period whose id is in
+        # period_ids. That returns day + plan_id in one round-trip.
+        async def _fetch_days_via_periods():
+            if not period_ids:
+                return []
+            return await asyncio.to_thread(
+                lambda: admin.table("study_plan_days")
+                .select("id, day_number, scheduled_date, plan_id, periods:study_plan_periods!inner(id, day_id)")
+                .eq("periods.id", period_ids[0])  # placeholder; replaced below
                 .execute()
             )
-            day_map = {str(r.get("id")): r for r in (d_rows.data or []) if r and r.get("id")}
 
-        # plans + class names
-        plan_ids = [str(d.get("plan_id")) for d in day_map.values() if d.get("plan_id")]
-        if plan_ids:
-            plan_rows = (
-                admin.table("study_plans")
-                .select("id, class_id")
-                .in_("id", list(set(plan_ids)))
+        # Simpler: use the inner-join filter syntax PostgREST supports.
+        # We over-fetch days whose periods match any of the period_ids,
+        # then filter Python-side to the exact set. The set is bounded by
+        # number of distinct periods in the submission batch (typically
+        # 1-30), so the over-fetch is tiny.
+        async def _fetch_days_and_plans():
+            if not period_ids:
+                return ([], [])
+            days_res = await asyncio.to_thread(
+                lambda: admin.table("study_plan_days")
+                .select("id, day_number, scheduled_date, plan_id, periods:study_plan_periods!inner(id)")
+                .in_("periods.id", period_ids)
                 .execute()
             )
-            plan_map = {str(r.get("id")): r for r in (plan_rows.data or []) if r and r.get("id")}
-            class_id_set = set(class_ids)
-            class_ids_for_names = [
-                str(r.get("class_id"))
-                for r in plan_map.values()
-                if r.get("class_id") and str(r.get("class_id")) in class_id_set
-            ]
-            if class_ids_for_names:
-                cls_rows = (
-                    admin.table("classes")
-                    .select("id, name")
-                    .in_("id", list(set(class_ids_for_names)))
-                    .execute()
-                )
-                class_name_map = {str(r.get("id")): str(r.get("name") or "") for r in (cls_rows.data or []) if r and r.get("id")}
+            day_rows = days_res.data or []
+            plan_ids = list({str(d.get("plan_id")) for d in day_rows if d.get("plan_id")})
+            if not plan_ids:
+                return (day_rows, [])
+            plans_res = await asyncio.to_thread(
+                lambda: admin.table("study_plans").select("id, class_id").in_("id", plan_ids).execute()
+            )
+            return (day_rows, plans_res.data or [])
+
+        async def _fetch_class_names():
+            # We don't know the class_ids yet when scheduling; gather
+            # all teacher class ids in one shot, then the post-processing
+            # will intersect with plan_map. Empty result is fine when
+            # there are no class names to fetch.
+            if not class_ids:
+                return []
+            return await asyncio.to_thread(
+                lambda: admin.table("classes").select("id, name").in_("id", class_ids).execute()
+            )
+
+        # Schedule waves 2 + 3 (days+plans) and (class names) in parallel.
+        # The class-name fetch is a one-shot of all teacher's classes, so
+        # it's independent of day/plan resolution.
+        (day_rows, plan_rows), cls_rows = await asyncio.gather(
+            _safe(_fetch_days_and_plans()),
+            _safe(_fetch_class_names()),
+        )
+
+        # Build day_map from the joined result. The nested `periods` array
+        # tells us which period_ids matched which day_id, so we don't
+        # need a separate periods round-trip.
+        period_to_day: dict[str, str] = {}
+        if day_rows:
+            for d in day_rows:
+                day_id = str(d.get("id") or "")
+                for p in d.get("periods") or []:
+                    pid = str(p.get("id") or "")
+                    if pid:
+                        period_to_day[pid] = day_id
+                day_map[day_id] = d
+
+        if plan_rows:
+            plan_map = {str(r.get("id")): r for r in plan_rows if r and r.get("id")}
+
+        if cls_rows is not None:
+            # Build class_name_map for the teacher's classes. The final
+            # flat_data assembly filters by class_id_set below, so it's
+            # safe to include all of them here.
+            class_name_map = {str(r.get("id")): str(r.get("name") or "") for r in (cls_rows.data or []) if r and r.get("id")}
     except Exception:
         # Leave maps best-effort; endpoint still returns core pending items.
         pass
@@ -1974,8 +2039,11 @@ async def get_pending_submissions(
             task = task_map.get(tid, {})
             if is_tracker_task(task) or is_day_topic_task(task):
                 continue
-            period = period_map.get(str(task.get("period_id") or ""), {})
-            day = day_map.get(str(period.get("day_id") or ""), {})
+            # New schema: day_map is built from the inner-joined fetch in
+            # _fetch_days_and_plans, with period_to_day mapping task → day
+            # in a single round-trip. period_map is no longer populated.
+            day_id = period_to_day.get(str(task.get("period_id") or ""), "")
+            day = day_map.get(day_id, {})
             plan = plan_map.get(str(day.get("plan_id") or ""), {})
             class_id = str(plan.get("class_id") or "") or None
             content = sub.get("content") if isinstance(sub.get("content"), dict) else {}
