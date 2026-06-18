@@ -4,10 +4,15 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import toast from 'react-hot-toast'
-import { Eye, EyeOff, KeyRound, ArrowRight, Loader2, CheckCircle2, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, Lock, ArrowRight, Loader2, CheckCircle2, ShieldCheck } from 'lucide-react'
 import { authApi } from '@/services/authApi'
-import { useAuthStore } from '@/stores/authStore'
 import { ApiClientError } from '@/services/api'
+import {
+  AuthPageLayout,
+  authBtnPrimaryClass,
+  authInputRoundClass,
+  authLabelClass,
+} from '@/components/auth/AuthPageLayout'
 
 const passwordSchema = z.object({
   password: z
@@ -16,7 +21,7 @@ const passwordSchema = z.object({
     .regex(/[A-Z]/, 'At least one uppercase letter')
     .regex(/[0-9]/, 'At least one number'),
   confirmPassword: z.string(),
-}).refine(data => data.password === data.confirmPassword, {
+}).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ['confirmPassword'],
 })
@@ -28,7 +33,9 @@ const decodeJWT = (token: string) => {
     const parts = token.split('.')
     if (parts.length !== 3) return null
     return JSON.parse(atob(parts[1]))
-  } catch { return null }
+  } catch {
+    return null
+  }
 }
 
 const RULES = [
@@ -37,23 +44,8 @@ const RULES = [
   { label: 'One number', test: (v: string) => /[0-9]/.test(v) },
 ]
 
-const Logo = () => (
-  <div className="flex items-center justify-center gap-3 mb-8">
-    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-      <div className="grid grid-cols-2 gap-0.5 p-1.5">
-        <div className="w-2 h-2 bg-[#4E7DFF] rounded-sm" />
-        <div className="w-2 h-2 bg-[#20C997] rounded-sm" />
-        <div className="w-2 h-2 bg-[#FF922B] rounded-sm" />
-        <div className="w-2 h-2 bg-[#A855F7] rounded-sm" />
-      </div>
-    </div>
-    <span className="text-xl text-white font-bold tracking-tight">ThinkTarteeb</span>
-  </div>
-)
-
 export default function SetupPasswordPage() {
   const navigate = useNavigate()
-  const {} = useAuthStore()
   const [loading, setLoading] = useState(false)
   const [loggingIn, setLoggingIn] = useState(false)
   const [token, setToken] = useState<string | null>(null)
@@ -106,7 +98,9 @@ export default function SetupPasswordPage() {
         }
         if (prev) localStorage.setItem('access_token', prev)
         else localStorage.removeItem('access_token')
-      } catch { }
+      } catch {
+        /* ignore */
+      }
     }
     check()
   }, [token, navigate])
@@ -121,14 +115,7 @@ export default function SetupPasswordPage() {
     try {
       await authApi.setPassword(data.password, token)
       toast.success('Password set successfully!')
-      if (!email) {
-        localStorage.removeItem('temp_invite_token')
-        localStorage.removeItem('temp_invite_email')
-        navigate('/auth/login', { replace: true })
-        return
-      }
-      setLoggingIn(true)
-      
+
       localStorage.removeItem('temp_invite_token')
       localStorage.removeItem('temp_invite_email')
       localStorage.removeItem('access_token')
@@ -145,128 +132,105 @@ export default function SetupPasswordPage() {
   const isLoading = loading || loggingIn
 
   return (
-    <div className="auth-bg">
-      <div className="auth-bg-gradient" />
-      <div className="auth-glow-top" />
-      <div className="auth-glow-bottom" />
+    <AuthPageLayout>
+      <h1 className="text-2xl font-bold text-gray-900 mb-1">Set your password</h1>
+      <p className="text-sm text-gray-500 mb-8 truncate">
+        {email ?? 'Create a secure password to activate your account'}
+      </p>
 
-      <div className="w-full max-w-sm relative z-10 animate-in fade-in zoom-in-95 duration-500">
-        <Logo />
-
-        <div className="auth-card p-8">
-          <div className="auth-accent-line" />
-
-          {/* Header */}
-          <div className="flex items-center gap-4 mb-7">
-            <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-              <KeyRound className="w-6 h-6 text-primary" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white leading-tight">Set Your Password</h1>
-              <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[200px]">
-                {email ?? 'Create a secure password'}
-              </p>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-
-            {/* Password */}
-            <div>
-              <label className="label-dark">
-                New Password <span className="text-red-400">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  {...register('password')}
-                  type={showPw ? 'text' : 'password'}
-                  onChange={e => setPwValue(e.target.value)}
-                  placeholder="Min. 8 characters"
-                  disabled={isLoading}
-                  className="input-dark pr-11"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw(!showPw)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {errors.password && (
-                <p className="mt-1.5 text-xs text-red-400">{errors.password.message}</p>
-              )}
-            </div>
-
-            {/* Strength indicators */}
-            {pwValue.length > 0 && (
-              <div className="grid grid-cols-3 gap-2">
-                {RULES.map(rule => (
-                  <div key={rule.label} className={`flex items-center gap-1.5 text-[10px] font-semibold transition-colors ${rule.test(pwValue) ? 'text-emerald-400' : 'text-slate-600'
-                    }`}>
-                    <CheckCircle2 className={`w-3 h-3 shrink-0 transition-colors ${rule.test(pwValue) ? 'text-emerald-400' : 'text-slate-700'
-                      }`} />
-                    {rule.label}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Confirm */}
-            <div>
-              <label className="label-dark">
-                Confirm Password <span className="text-red-400">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  {...register('confirmPassword')}
-                  type={showCf ? 'text' : 'password'}
-                  placeholder="Repeat your password"
-                  disabled={isLoading}
-                  className="input-dark pr-11"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowCf(!showCf)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  {showCf ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {errors.confirmPassword && (
-                <p className="mt-1.5 text-xs text-red-400">{errors.confirmPassword.message}</p>
-              )}
-            </div>
-
-            {/* Submit */}
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <div>
+          <label className={authLabelClass}>
+            New password <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              {...register('password')}
+              type={showPw ? 'text' : 'password'}
+              onChange={(e) => setPwValue(e.target.value)}
+              placeholder="Min. 8 characters"
+              disabled={isLoading}
+              className={`${authInputRoundClass} pl-11 pr-11`}
+            />
             <button
-              type="submit"
-              disabled={isLoading || !token}
-              className="btn-primary w-full mt-2"
+              type="button"
+              onClick={() => setShowPw(!showPw)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+              tabIndex={-1}
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {loggingIn ? 'Logging you in…' : 'Setting password…'}
-                </>
-              ) : (
-                <>
-                  Activate Account
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
-          </form>
-
-          {/* Security note */}
-          <div className="mt-5 flex items-start gap-2.5 p-3 bg-white/[0.03] rounded-xl border border-white/5">
-            <ShieldCheck className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Your password is encrypted end-to-end. You'll be redirected to login after activation.
-            </p>
           </div>
+          {errors.password && (
+            <p className="mt-1.5 text-xs text-red-500 font-medium">{errors.password.message}</p>
+          )}
         </div>
+
+        {pwValue.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {RULES.map((rule) => (
+              <div
+                key={rule.label}
+                className={`flex items-center gap-1.5 text-[11px] font-semibold transition-colors ${
+                  rule.test(pwValue) ? 'text-emerald-600' : 'text-gray-400'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                {rule.label}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <label className={authLabelClass}>
+            Confirm password <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              {...register('confirmPassword')}
+              type={showCf ? 'text' : 'password'}
+              placeholder="Repeat your password"
+              disabled={isLoading}
+              className={`${authInputRoundClass} pl-11 pr-11`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowCf(!showCf)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+              tabIndex={-1}
+            >
+              {showCf ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          {errors.confirmPassword && (
+            <p className="mt-1.5 text-xs text-red-500 font-medium">{errors.confirmPassword.message}</p>
+          )}
+        </div>
+
+        <button type="submit" disabled={isLoading || !token} className={authBtnPrimaryClass}>
+          {isLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {loggingIn ? 'Logging you in…' : 'Setting password…'}
+            </>
+          ) : (
+            <>
+              Activate account
+              <ArrowRight className="w-4 h-4" />
+            </>
+          )}
+        </button>
+      </form>
+
+      <div className="mt-5 flex items-start gap-2.5 p-3 bg-gray-50 rounded-xl border border-gray-100">
+        <ShieldCheck className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Your password is encrypted end-to-end. You&apos;ll be redirected to login after activation.
+        </p>
       </div>
-    </div>
+    </AuthPageLayout>
   )
 }

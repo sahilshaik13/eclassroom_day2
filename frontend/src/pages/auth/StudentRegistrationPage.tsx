@@ -8,6 +8,13 @@ import { ArrowRight, ArrowLeft, Loader2, User, Phone, MapPin, CheckCircle2, Book
 import { authApi } from '@/services/authApi'
 import { ApiClientError } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
+import {
+  AuthPageLayout,
+  authBtnPrimaryClass,
+  authBtnSecondaryClass,
+  authInputClass,
+  authLabelClass,
+} from '@/components/auth/AuthPageLayout'
 
 const profileSchema = z.object({
   first_name: z.string().min(2, 'First name is required'),
@@ -30,9 +37,6 @@ const STEPS = [
   { number: 2, label: 'Contact', icon: Phone },
   { number: 3, label: 'Location', icon: MapPin },
 ]
-
-const INPUT = 'w-full bg-slate-950/60 border border-slate-800 text-white placeholder:text-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/40 transition-all'
-const LABEL = 'block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5'
 
 export default function StudentRegistrationPage() {
   const navigate = useNavigate()
@@ -68,7 +72,7 @@ export default function StudentRegistrationPage() {
 
   const nextStep = async () => {
     const valid = await trigger(stepFields[step])
-    if (valid) setStep(s => s + 1)
+    if (valid) setStep((s) => s + 1)
   }
 
   const handleGender = (val: string) => {
@@ -79,7 +83,11 @@ export default function StudentRegistrationPage() {
   const onSubmit = async (data: ProfileForm) => {
     for (const s of [1, 2, 3] as const) {
       const valid = await trigger(stepFields[s])
-      if (!valid) { setStep(s); toast.error(`Please fix errors in Step ${s}`); return }
+      if (!valid) {
+        setStep(s)
+        toast.error(`Please fix errors in Step ${s}`)
+        return
+      }
     }
     setLoading(true)
     try {
@@ -101,238 +109,268 @@ export default function StudentRegistrationPage() {
     }
   }
 
-  return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center py-10 px-4 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-slate-950 to-slate-950" />
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-[400px] h-[300px] bg-violet-900/10 rounded-full blur-[100px] pointer-events-none" />
-
-      <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in-95 duration-500">
-
-        {/* Logo */}
-        <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-            <div className="grid grid-cols-2 gap-0.5 p-1.5">
-              <div className="w-2 h-2 bg-[#4E7DFF] rounded-sm" />
-              <div className="w-2 h-2 bg-[#20C997] rounded-sm" />
-              <div className="w-2 h-2 bg-[#FF922B] rounded-sm" />
-              <div className="w-2 h-2 bg-[#A855F7] rounded-sm" />
+  const stepIndicators = (
+    <div className="flex items-center justify-center gap-0 mb-6">
+      {STEPS.map((s, i) => {
+        const done = step > s.number
+        const active = step === s.number
+        return (
+          <div key={s.number} className="flex items-center">
+            <div className="flex flex-col items-center gap-1.5">
+              <div
+                className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all duration-300 ${
+                  done
+                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                    : active
+                      ? 'bg-white border-indigo-600 text-indigo-600'
+                      : 'bg-white border-gray-200 text-gray-400'
+                }`}
+              >
+                {done ? <CheckCircle2 className="w-4 h-4" /> : s.number}
+              </div>
+              <span
+                className={`text-[10px] font-semibold whitespace-nowrap transition-colors ${
+                  active ? 'text-indigo-600' : done ? 'text-gray-500' : 'text-gray-400'
+                }`}
+              >
+                {s.label}
+              </span>
             </div>
+            {i < STEPS.length - 1 && (
+              <div
+                className={`w-16 h-px mx-1 mb-5 transition-all ${
+                  step > s.number ? 'bg-indigo-600' : 'bg-gray-200'
+                }`}
+              />
+            )}
           </div>
-          <div>
-            <p className="text-lg font-bold text-white leading-none tracking-tight">ThinkTarteeb</p>
-            <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Student Registration</p>
-          </div>
-        </div>
+        )
+      })}
+    </div>
+  )
 
-        {/* Step indicators */}
-        <div className="flex items-center justify-center gap-0 mb-6">
-          {STEPS.map((s, i) => {
-            const done = step > s.number
-            const active = step === s.number
-            return (
-              <div key={s.number} className="flex items-center">
-                <div className="flex flex-col items-center gap-1.5">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all duration-300 ${done ? 'bg-primary border-primary text-white' :
-                      active ? 'bg-transparent border-primary text-primary' :
-                        'bg-transparent border-slate-700 text-slate-600'
-                    }`}>
-                    {done ? <CheckCircle2 className="w-4 h-4" /> : s.number}
-                  </div>
-                  <span className={`text-[10px] font-semibold whitespace-nowrap transition-colors ${active ? 'text-primary' : done ? 'text-slate-400' : 'text-slate-600'
-                    }`}>{s.label}</span>
-                </div>
-                {i < STEPS.length - 1 && (
-                  <div className={`w-16 h-px mx-1 mb-5 transition-all ${step > s.number ? 'bg-primary' : 'bg-slate-800'}`} />
+  const StepIcon = STEPS[step - 1].icon
+
+  return (
+    <AuthPageLayout
+      maxWidth="md"
+      aboveCard={stepIndicators}
+      belowCard={
+        <p className="mt-4 text-center text-xs text-gray-400">
+          Logged in as <span className="text-gray-600 font-medium">{user?.phone || user?.name}</span>
+        </p>
+      }
+    >
+      <div className="flex items-center gap-3 mb-6">
+        <div className="h-10 w-10 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+          <StepIcon className="w-5 h-5 text-indigo-600" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">
+            {step === 1 ? 'Personal information' : step === 2 ? 'Contact details' : 'Location'}
+          </h1>
+          <p className="text-sm text-gray-500">
+            {step === 1
+              ? "Let's start with your basic details."
+              : step === 2
+                ? 'How can your teacher reach you?'
+                : 'Where are you based?'}
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit(onSubmit)}>
+        {step === 1 && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={authLabelClass}>
+                  First name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  {...register('first_name')}
+                  readOnly
+                  className={`${authInputClass} opacity-60 cursor-not-allowed`}
+                />
+                {errors.first_name && (
+                  <p className="mt-1 text-xs text-red-500 font-medium">{errors.first_name.message}</p>
                 )}
               </div>
-            )
-          })}
-        </div>
+              <div>
+                <label className={authLabelClass}>Last name</label>
+                <input
+                  {...register('last_name')}
+                  readOnly
+                  className={`${authInputClass} opacity-60 cursor-not-allowed`}
+                />
+              </div>
+            </div>
 
-        {/* Card */}
-        <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl rounded-2xl p-6 sm:p-8 relative overflow-hidden">
-          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
-
-          {/* Step header */}
-          <div className="flex items-center gap-3 mb-6">
-            {(() => {
-              const Icon = STEPS[step - 1].icon
-              return (
-                <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                  <Icon className="w-5 h-5 text-primary" />
-                </div>
-              )
-            })()}
             <div>
-              <h1 className="text-lg font-bold text-white">
-                {step === 1 ? 'Personal Information' : step === 2 ? 'Contact Details' : 'Location'}
-              </h1>
-              <p className="text-xs text-slate-500">
-                {step === 1 ? "Let's start with your basic details." : step === 2 ? 'How can your teacher reach you?' : 'Where are you based?'}
-              </p>
+              <label className={authLabelClass}>
+                Islamic name <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input {...register('islamic_name')} className={authInputClass} placeholder="If different from above" />
+            </div>
+
+            <div>
+              <label className={authLabelClass}>
+                Gender <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {['male', 'female'].map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => handleGender(g)}
+                    className={`py-3 rounded-xl text-sm font-semibold border transition-all ${
+                      gender === g
+                        ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
+                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {g === 'male' ? 'Male' : 'Female'}
+                  </button>
+                ))}
+              </div>
+              <input type="hidden" {...register('gender')} value={gender} />
+              {errors.gender && (
+                <p className="mt-1 text-xs text-red-500 font-medium">{errors.gender.message}</p>
+              )}
+            </div>
+
+            <div>
+              <label className={authLabelClass}>
+                Date of birth <span className="text-red-500">*</span>
+              </label>
+              <input type="date" {...register('dob')} className={authInputClass} />
+              {errors.dob && (
+                <p className="mt-1 text-xs text-red-500 font-medium">{errors.dob.message}</p>
+              )}
+            </div>
+
+            <button type="button" onClick={nextStep} className={`${authBtnPrimaryClass} mt-2`}>
+              Next step <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="space-y-4">
+            <div>
+              <label className={authLabelClass}>
+                Nationality <span className="text-red-500">*</span>
+              </label>
+              <input
+                {...register('nationality')}
+                className={authInputClass}
+                placeholder="e.g. Emirati, Pakistani, Indian…"
+              />
+              {errors.nationality && (
+                <p className="mt-1 text-xs text-red-500 font-medium">{errors.nationality.message}</p>
+              )}
+            </div>
+
+            <div>
+              <label className={authLabelClass}>
+                Emirates ID <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input {...register('emirates_id')} className={authInputClass} placeholder="784-XXXX-XXXXXXX-X" />
+            </div>
+
+            <div>
+              <label className={authLabelClass}>
+                WhatsApp number <span className="text-red-500">*</span>
+              </label>
+              <input {...register('whatsapp_number')} className={authInputClass} placeholder="+971 50 000 0000" />
+              {errors.whatsapp_number && (
+                <p className="mt-1 text-xs text-red-500 font-medium">{errors.whatsapp_number.message}</p>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-2">
+              <button type="button" onClick={() => setStep(1)} className={authBtnSecondaryClass}>
+                <ArrowLeft className="w-4 h-4" /> Back
+              </button>
+              <button type="button" onClick={nextStep} className={authBtnPrimaryClass}>
+                Next step <ArrowRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
+        )}
 
-          <form onSubmit={handleSubmit(onSubmit)}>
+        {step === 3 && (
+          <div className="space-y-4">
+            <div>
+              <label className={authLabelClass}>
+                City <span className="text-red-500">*</span>
+              </label>
+              <select {...register('city')} className={authInputClass}>
+                <option value="">Select city</option>
+                {['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Ras Al Khaimah', 'Fujairah', 'Umm Al Quwain', 'Other'].map(
+                  (c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ),
+                )}
+              </select>
+              {errors.city && (
+                <p className="mt-1 text-xs text-red-500 font-medium">{errors.city.message}</p>
+              )}
+            </div>
 
-            {/* Step 1 */}
-            {step === 1 && (
-              <div className="space-y-4 animate-in slide-in-from-right-4 fade-in duration-300">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={LABEL}>First Name <span className="text-red-400">*</span></label>
-                    <input {...register('first_name')} readOnly className={`${INPUT} opacity-50 cursor-not-allowed`} />
-                    {errors.first_name && <p className="mt-1 text-xs text-red-400">{errors.first_name.message}</p>}
-                  </div>
-                  <div>
-                    <label className={LABEL}>Last Name</label>
-                    <input {...register('last_name')} readOnly className={`${INPUT} opacity-50 cursor-not-allowed`} />
-                    {errors.last_name && <p className="mt-1 text-xs text-red-400">{errors.last_name.message}</p>}
-                  </div>
-                </div>
+            <div>
+              <label className={authLabelClass}>
+                Address <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                {...register('address')}
+                className={`${authInputClass} min-h-[90px] resize-none`}
+                placeholder="Street, building, area…"
+              />
+            </div>
 
-                <div>
-                  <label className={LABEL}>Islamic Name <span className="text-slate-600">(Optional)</span></label>
-                  <input {...register('islamic_name')} className={INPUT} placeholder="If different from above" />
-                </div>
-
-                <div>
-                  <label className={LABEL}>Gender <span className="text-red-400">*</span></label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {['male', 'female'].map(g => (
-                      <button
-                        key={g}
-                        type="button"
-                        onClick={() => handleGender(g)}
-                        className={`py-3 rounded-xl text-sm font-semibold border transition-all ${gender === g
-                            ? g === 'male'
-                              ? 'bg-blue-500/20 border-blue-500 text-blue-300'
-                              : 'bg-pink-500/20 border-pink-500 text-pink-300'
-                            : 'bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700'
-                          }`}
-                      >
-                        {g === 'male' ? '👨 Male' : '👩 Female'}
-                      </button>
-                    ))}
-                  </div>
-                  <input type="hidden" {...register('gender')} value={gender} />
-                  {errors.gender && <p className="mt-1 text-xs text-red-400">{errors.gender.message}</p>}
-                </div>
-
-                <div>
-                  <label className={LABEL}>Date of Birth <span className="text-red-400">*</span></label>
-                  <input type="date" {...register('dob')} className={`${INPUT} [color-scheme:dark]`} />
-                  {errors.dob && <p className="mt-1 text-xs text-red-400">{errors.dob.message}</p>}
-                </div>
-
-                <button type="button" onClick={nextStep} className="w-full mt-2 bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
-                  Next Step <ArrowRight className="w-4 h-4" />
-                </button>
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.getElementById('transport-s') as HTMLInputElement
+                if (el) el.click()
+              }}
+              className="w-full flex items-center gap-3 p-4 rounded-xl bg-gray-50 border border-gray-200 hover:border-indigo-300 transition-all cursor-pointer text-left"
+            >
+              <input
+                type="checkbox"
+                id="transport-s"
+                {...register('needs_transport')}
+                className="w-5 h-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div>
+                <p className="text-sm font-semibold text-gray-800">I need transportation</p>
+                <p className="text-xs text-gray-500">Request transport arrangement from admin</p>
               </div>
-            )}
+            </button>
 
-            {/* Step 2 */}
-            {step === 2 && (
-              <div className="space-y-4 animate-in slide-in-from-right-4 fade-in duration-300">
-                <div>
-                  <label className={LABEL}>Nationality <span className="text-red-400">*</span></label>
-                  <input {...register('nationality')} className={INPUT} placeholder="e.g. Emirati, Pakistani, Indian…" />
-                  {errors.nationality && <p className="mt-1 text-xs text-red-400">{errors.nationality.message}</p>}
-                </div>
-
-                <div>
-                  <label className={LABEL}>Emirates ID <span className="text-slate-600">(Optional)</span></label>
-                  <input {...register('emirates_id')} className={INPUT} placeholder="784-XXXX-XXXXXXX-X" />
-                </div>
-
-                <div>
-                  <label className={LABEL}>WhatsApp Number <span className="text-red-400">*</span></label>
-                  <input {...register('whatsapp_number')} className={INPUT} placeholder="+971 50 000 0000" />
-                  {errors.whatsapp_number && <p className="mt-1 text-xs text-red-400">{errors.whatsapp_number.message}</p>}
-                </div>
-
-                <div className="flex gap-3 mt-2">
-                  <button type="button" onClick={() => setStep(1)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
-                    <ArrowLeft className="w-4 h-4" /> Back
-                  </button>
-                  <button type="button" onClick={nextStep} className="flex-1 bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
-                    Next Step <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Step 3 */}
-            {step === 3 && (
-              <div className="space-y-4 animate-in slide-in-from-right-4 fade-in duration-300">
-                <div>
-                  <label className={LABEL}>City <span className="text-red-400">*</span></label>
-                  <select {...register('city')} className={INPUT}>
-                    <option value="" className="bg-slate-900 text-slate-500">Select City</option>
-                    {['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Ras Al Khaimah', 'Fujairah', 'Umm Al Quwain', 'Other'].map(c => (
-                      <option key={c} value={c} className="bg-slate-900">{c}</option>
-                    ))}
-                  </select>
-                  {errors.city && <p className="mt-1 text-xs text-red-400">{errors.city.message}</p>}
-                </div>
-
-                <div>
-                  <label className={LABEL}>Address <span className="text-slate-600">(Optional)</span></label>
-                  <textarea
-                    {...register('address')}
-                    className={`${INPUT} min-h-[90px] resize-none`}
-                    placeholder="Street, building, area…"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById('transport-s') as HTMLInputElement
-                    if (el) el.click()
-                  }}
-                  className="w-full flex items-center gap-3 p-4 rounded-xl bg-slate-950/40 border border-slate-800 hover:border-primary/40 transition-all cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    id="transport-s"
-                    {...register('needs_transport')}
-                    className="w-5 h-5 rounded border-slate-600 bg-slate-950 text-primary focus:ring-primary focus:ring-offset-slate-900 cursor-pointer shrink-0"
-                    onClick={e => e.stopPropagation()}
-                  />
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-slate-300">I need transportation</p>
-                    <p className="text-xs text-slate-500">Request transport arrangement from admin</p>
-                  </div>
-                </button>
-
-                <div className="flex gap-3 mt-2">
-                  <button type="button" onClick={() => setStep(2)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2">
-                    <ArrowLeft className="w-4 h-4" /> Back
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="flex-1 bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {loading ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</>
-                    ) : (
-                      <><BookOpen className="w-4 h-4" /> Complete Registration</>
-                    )}
-                  </button>
-                </div>
-              </div>
-            )}
-          </form>
-        </div>
-
-        <p className="mt-4 text-center text-xs text-slate-600">
-          Logged in as <span className="text-slate-400">{user?.phone || user?.name}</span>
-        </p>
-      </div>
-    </div>
+            <div className="flex gap-3 mt-2">
+              <button type="button" onClick={() => setStep(2)} className={authBtnSecondaryClass}>
+                <ArrowLeft className="w-4 h-4" /> Back
+              </button>
+              <button type="submit" disabled={loading} className={authBtnPrimaryClass}>
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Submitting…
+                  </>
+                ) : (
+                  <>
+                    <BookOpen className="w-4 h-4" /> Complete registration
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </form>
+    </AuthPageLayout>
   )
 }
