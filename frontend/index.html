@@ -15,6 +15,43 @@
     />
   </head>
   <body>
+    <script>
+      // Run before React so recovery/invite tokens in the URL hash are not lost
+      // when the app redirects "/" → login.
+      (function () {
+        try {
+          var path = window.location.pathname;
+          if (path.indexOf('/auth/reset-password') === 0 || path.indexOf('/auth/callback') === 0) {
+            return;
+          }
+          var hash = window.location.hash;
+          var search = window.location.search;
+          if (!hash && !search) return;
+
+          var params = new URLSearchParams(hash ? hash.substring(1) : search.substring(1));
+          var token = params.get('access_token') || params.get('token');
+          var type = params.get('type');
+          if (!token) return;
+
+          var suffix = hash || (search ? '#' + search.substring(1) : '');
+          var target = null;
+          if (type === 'recovery') {
+            target = '/auth/reset-password' + suffix;
+          } else if (
+            type === 'invite' ||
+            type === 'signup' ||
+            type === 'magiclink' ||
+            type === 'email' ||
+            token.indexOf('.') !== -1
+          ) {
+            target = '/auth/callback' + suffix;
+          }
+          if (target) window.location.replace(target);
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -4,6 +4,7 @@ import { Suspense, lazy, useEffect } from 'react'
 
 // Store
 import { useAuthStore } from '@/stores/authStore'
+import { getSupabaseAuthRedirectTarget } from '@/lib/supabaseAuthUrl'
 
 // Auth guards
 import { RequireRole, RedirectIfAuthed } from '@/components/shared/RouteGuards'
@@ -110,36 +111,16 @@ function AuthEventListener() {
 function HashHandler() {
   const navigate = useNavigate()
   useEffect(() => {
-    const hashData = new URLSearchParams(window.location.hash.substring(1))
-    const searchData = new URLSearchParams(window.location.search.substring(1))
-
-    const accessToken =
-      hashData.get('access_token') ||
-      searchData.get('access_token') ||
-      searchData.get('token')
-
-    const type = hashData.get('type') || searchData.get('type')
-
-    if (accessToken && type === 'recovery') {
-      const suffix =
-        window.location.hash ||
-        (window.location.search
-          ? '#' + window.location.search.substring(1)
-          : '')
-      navigate('/auth/reset-password' + suffix, { replace: true })
-      return
-    }
-
-    if (accessToken && type === 'invite') {
-      const suffix =
-        window.location.hash ||
-        (window.location.search
-          ? '#' + window.location.search.substring(1)
-          : '')
-      navigate('/auth/callback' + suffix, { replace: true })
-    }
+    const target = getSupabaseAuthRedirectTarget()
+    if (target) navigate(target, { replace: true })
   }, [navigate])
   return null
+}
+
+function AuthAwareRedirect({ fallback }: { fallback: string }) {
+  const target = getSupabaseAuthRedirectTarget()
+  if (target) return <Navigate to={target} replace />
+  return <Navigate to={fallback} replace />
 }
 
 function ActivityTracker() {
@@ -192,7 +173,7 @@ export default function App() {
       />
 
       <Routes>
-        <Route path="/" element={<Navigate to="/auth/student-login" replace />} />
+        <Route path="/" element={<AuthAwareRedirect fallback="/auth/student-login" />} />
 
         <Route
           path="/auth/student-login"
@@ -294,7 +275,7 @@ export default function App() {
           <Route path="tenants/:tenantId/students" element={<Lazy><SuperAdminTenantStudentsPage /></Lazy>} />
         </Route>
 
-        <Route path="*" element={<Navigate to="/auth/student-login" replace />} />
+        <Route path="*" element={<AuthAwareRedirect fallback="/auth/student-login" />} />
       </Routes>
     </BrowserRouter>
   )
