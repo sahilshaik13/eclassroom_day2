@@ -93,7 +93,7 @@ async def broadcast_submission_reviewed(
         score: The grade given (0-100), or None if not graded
         status: The review status (default: "reviewed")
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -137,7 +137,7 @@ async def broadcast_new_submission(
         submission_id: The newly created submission ID
         task_id: The task that was submitted
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -176,7 +176,7 @@ async def broadcast_study_plan_changed(
         changed_by: The user ID who made the change
         change_type: Type of change (updated, deleted, created)
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -216,7 +216,7 @@ async def broadcast_doubt_created(
         doubt_id: The newly created doubt ID
         message_text: Optional preview of the doubt message
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -248,7 +248,7 @@ async def broadcast_doubt_chat_message(
     topic = doubt_chat_channel_topic(tenant_id, class_id)
     await _supabase_realtime_broadcast(topic, DOUBT_CHAT_BROADCAST_EVENT, payload)
 
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
 
@@ -284,7 +284,7 @@ async def broadcast_doubt_replied(
         doubt_id: The doubt that was replied to
         reply_text: Optional preview of the reply
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -327,7 +327,7 @@ async def broadcast_competition_created(
         competition_name: Name of the competition
         created_by: User ID who created the competition
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -356,7 +356,7 @@ async def broadcast_competition_exam_active_changed(
     is_exam_active: bool,
 ) -> None:
     """Broadcast when admin opens or closes the exam window."""
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
 
@@ -394,7 +394,7 @@ async def broadcast_competition_status_changed(
         old_status: Previous status
         new_status: New status
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -435,7 +435,7 @@ async def broadcast_competition_registration(
         registration_id: The registration record ID
         student_name: Optional student name for display
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -474,7 +474,7 @@ async def broadcast_competition_submitted(
         student_id: The student who submitted
         registration_id: The registration record ID
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -518,7 +518,7 @@ async def broadcast_competition_score_entered(
         total: Total possible score
         graded_by: User ID of the grader
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -558,7 +558,7 @@ async def broadcast_competition_grader_assigned(
         teacher_id: The teacher assigned as grader
         teacher_name: Optional teacher name for display
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -598,7 +598,7 @@ async def broadcast_day_unlocked(
         day_number: The day number in the study plan
         unlocked_by: The user ID who unlocked the day
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
     
@@ -629,7 +629,7 @@ async def broadcast_class_meeting_changed(
     event: str = "meeting_created",
 ) -> None:
     """Notify portals when a class Google Meet is created or removed."""
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
 

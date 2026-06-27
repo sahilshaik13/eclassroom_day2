@@ -43,7 +43,7 @@ async def set_with_tags(
         ttl: Time-to-live in seconds
         tags: List of tags to associate with this key (e.g., ["tenant:123", "class:456"])
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
 
@@ -71,7 +71,7 @@ async def invalidate_by_tag(tag: str) -> int:
     Returns:
         Number of keys deleted
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return 0
 
@@ -121,7 +121,7 @@ async def get_keys_by_tag(tag: str) -> list[str]:
     Returns:
         List of keys associated with the tag
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return []
 
@@ -137,7 +137,7 @@ async def remove_from_tag(tag: str, key: str) -> None:
         tag: The tag index
         key: The key to remove
     """
-    redis = await get_redis()
+    redis = get_redis()
     if not redis:
         return
 

@@ -409,7 +409,7 @@ async def _cached_progress_report(
 
     # Try to get from cache first
     from app.core.redis_client import get_redis
-    redis = await get_redis()
+    redis = get_redis()
     cached = None
     if redis:
         try:
