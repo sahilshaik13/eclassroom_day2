@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Save, GraduationCap, RefreshCw, Star, AlertCircle, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -14,6 +15,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 interface GradeRow { student_id: string; name: string; score: number | ''; remarks: string }
 
 export default function GradesPage() {
+  const { t } = useTranslation()
   const [classId, setClassId] = useState('')
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7))
   const [rows, setRows] = useState<GradeRow[]>([])
@@ -68,8 +70,8 @@ export default function GradesPage() {
 
   return (
     <DashboardPageLayout
-      title="Assessments"
-      description="Evaluate student performance and provide qualitative feedback."
+      title={t('teacher.grades.title')}
+      description={t('teacher.grades.description')}
       actions={
         <div className="flex items-center gap-3">
           <Select value={classId} onValueChange={setClassId}>

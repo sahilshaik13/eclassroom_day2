@@ -1,0 +1,175 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "home": "Home",
+    "progressReport": "Progress Report",
+    "report": "Report",
+    "myClasses": "My Classes",
+    "classes": "Classes",
+    "competitions": "Competitions",
+    "doubts": "Doubts",
+    "myProfile": "My Profile",
+    "profile": "Profile",
+    "studyPlan": "Study Plan",
+    "plan": "Plan",
+    "students": "Students",
+    "signOut": "Sign Out",
+    "loggedOut": "Logged out",
+    "studentPortal": "Student Portal",
+    "teacherPortal": "Teacher's Portal",
+    "levelAdvanced": "Level 3: Advanced",
+    "language": "Language",
+    "english": "English",
+    "arabic": "Arabic"
+  },
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "search": "Search",
+    "never": "Never",
+    "notFound": "Not Found",
+    "viewAll": "View all",
+    "today": "Today",
+    "class": "class",
+    "classes": "classes",
+    "student": "student",
+    "students": "students",
+    "optional": "Optional",
+    "required": "Required"
+  },
+  "student": {
+    "dashboard": {
+      "greeting": "Assalamu'Alaykum, {{name}}! 👋",
+      "subtitle": "Ready to continue your learning journey?",
+      "levelProgress": "Level Progress",
+      "level": "Level {{n}}",
+      "myReport": "My Report",
+      "view": "View",
+      "fullMonthly": "Full Monthly",
+      "attendance": "Attendance",
+      "thisMonth": "This Month",
+      "doubts": "Doubts",
+      "answered": "Answered",
+      "todaysCurriculum": "Today's curriculum",
+      "studyPlan": "Study plan",
+      "noTasks": "No tasks scheduled for today.",
+      "markComplete": "Mark complete",
+      "markIncomplete": "Mark incomplete",
+      "uploadAudio": "Upload audio",
+      "recordAudio": "Record audio",
+      "stopRecording": "Stop recording",
+      "taskComplete": "Task marked complete",
+      "taskIncomplete": "Task unmarked",
+      "taskSubmitted": "Task submitted with audio",
+      "uploadFirst": "Please upload audio first",
+      "updateFailed": "Could not update task",
+      "micError": "Could not access microphone",
+      "learner": "Learner"
+    },
+    "classes": {
+      "title": "My Learning Circles",
+      "description": "Browse your enrolled classes and study plans.",
+      "descriptionFull": "Today's tasks, your study plan PDF, and all class work in one place."
+    },
+    "report": {
+      "title": "Performance Report",
+      "description": "Soft monthly view of your reviewed marks and daily progress.",
+      "selectClass": "Select class",
+      "classBreakdown": "Class breakdown",
+      "overallMarks": "Overall marks",
+      "dailyBreakdown": "Daily breakdown",
+      "reviewedMarks": "Reviewed marks by day"
+    },
+    "doubts": {
+      "title": "Ask Teacher",
+      "description": "Ask questions and read replies from your teachers."
+    },
+    "profile": {
+      "title": "My Identity",
+      "description": "Manage your personal information.",
+      "legalName": "Your legal name"
+    },
+    "competitions": {
+      "title": "My Competitions",
+      "description": "Browse and join your assigned competitions.",
+      "searchPlaceholder": "Search competitions…",
+      "noResults": "No competitions found.",
+      "join": "Join",
+      "viewDetails": "View details",
+      "startExam": "Start exam",
+      "viewResult": "View result",
+      "upcoming": "Upcoming",
+      "ongoing": "Ongoing",
+      "completed": "Completed",
+      "all": "All"
+    }
+  },
+  "teacher": {
+    "dashboard": {
+      "greeting": "Assalamu'Alaykum, {{name}}!",
+      "summary": "You have <1>{{classes}}</1> and <3>{{doubts}} student doubts</3> today.",
+      "totalStudents": "Total Students",
+      "classesToday": "Classes Today",
+      "studentDoubts": "Student Doubts",
+      "avgAttendance": "Avg. Attendance",
+      "todaySchedule": "Today's schedule",
+      "todayCurriculum": "Today's curriculum",
+      "viewStudyPlan": "View study plan",
+      "pendingSubmissions": "Pending submissions",
+      "teacher": "Teacher"
+    },
+    "studyPlan": {
+      "title": "Study plan",
+      "description": "Daily tasks, calendar, and reference PDF — same layout students see in My Learning Circles.",
+      "descriptionUpdating": "Daily tasks, calendar, and reference PDF. · Updating…",
+      "pdfTitle": "Study plan PDF"
+    },
+    "students": {
+      "title": "My Students",
+      "description": "Track progress and manage your classroom.",
+      "searchPlaceholder": "Search students…",
+      "allClasses": "All classes",
+      "lastSeen": "Last seen",
+      "status": "Status",
+      "export": "Export",
+      "active": "Active",
+      "struggling": "Struggling",
+      "absent": "Absent",
+      "excelling": "Excelling"
+    },
+    "competitions": {
+      "title": "My Assigned Competitions",
+      "description": "View and grade participants for your assigned competitions.",
+      "descriptionUpdating": "View and grade participants for your assigned competitions. · Updating…",
+      "copyLink": "Copy Registration Link"
+    },
+    "doubts": {
+      "title": "Students Doubts",
+      "description": "Answer student questions from your classes."
+    },
+    "profile": {
+      "title": "Teacher Profile",
+      "description": "Manage your professional information and account security settings."
+    },
+    "attendance": {
+      "title": "Attendance",
+      "description": "Record and track student participation for today's sessions."
+    },
+    "grades": {
+      "title": "Assessments",
+      "description": "Evaluate student performance and provide qualitative feedback."
+    },
+    "reports": {
+      "title": "Outcome Reports",
+      "description": "Generate and export comprehensive performance reports for your students."
+    },
+    "examSetup": {
+      "title": "Setup: {{title}}",
+      "loading": "Loading…"
+    }
+  }
+}

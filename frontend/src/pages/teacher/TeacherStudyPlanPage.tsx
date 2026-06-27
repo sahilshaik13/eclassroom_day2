@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { format, isSameDay } from 'date-fns'
 import { useBeforeUnload } from 'react-router-dom'
@@ -55,6 +56,7 @@ async function fetchTeacherStudyPlan(classId: string) {
 }
 
 export default function TeacherStudyPlanPage() {
+    const { t } = useTranslation()
     const queryClient = useQueryClient()
     const [searchParams, setSearchParams] = useSearchParams()
     const user = useAuthStore((s) => s.user)
@@ -596,11 +598,11 @@ export default function TeacherStudyPlanPage() {
 
     return (
         <DashboardPageLayout
-            title="Study plan"
+            title={t('teacher.studyPlan.title')}
             description={
                 planFetching && !showBlockingLoader
-                    ? 'Daily tasks, calendar, and reference PDF. · Updating…'
-                    : 'Daily tasks, calendar, and reference PDF — same layout students see in My Learning Circles.'
+                    ? t('teacher.studyPlan.descriptionUpdating')
+                    : t('teacher.studyPlan.description')
             }
             actions={
                 displayPlan ? (

@@ -23,7 +23,7 @@ from app.core.neon_db import close_neon_pool, init_neon_pool
 from app.core.redis_client import close_redis, init_redis
 from app.core.http_client import close_http_client
 from app.services import application_log_store
-from app.api.v1.routes import auth, student, teacher, admin, public, superadmin, competition, progress_report, meet
+from app.api.v1.routes import auth, student, teacher, admin, public, superadmin, competition, progress_report, meet, translate
 from app.middleware.audit_middleware import AuditLogMiddleware
 from app.middleware.cache_access_middleware import CacheAccessMiddleware
 from app.middleware.structured_logging_middleware import StructuredLoggingMiddleware
@@ -252,6 +252,7 @@ app.include_router(admin.router,      prefix="/api/v1")
 app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(competition.router, prefix="/api/v1")
 app.include_router(meet.router, prefix="/api/v1")
+app.include_router(translate.router, prefix="/api/v1")
 
 # ── Health check ──────────────────────────────────────────────
 @app.get("/health")

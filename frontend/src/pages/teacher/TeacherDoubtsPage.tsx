@@ -1,13 +1,16 @@
+import { useTranslation } from 'react-i18next'
 import { DashboardPageLayout } from '@/components/layout/DashboardPageLayout'
-import { TeacherDoubtsChat } from '@/components/teacher/TeacherDoubtsChat'
+import { TeacherDoubtsChatSection } from '@/components/teacher/TeacherDoubtsChat'
 
 export default function TeacherDoubtsPage() {
+  const { t } = useTranslation()
+
   return (
     <DashboardPageLayout
-      title="Students Doubts"
-      description="Reply to student questions with a message, voice note, or file."
+      title={t('teacher.doubts.title')}
+      description={t('teacher.doubts.description')}
     >
-      <TeacherDoubtsChat variant="full" statusFilter="all" />
+      <TeacherDoubtsChatSection />
     </DashboardPageLayout>
   )
 }

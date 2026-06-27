@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { User, Phone, Shield, Save, Camera, Mail, BadgeCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
@@ -11,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
 export default function StudentProfilePage() {
+  const { t } = useTranslation()
   const { user, setSession, accessToken, refreshToken } = useAuthStore()
   const [saving, setSaving] = useState(false)
 
@@ -35,8 +37,8 @@ export default function StudentProfilePage() {
 
   return (
     <DashboardPageLayout
-      title="My Identity"
-      description="Manage your personal information."
+      title={t('student.profile.title')}
+      description={t('student.profile.description')}
       actions={
         <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
           <BadgeCheck className="h-3.5 w-3.5" />

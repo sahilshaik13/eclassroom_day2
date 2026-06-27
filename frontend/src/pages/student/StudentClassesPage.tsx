@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Video, Calendar, Loader2, Search, Layers } from 'lucide-react'
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { StudentEnrolledClassPicker } from '@/components/student/StudentEnrolledClassPicker'
 import { StudentClassStudyPlanSection } from '@/components/student/StudentClassStudyPlanSection'
 import { StudentClassMeetingsCard } from '@/components/student/StudentClassMeetingsCard'
+import { TranslatedText } from '@/components/shared/TranslatedText'
 import type { StudentPlanDay, StudentPlanTask } from '@/lib/studentStudyPlanTasks'
 import { queryKeys } from '@/lib/queryKeys'
 import { softRefetchStudyPlan } from '@/lib/studyPlanQueries'
@@ -30,6 +32,7 @@ interface ClassItem {
 }
 
 export default function StudentClassesPage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const [selectedClassId, setSelectedClassId] = useState<string>('')
@@ -139,7 +142,7 @@ export default function StudentClassesPage() {
 
   if (loading) {
     return (
-      <DashboardPageLayout title="My Learning Circles" description="Browse your enrolled classes and study plans.">
+      <DashboardPageLayout title={t('student.classes.title')} description={t('student.classes.description')}>
         <div className="flex items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
@@ -149,8 +152,8 @@ export default function StudentClassesPage() {
 
   return (
     <DashboardPageLayout
-      title="My Learning Circles"
-      description="Today's tasks, your study plan PDF, and all class work in one place."
+      title={t('student.classes.title')}
+      description={t('student.classes.descriptionFull')}
       className="space-y-3 sm:space-y-4"
     >
       <div className="space-y-4">
@@ -200,7 +203,7 @@ export default function StudentClassesPage() {
                 <h3 className="text-base font-black text-slate-900">No study plan available</h3>
                 <p className="mx-auto mt-2 max-w-sm text-xs font-semibold leading-relaxed text-slate-500">
                   The teacher hasn&apos;t assigned a structured study plan for{' '}
-                  <strong className="text-slate-700">{selectedClass.name}</strong> yet.
+                  <strong className="text-slate-700"><TranslatedText value={selectedClass.name} /></strong> yet.
                 </p>
                 {selectedClass.zoom_link && (
                   <Button

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Save, CheckCircle2, XCircle, Clock, Calendar as CalendarIcon, Users, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -23,6 +24,7 @@ const STATUS_OPTS: { v: Status; label: string; icon: any; cls: string; activeCls
 ]
 
 export default function AttendancePage() {
+  const { t } = useTranslation()
   const [classId, setClassId] = useState('')
   const [students, setStudents] = useState<Student[]>([])
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
@@ -83,8 +85,8 @@ export default function AttendancePage() {
 
   return (
     <DashboardPageLayout
-      title="Attendance"
-      description="Record and track student participation for today's sessions."
+      title={t('teacher.attendance.title')}
+      description={t('teacher.attendance.description')}
       actions={
         <div className="flex items-center gap-3">
           <Select value={classId} onValueChange={setClassId}>

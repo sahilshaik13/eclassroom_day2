@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -222,6 +223,7 @@ function MarksGridTable({
 }
 
 export default function StudentReportPage() {
+  const { t } = useTranslation()
   useStudentProgressRealtime()
   const { studentId } = useParams<{ studentId?: string }>()
   const navigate = useNavigate()
@@ -298,8 +300,8 @@ export default function StudentReportPage() {
 
   return (
     <DashboardPageLayout
-      title="Performance Report"
-      description="Soft monthly view of your reviewed marks and daily progress."
+      title={t('student.report.title')}
+      description={t('student.report.description')}
     >
       <div className="no-print -mt-1 mb-1 flex w-full items-center justify-start gap-2 overflow-x-auto pb-0.5 sm:justify-end [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex shrink-0 items-center gap-2">

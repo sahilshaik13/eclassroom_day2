@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Users, MessageCircle, CheckCircle2, Calendar, Sparkles, Loader2 } from 'lucide-react'
@@ -31,6 +32,7 @@ import {
 interface PulseStudent { student_id: string; name: string; completion_pct: number; pending_doubts: number }
 
 export default function TeacherDashboard() {
+  const { t } = useTranslation()
   const { user } = useAuthStore()
 
   const avgAttendance = 95
@@ -191,28 +193,33 @@ export default function TeacherDashboard() {
     }
   }, [pulseData, pendingDoubtsRaw, classes, firstClassPlan, firstClassSource])
 
-  const firstName = user?.name?.split(' ')[0] || 'Teacher'
+  const firstName = user?.name?.split(' ')[0] || t('teacher.dashboard.teacher')
+  const classesLabel = `${totalClasses} ${totalClasses === 1 ? t('common.class') : t('common.classes')}`
 
   return (
     <div className="space-y-8 pb-20 animate-in fade-in duration-700">
-      {/* Welcome */}
       <div className="space-y-1">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          Assalamu'Alaykum, {firstName}!
+          {t('teacher.dashboard.greeting', { name: firstName })}
           <Sparkles className="h-5 w-5 text-amber-400 fill-amber-400" />
         </h1>
         <p className="text-slate-500 font-medium">
-          You have <span className="text-blue-600 font-bold">{classesPending ? '…' : totalClasses} {totalClasses === 1 ? 'class' : 'classes'}</span> and{' '}
-          <span className="text-orange-500 font-bold">{doubtsPending && pendingDoubtsRaw.length === 0 ? '…' : pendingDoubts} student doubts</span> today.
+          <Trans
+            i18nKey="teacher.dashboard.summary"
+            values={{ classes: classesPending ? '…' : classesLabel, doubts: doubtsPending && pendingDoubtsRaw.length === 0 ? '…' : pendingDoubts }}
+            components={{
+              1: <span className="text-blue-600 font-bold" />,
+              3: <span className="text-orange-500 font-bold" />,
+            }}
+          />
         </p>
       </div>
 
-      {/* Stats Grid — real numbers */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard value={pulsePending ? '…' : String(totalStudents)} label="Total Students" icon={Users} from="from-[#4E7DFF]" to="to-[#3B66DE]" shadow="shadow-blue-500/20" />
-        <StatCard value={classesPending ? '…' : String(totalClasses)} label="Classes Today" icon={Calendar} from="from-[#A855F7]" to="to-[#8B5CF6]" shadow="shadow-purple-500/20" />
-        <StatCard value={doubtsPending && pendingDoubtsRaw.length === 0 ? '…' : String(pendingDoubts)} label="Student Doubts" icon={MessageCircle} from="from-[#FF922B]" to="to-[#F76707]" shadow="shadow-orange-500/20" />
-        <StatCard value={`${avgAttendance}%`} label="Avg. Attendance" icon={CheckCircle2} from="from-[#20C997]" to="to-[#12B886]" shadow="shadow-emerald-500/20" />
+        <StatCard value={pulsePending ? '…' : String(totalStudents)} label={t('teacher.dashboard.totalStudents')} icon={Users} from="from-[#4E7DFF]" to="to-[#3B66DE]" shadow="shadow-blue-500/20" />
+        <StatCard value={classesPending ? '…' : String(totalClasses)} label={t('teacher.dashboard.classesToday')} icon={Calendar} from="from-[#A855F7]" to="to-[#8B5CF6]" shadow="shadow-purple-500/20" />
+        <StatCard value={doubtsPending && pendingDoubtsRaw.length === 0 ? '…' : String(pendingDoubts)} label={t('teacher.dashboard.studentDoubts')} icon={MessageCircle} from="from-[#FF922B]" to="to-[#F76707]" shadow="shadow-orange-500/20" />
+        <StatCard value={`${avgAttendance}%`} label={t('teacher.dashboard.avgAttendance')} icon={CheckCircle2} from="from-[#20C997]" to="to-[#12B886]" shadow="shadow-emerald-500/20" />
       </div>
 
       <section className="space-y-4">

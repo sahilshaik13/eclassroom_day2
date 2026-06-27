@@ -1,0 +1,175 @@
+{
+  "nav": {
+    "dashboard": "لوحة التحكم",
+    "home": "الرئيسية",
+    "progressReport": "تقرير التقدم",
+    "report": "التقرير",
+    "myClasses": "حلقاتي",
+    "classes": "الحلقات",
+    "competitions": "المسابقات",
+    "doubts": "الاستفسارات",
+    "myProfile": "ملفي الشخصي",
+    "profile": "الملف",
+    "studyPlan": "خطة الدراسة",
+    "plan": "الخطة",
+    "students": "الطلاب",
+    "signOut": "تسجيل الخروج",
+    "loggedOut": "تم تسجيل الخروج",
+    "studentPortal": "بوابة الطالب",
+    "teacherPortal": "بوابة المعلم",
+    "levelAdvanced": "المستوى 3: متقدم",
+    "language": "اللغة",
+    "english": "English",
+    "arabic": "العربية"
+  },
+  "common": {
+    "loading": "جاري التحميل…",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "back": "رجوع",
+    "next": "التالي",
+    "submit": "إرسال",
+    "search": "بحث",
+    "never": "أبداً",
+    "notFound": "غير موجود",
+    "viewAll": "عرض الكل",
+    "today": "اليوم",
+    "class": "حلقة",
+    "classes": "حلقات",
+    "student": "طالب",
+    "students": "طلاب",
+    "optional": "اختياري",
+    "required": "مطلوب"
+  },
+  "student": {
+    "dashboard": {
+      "greeting": "السلام عليكم، {{name}}! 👋",
+      "subtitle": "هل أنت مستعد لمواصلة رحلة التعلم؟",
+      "levelProgress": "تقدم المستوى",
+      "level": "المستوى {{n}}",
+      "myReport": "تقريري",
+      "view": "عرض",
+      "fullMonthly": "شهري كامل",
+      "attendance": "الحضور",
+      "thisMonth": "هذا الشهر",
+      "doubts": "الاستفسارات",
+      "answered": "تمت الإجابة",
+      "todaysCurriculum": "منهج اليوم",
+      "studyPlan": "خطة الدراسة",
+      "noTasks": "لا توجد مهام مجدولة لليوم.",
+      "markComplete": "تحديد كمكتمل",
+      "markIncomplete": "إلغاء الإكمال",
+      "uploadAudio": "رفع صوت",
+      "recordAudio": "تسجيل صوت",
+      "stopRecording": "إيقاف التسجيل",
+      "taskComplete": "تم تحديد المهمة كمكتملة",
+      "taskIncomplete": "تم إلغاء إكمال المهمة",
+      "taskSubmitted": "تم إرسال المهمة مع الصوت",
+      "uploadFirst": "يرجى رفع ملف صوتي أولاً",
+      "updateFailed": "تعذر تحديث المهمة",
+      "micError": "تعذر الوصول إلى الميكروفون",
+      "learner": "متعلم"
+    },
+    "classes": {
+      "title": "حلقات التعلم",
+      "description": "تصفح حلقاتك المسجلة وخطط الدراسة.",
+      "descriptionFull": "مهام اليوم، ملف PDF لخطة الدراسة، وجميع أعمال الحلقة في مكان واحد."
+    },
+    "report": {
+      "title": "تقرير الأداء",
+      "description": "عرض شهري لدرجاتك المراجعة وتقدمك اليومي.",
+      "selectClass": "اختر الحلقة",
+      "classBreakdown": "تفصيل الحلقة",
+      "overallMarks": "الدرجات الإجمالية",
+      "dailyBreakdown": "التفصيل اليومي",
+      "reviewedMarks": "الدرجات المراجعة حسب اليوم"
+    },
+    "doubts": {
+      "title": "اسأل المعلم",
+      "description": "اطرح أسئلتك واقرأ ردود معلميك."
+    },
+    "profile": {
+      "title": "هويتي",
+      "description": "إدارة معلوماتك الشخصية.",
+      "legalName": "اسمك القانوني"
+    },
+    "competitions": {
+      "title": "مسابقاتي",
+      "description": "تصفح وانضم إلى المسابقات المخصصة لك.",
+      "searchPlaceholder": "البحث في المسابقات…",
+      "noResults": "لم يتم العثور على مسابقات.",
+      "join": "انضم",
+      "viewDetails": "عرض التفاصيل",
+      "startExam": "بدء الاختبار",
+      "viewResult": "عرض النتيجة",
+      "upcoming": "قادمة",
+      "ongoing": "جارية",
+      "completed": "مكتملة",
+      "all": "الكل"
+    }
+  },
+  "teacher": {
+    "dashboard": {
+      "greeting": "السلام عليكم، {{name}}!",
+      "summary": "لديك <1>{{classes}}</1> و<3>{{doubts}} استفسارات طلاب</3> اليوم.",
+      "totalStudents": "إجمالي الطلاب",
+      "classesToday": "حلقات اليوم",
+      "studentDoubts": "استفسارات الطلاب",
+      "avgAttendance": "متوسط الحضور",
+      "todaySchedule": "جدول اليوم",
+      "todayCurriculum": "منهج اليوم",
+      "viewStudyPlan": "عرض خطة الدراسة",
+      "pendingSubmissions": "التسليمات المعلقة",
+      "teacher": "معلم"
+    },
+    "attendance": {
+      "title": "الحضور",
+      "description": "تسجيل ومتابعة مشاركة الطلاب في جلسات اليوم."
+    },
+    "grades": {
+      "title": "التقييمات",
+      "description": "تقييم أداء الطلاب وتقديم ملاحظات نوعية."
+    },
+    "reports": {
+      "title": "تقارير النتائج",
+      "description": "إنشاء وتصدير تقارير أداء شاملة لطلابك."
+    },
+    "studyPlan": {
+      "title": "خطة الدراسة",
+      "description": "المهام اليومية والتقويم وملف PDF المرجعي — نفس التخطيط الذي يراه الطلاب في حلقات التعلم.",
+      "descriptionUpdating": "المهام اليومية والتقويم وملف PDF المرجعي. · جاري التحديث…",
+      "pdfTitle": "ملف PDF لخطة الدراسة"
+    },
+    "students": {
+      "title": "طلابي",
+      "description": "متابعة التقدم وإدارة حلقتك.",
+      "searchPlaceholder": "البحث عن الطلاب…",
+      "allClasses": "جميع الحلقات",
+      "lastSeen": "آخر ظهور",
+      "status": "الحالة",
+      "export": "تصدير",
+      "active": "نشط",
+      "struggling": "يواجه صعوبة",
+      "absent": "غائب",
+      "excelling": "متفوق"
+    },
+    "competitions": {
+      "title": "المسابقات المخصصة لي",
+      "description": "عرض وتقييم المشاركين في المسابقات المخصصة لك.",
+      "descriptionUpdating": "عرض وتقييم المشاركين في المسابقات المخصصة لك. · جاري التحديث…",
+      "copyLink": "نسخ رابط التسجيل"
+    },
+    "doubts": {
+      "title": "استفسارات الطلاب",
+      "description": "الإجابة على أسئلة الطلاب من حلقاتك."
+    },
+    "profile": {
+      "title": "ملف المعلم",
+      "description": "إدارة معلوماتك المهنية وإعدادات أمان الحساب."
+    },
+    "examSetup": {
+      "title": "إعداد: {{title}}",
+      "loading": "جاري التحميل…"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Search, ChevronRight, FileText, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -12,6 +13,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 
 export default function ReportsPage() {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
 
   const { data: classes = [] } = useQuery({
@@ -67,8 +69,8 @@ export default function ReportsPage() {
 
   return (
     <DashboardPageLayout
-      title="Outcome Reports"
-      description="Generate and export comprehensive performance reports for your students."
+      title={t('teacher.reports.title')}
+      description={t('teacher.reports.description')}
       actions={
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />

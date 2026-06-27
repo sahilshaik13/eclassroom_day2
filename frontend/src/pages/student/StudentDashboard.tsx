@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
@@ -23,6 +24,7 @@ import { pickNextMeeting } from '@/lib/studentMeetings'
 import { StudentUpcomingMeetHero } from '@/components/student/StudentUpcomingMeetHero'
 import { StudentDoubtsChatSection } from '@/components/student/StudentDoubtsChat'
 import { StudentTodayMeetingsSection } from '@/components/student/StudentTodayMeetingsSection'
+import { TranslatedText } from '@/components/shared/TranslatedText'
 import { subscribeToClassMeetings, subscribeToStudyPlan } from '@/lib/realtime'
 
 async function fetchTodayTasks(): Promise<Task[]> {
@@ -55,6 +57,7 @@ function displayPeriodTitle(raw?: string): string | null {
 }
 
 export default function StudentDashboard() {
+  const { t, i18n } = useTranslation()
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
@@ -150,16 +153,20 @@ export default function StudentDashboard() {
     })
   }, [firstClassId, queryClient])
 
-  const planName = tasks[0]?.plan_name || 'Study plan'
+  const planName = tasks[0]?.plan_name || t('student.dashboard.studyPlan')
   const todayHeading = useMemo(() => {
     const raw = tasks[0]?.scheduled_date
     if (!raw) return null
     const parsed = new Date(raw.length <= 10 ? `${raw}T12:00:00` : raw)
     if (Number.isNaN(parsed.getTime())) return null
-    return parsed.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
-  }, [tasks])
+    return parsed.toLocaleDateString(i18n.language === 'ar' ? 'ar-AE' : undefined, {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    })
+  }, [tasks, i18n.language])
 
-  const firstName = user?.name?.split(' ')[0] || 'Learner'
+  const firstName = user?.name?.split(' ')[0] || t('student.dashboard.learner')
 
   const handleAudioPick = async (taskId: string, file: File) => {
     const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -204,7 +211,7 @@ export default function StudentDashboard() {
       recorder.start()
       setRecordingTaskId(taskId)
     } catch {
-      toast.error('Could not access microphone')
+      toast.error(t('student.dashboard.micError'))
     }
   }
 
@@ -239,7 +246,7 @@ export default function StudentDashboard() {
       if (!task.completed && withAudio) {
         const audio = audioDataUrls[task.id]?.dataUrl
         if (!audio) {
-          toast.error('Please upload audio first')
+          toast.error(t('student.dashboard.uploadFirst'))
           return
         }
         await api.post(`/student/tasks/${task.id}/submit`, {
@@ -250,7 +257,7 @@ export default function StudentDashboard() {
           },
           audio_url: audio,
         })
-        toast.success('Task submitted with audio')
+        toast.success(t('student.dashboard.taskSubmitted'))
         patchTodayTask(task.id, true)
         setAudioTaskId(null)
         setRecordingTaskId(null)
@@ -263,7 +270,7 @@ export default function StudentDashboard() {
         const res = await api.patch(`/student/tasks/${task.id}/toggle`)
         const completed = !!res.data?.data?.completed
         patchTodayTask(task.id, completed)
-        toast.success(completed ? 'Task marked complete' : 'Task unmarked')
+        toast.success(completed ? t('student.dashboard.taskComplete') : t('student.dashboard.taskIncomplete'))
       }
       // No manual refetch: patchTodayTask() already updated the cache
       // optimistically. The previous code called refreshTodayTasks()
@@ -272,7 +279,7 @@ export default function StudentDashboard() {
       // revalidate handle the background sync.
     } catch {
       patchTodayTask(task.id, previousCompleted)
-      toast.error('Could not update task')
+      toast.error(t('student.dashboard.updateFailed'))
     } finally {
         stopRecorderStream()
       setBusyTaskId(null)
@@ -283,8 +290,10 @@ export default function StudentDashboard() {
     <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Welcome */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Assalamu'Alaykum, {firstName}! 👋</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Ready to continue your learning journey?</p>
+        <h1 className="text-2xl font-bold text-slate-900">
+          {t('student.dashboard.greeting', { name: firstName })}
+        </h1>
+        <p className="text-slate-500 text-sm mt-0.5">{t('student.dashboard.subtitle')}</p>
       </div>
 
       {nextMeeting ? <StudentUpcomingMeetHero meeting={nextMeeting} /> : null}
@@ -294,34 +303,34 @@ export default function StudentDashboard() {
         <Card className="border-0 shadow-md bg-gradient-to-br from-violet-500 to-purple-600 text-white">
           <CardContent className="p-4 flex flex-col justify-center h-full">
             <div className="flex justify-between items-center mb-2">
-              <span className="font-medium text-xs opacity-90">Level Progress</span>
+              <span className="font-medium text-xs opacity-90">{t('student.dashboard.levelProgress')}</span>
               <span className="text-base font-bold">65%</span>
             </div>
             <div className="w-full bg-black/20 h-1.5 rounded-full overflow-hidden">
                 <div className="bg-white h-full rounded-full" style={{ width: '65%' }} />
             </div>
-            <span className="text-xs opacity-70 mt-2">Level 2</span>
+            <span className="text-xs opacity-70 mt-2">{t('student.dashboard.level', { n: 2 })}</span>
           </CardContent>
         </Card>
 
         <Link to="/student/report" className="block h-full">
-          <QuickStat label="My Report" value="View" sub="Full Monthly" from="from-blue-400" to="to-indigo-500" />
+          <QuickStat label={t('student.dashboard.myReport')} value={t('student.dashboard.view')} sub={t('student.dashboard.fullMonthly')} from="from-blue-400" to="to-indigo-500" />
         </Link>
-        <QuickStat label="Attendance" value="92%" sub="This Month" from="from-emerald-400" to="to-teal-500" />
-        <QuickStat label="Doubts" value={String(pendingDoubts)} sub="Answered" from="from-violet-500" to="to-purple-600" />
+        <QuickStat label={t('student.dashboard.attendance')} value="92%" sub={t('student.dashboard.thisMonth')} from="from-emerald-400" to="to-teal-500" />
+        <QuickStat label={t('student.dashboard.doubts')} value={String(pendingDoubts)} sub={t('student.dashboard.answered')} from="from-violet-500" to="to-purple-600" />
       </div>
 
       {/* Today's Plan */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-bold text-slate-900">
-            Today&apos;s curriculum
+            {t('student.dashboard.todaysCurriculum')}
             {tasksFetching && !loadingTasks && (
               <span className="ml-2 text-[10px] font-medium text-slate-400">· Updating…</span>
             )}
           </h2>
           <Button variant="outline" size="sm" className="rounded-xl border-slate-200 text-xs font-semibold" asChild>
-            <Link to="/student/classes">My Classes</Link>
+            <Link to="/student/classes">{t('nav.myClasses')}</Link>
           </Button>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -340,7 +349,9 @@ export default function StudentDashboard() {
             </p>
           ) : (
             <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{planName}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <TranslatedText value={planName} />
+              </p>
               {todayHeading ? (
                 <p className="text-sm font-semibold text-indigo-700">{todayHeading}</p>
               ) : null}
@@ -363,10 +374,12 @@ export default function StudentDashboard() {
                         )}
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold truncate">{task.title}</p>
+                        <p className="font-semibold truncate">
+                          <TranslatedText value={task.title} />
+                        </p>
                         {displayPeriodTitle(task.period_title) ? (
                           <p className="text-[10px] font-medium text-slate-400">
-                            {displayPeriodTitle(task.period_title)}
+                            <TranslatedText value={displayPeriodTitle(task.period_title)} />
                           </p>
                         ) : null}
                       </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Search, Copy, Check, Settings2 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -20,6 +21,7 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
 }
 
 export default function TeacherCompetitionsPage() {
+  const { t } = useTranslation()
   useTeacherCompetitionRealtime()
   const [selectedCompId, setSelectedCompId] = useState<string | null>(null)
   const navigate = useNavigate()
@@ -87,11 +89,11 @@ export default function TeacherCompetitionsPage() {
 
   return (
     <DashboardPageLayout
-      title="My Assigned Competitions"
+      title={t('teacher.competitions.title')}
       description={
         isFetching && !loading
-          ? 'View and grade participants for your assigned competitions. · Updating…'
-          : 'View and grade participants for your assigned competitions.'
+          ? t('teacher.competitions.descriptionUpdating')
+          : t('teacher.competitions.description')
       }
     >
       <div className="flex flex-col lg:flex-row gap-6 items-start">

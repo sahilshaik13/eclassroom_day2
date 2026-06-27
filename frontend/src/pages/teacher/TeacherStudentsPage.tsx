@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Search, ChevronRight, Clock, User, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -52,6 +53,7 @@ function formatLastSeen(iso?: string | null) {
 }
 
 export default function TeacherStudentsPage() {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [classFilter, setClassFilter] = useState('all')
   const [selected, setSelected] = useState<Student | null>(null)
@@ -100,8 +102,8 @@ export default function TeacherStudentsPage() {
 
   return (
     <DashboardPageLayout
-      title="My Students"
-      description="Track progress and manage your classroom."
+      title={t('teacher.students.title')}
+      description={t('teacher.students.description')}
       actions={
         <div className="flex gap-2">
           <Button

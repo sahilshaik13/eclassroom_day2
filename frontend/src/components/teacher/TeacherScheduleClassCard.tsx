@@ -7,6 +7,7 @@ import { clsx } from 'clsx'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { MeetFormDialog } from '@/components/meet/MeetFormDialog'
+import { TranslatedText } from '@/components/shared/TranslatedText'
 import { queryKeys } from '@/lib/queryKeys'
 import {
   buildStartAtIso,
@@ -174,7 +175,7 @@ export function TeacherScheduleClassCard({
               </Badge>
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900">{title}</h3>
+              <h3 className="text-lg font-bold text-slate-900"><TranslatedText value={title} /></h3>
               {meetingTitle ? (
                 <p className="text-sm text-slate-500 mt-0.5">{meetingTitle}</p>
               ) : null}
