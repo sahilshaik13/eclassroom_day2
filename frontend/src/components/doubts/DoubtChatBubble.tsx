@@ -2,6 +2,7 @@ import { Check, CheckCheck, Clock, FileText } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useTranslation } from 'react-i18next'
 import type { DoubtChatMessage } from '@/lib/doubtChatMerge'
+import { detectTextDirection } from '@/lib/textDirection'
 import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 
 type DoubtChatBubbleProps = {
@@ -38,9 +39,11 @@ function displayTimestamp(message: DoubtChatMessage, outgoing: boolean): string 
 }
 
 export function DoubtChatBubble({ message, outgoingSide, formatTime }: DoubtChatBubbleProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const outgoing = message.side === outgoingSide
   const timeLabel = displayTimestamp(message, outgoing)
+  const textFallback = i18n.language === 'ar' ? 'rtl' : 'ltr'
+  const textDir = detectTextDirection(message.text, textFallback)
 
   return (
     <div className={clsx('flex', outgoing ? 'justify-end' : 'justify-start')}>
@@ -53,7 +56,9 @@ export function DoubtChatBubble({ message, outgoingSide, formatTime }: DoubtChat
         )}
       >
         {message.text?.trim() && (
-          <p className="whitespace-pre-wrap text-[13px] leading-snug">{message.text}</p>
+          <p dir={textDir} className="whitespace-pre-wrap text-start text-[13px] leading-snug">
+            {message.text}
+          </p>
         )}
 
         {(message.replyType === 'audio' || message.audioUrl) && message.audioUrl && (

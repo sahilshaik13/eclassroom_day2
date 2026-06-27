@@ -35,6 +35,7 @@ import {
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
 import { Link } from 'react-router-dom'
+import { detectTextDirection } from '@/lib/textDirection'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
 import {
@@ -187,12 +188,14 @@ export function TeacherDoubtsChat({
   variant = 'embedded',
   statusFilter = 'all',
 }: TeacherDoubtsChatProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const userId = useAuthStore((s) => s.user?.id)
   const tenantId = useAuthStore((s) => s.user?.tenant_id)
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
+  const textFallback = i18n.language === 'ar' ? 'rtl' : 'ltr'
+  const composeDir = detectTextDirection(replyText, textFallback)
   const [sending, setSending] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [outboxTick, setOutboxTick] = useState(0)
@@ -667,7 +670,12 @@ export function TeacherDoubtsChat({
                           {formatListTime(thread.lastAt, t)}
                         </span>
                       </div>
-                      <p className="mt-0.5 truncate text-xs text-slate-500">{thread.preview}</p>
+                      <p
+                        dir={detectTextDirection(thread.preview, textFallback)}
+                        className="mt-0.5 truncate text-start text-xs text-slate-500"
+                      >
+                        {thread.preview}
+                      </p>
                     </div>
                   </button>
                 )
@@ -791,6 +799,7 @@ export function TeacherDoubtsChat({
                     <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-2 shadow-sm">
                       <textarea
                         rows={1}
+                        dir={composeDir}
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                         onKeyDown={(e) => {
@@ -805,7 +814,7 @@ export function TeacherDoubtsChat({
                             ? t('chat.typePlaceholder')
                             : t('chat.noHistoryYet')
                         }
-                        className="max-h-24 w-full resize-none border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
+                        className="max-h-24 w-full resize-none border-0 bg-transparent text-start text-sm text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
                       />
                     </div>
 

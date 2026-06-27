@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import toast from 'react-hot-toast'
+import { detectTextDirection } from '@/lib/textDirection'
 import api from '@/services/api'
 import { queryKeys } from '@/lib/queryKeys'
 import {
@@ -185,13 +186,15 @@ type StudentDoubtsChatProps = {
 export function StudentDoubtsChat({
   variant = 'embedded',
 }: StudentDoubtsChatProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const studentId = useAuthStore((s) => s.user?.student_id)
   const userId = useAuthStore((s) => s.user?.id)
   const tenantId = useAuthStore((s) => s.user?.tenant_id)
   const queryClient = useQueryClient()
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null)
   const [messageText, setMessageText] = useState('')
+  const textFallback = i18n.language === 'ar' ? 'rtl' : 'ltr'
+  const composeDir = detectTextDirection(messageText, textFallback)
   const [sending, setSending] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [outboxTick, setOutboxTick] = useState(0)
@@ -633,7 +636,12 @@ export function StudentDoubtsChat({
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 truncate text-xs text-slate-500">{thread.preview}</p>
+                      <p
+                        dir={detectTextDirection(thread.preview, textFallback)}
+                        className="mt-0.5 truncate text-start text-xs text-slate-500"
+                      >
+                        {thread.preview}
+                      </p>
                     </div>
                   </button>
                 )
@@ -768,6 +776,7 @@ export function StudentDoubtsChat({
                   <div className="min-w-0 flex-1 rounded-2xl bg-white px-4 py-2 shadow-sm">
                     <textarea
                       rows={1}
+                      dir={composeDir}
                       value={messageText}
                       onChange={(e) => setMessageText(e.target.value)}
                       onKeyDown={(e) => {
@@ -777,7 +786,7 @@ export function StudentDoubtsChat({
                         }
                       }}
                       placeholder={t('chat.askPlaceholder')}
-                      className="max-h-24 w-full resize-none border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                      className="max-h-24 w-full resize-none border-0 bg-transparent text-start text-sm text-slate-800 outline-none placeholder:text-slate-400"
                     />
                   </div>
 
