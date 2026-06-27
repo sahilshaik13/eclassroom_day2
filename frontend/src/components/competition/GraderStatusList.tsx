@@ -1,4 +1,5 @@
 import { ChevronDown } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { clsx } from 'clsx'
 import {
   DropdownMenu,
@@ -19,6 +20,7 @@ function summarizeNames(names: string[]) {
 
 /** Clickable grader list (same pattern as exam setup) with Pending/Corrected per row. */
 export function GraderStatusList({ competition, dense }: GraderStatusListProps) {
+  const { t } = useTranslation()
   const graders = competition.graders || []
   const triggerClass = dense ? '!py-px !text-[10px]' : undefined
 
@@ -48,7 +50,7 @@ export function GraderStatusList({ competition, dense }: GraderStatusListProps) 
         <DropdownMenuContent align="start">
           <div className="max-h-64 w-72 overflow-y-auto p-0">
             <p className="border-b border-slate-100 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              Graders
+              {t('studyPlan.graders')}
             </p>
             <ul className="px-2 py-1.5">
               {graders.map((g) => {
@@ -67,7 +69,7 @@ export function GraderStatusList({ competition, dense }: GraderStatusListProps) 
                           : 'border-amber-200 bg-amber-50 text-amber-800',
                       )}
                     >
-                      {corrected ? 'Corrected' : 'Pending'}
+                      {corrected ? t('studyPlan.corrected') : t('common.pending')}
                     </span>
                   </li>
                 )

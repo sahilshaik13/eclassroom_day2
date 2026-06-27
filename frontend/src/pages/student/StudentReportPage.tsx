@@ -28,10 +28,11 @@ import {
 } from '@/components/ui/select'
 import clsx from 'clsx'
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
+function useMonths() {
+  const { t } = useTranslation()
+  return t('months', { returnObjects: true }) as string[]
+}
+
 
 const DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
 
@@ -42,12 +43,13 @@ function scoreTone(score: number) {
 }
 
 function ScoreLegend() {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-wrap items-center gap-2">
       {[
-        { label: '80%+', className: 'bg-emerald-50 text-emerald-700 ring-emerald-100' },
-        { label: '60%+', className: 'bg-blue-50 text-blue-700 ring-blue-100' },
-        { label: 'Below 60%', className: 'bg-amber-50 text-amber-700 ring-amber-100' },
+        { label: t('student.report.above80'), className: 'bg-emerald-50 text-emerald-700 ring-emerald-100' },
+        { label: t('student.report.above60'), className: 'bg-blue-50 text-blue-700 ring-blue-100' },
+        { label: t('student.report.below60'), className: 'bg-amber-50 text-amber-700 ring-amber-100' },
       ].map((item) => (
         <span
           key={item.label}
@@ -118,6 +120,7 @@ function MarksGridTable({
   total: number
   formula?: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className="overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-sm shadow-indigo-100/20 print:border-slate-200 print:shadow-none">
       <div className="flex flex-col gap-3 border-b border-indigo-50 bg-[radial-gradient(ellipse_at_top_left,_#eef2ff_0%,_#f5f3ff_35%,_#ffffff_100%)] px-4 py-3 md:flex-row md:items-center md:justify-between">
@@ -140,7 +143,7 @@ function MarksGridTable({
             style={{ gridTemplateColumns: '90px repeat(31, minmax(22px, 1fr)) 55px' }}
           >
             <div className="sticky left-0 z-10 flex items-center border-r border-indigo-100/80 bg-indigo-50/80 px-2 py-1.5 text-left text-[9px] font-bold uppercase tracking-wide text-indigo-600">
-              Metric
+              {t('student.report.metric')}
             </div>
             {DAYS.map((d) => (
               <div
@@ -151,7 +154,7 @@ function MarksGridTable({
               </div>
             ))}
             <div className="flex items-center justify-center bg-violet-50/80 px-1 py-1.5 text-center text-[9px] font-bold uppercase tracking-wide text-violet-700">
-              Tot
+              {t('student.report.tot')}
             </div>
           </div>
 
@@ -207,10 +210,10 @@ function MarksGridTable({
             style={{ gridTemplateColumns: '90px 1fr 55px' }}
           >
             <div className="sticky left-0 z-10 flex items-center border-r border-indigo-100/80 bg-indigo-100/40 px-2 py-2.5 text-[9px] font-bold uppercase tracking-wide text-indigo-800">
-              Total
+              {t('common.total')}
             </div>
             <div className="flex items-center justify-end border-t border-indigo-100/60 px-3 py-2.5 text-right text-[10px] font-medium italic text-slate-500">
-              {formula || 'Day mark = sum of reviewed task marks. Total = cumulative sum.'}
+              {formula || t('student.report.dayMarkFormula')}
             </div>
             <div className="flex items-center justify-center border-t border-indigo-100/60 bg-indigo-200/50 px-2 py-2.5 text-center text-sm font-bold tabular-nums text-indigo-900">
               {total}
@@ -224,6 +227,7 @@ function MarksGridTable({
 
 export default function StudentReportPage() {
   const { t } = useTranslation()
+  const MONTHS = useMonths()
   useStudentProgressRealtime()
   const { studentId } = useParams<{ studentId?: string }>()
   const navigate = useNavigate()
@@ -270,9 +274,9 @@ export default function StudentReportPage() {
   const monthLabel = `${MONTHS[selectedMonth - 1]} ${selectedYear}`
   const classLabel =
     selectedClassId === 'overall'
-      ? 'All classes'
+      ? t('student.report.allClasses')
       : enrolledClasses.find((c: { id: string; name: string }) => c.id === selectedClassId)?.name ||
-        'Loading...'
+        t('common.loading')
 
   const shiftMonth = (delta: -1 | 1) => {
     if (delta === -1) {
@@ -332,13 +336,13 @@ export default function StudentReportPage() {
           <Select value={selectedClassId} onValueChange={setSelectedClassId}>
             <SelectTrigger className="h-10 min-h-10 w-[11.5rem] shrink-0 rounded-xl border-indigo-100/90 bg-[radial-gradient(ellipse_at_top_left,_#eef2ff_0%,_#ffffff_100%)] px-3 text-xs font-bold shadow-sm [&>span]:truncate">
               <GraduationCap className="mr-2 h-4 w-4 shrink-0 text-indigo-600" />
-              <SelectValue placeholder="Select class">
-                {selectedClassId === 'overall' ? 'Overall Results' : classLabel}
+              <SelectValue placeholder={t('student.report.selectClass')}>
+                {selectedClassId === 'overall' ? t('student.report.overallResults') : classLabel}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="overall" className="font-bold text-indigo-600">
-                Overall Results
+                {t('student.report.overallResults')}
               </SelectItem>
               {enrolledClasses.map((c: { id: string; name: string }) => (
                 <SelectItem key={c.id} value={c.id} className="font-bold">
@@ -351,13 +355,13 @@ export default function StudentReportPage() {
           <SoftToolbarButton
             onClick={() => {
               void refetch()
-              toast.success('Refreshing report...', { duration: 2000 })
+              toast.success(t('student.report.refreshing'), { duration: 2000 })
             }}
             disabled={isFetching}
             className={clsx(isFetching && 'opacity-70')}
           >
             <RefreshCw className={clsx('h-4 w-4 shrink-0 text-indigo-600', isFetching && 'animate-spin')} />
-            {isFetching ? 'Updating…' : 'Refresh'}
+            {isFetching ? t('common.updating') : t('common.refresh')}
           </SoftToolbarButton>
 
           <Button
@@ -365,7 +369,7 @@ export default function StudentReportPage() {
             onClick={() => window.print()}
             className="h-10 shrink-0 gap-2 rounded-xl border-0 bg-[radial-gradient(ellipse_at_top_left,_#6366f1_0%,_#7c3aed_52%,_#4338ca_100%)] px-4 text-xs font-black text-white shadow-md shadow-indigo-500/25 hover:opacity-95"
           >
-            <Printer className="h-4 w-4 shrink-0" /> Export PDF
+            <Printer className="h-4 w-4 shrink-0" /> {t('student.report.exportPdf')}
           </Button>
         </div>
       </div>
@@ -377,13 +381,13 @@ export default function StudentReportPage() {
           {!report ? (
             <div className="rounded-2xl border border-dashed border-indigo-200 bg-[radial-gradient(ellipse_at_top_left,_#eef2ff_0%,_#ffffff_100%)] p-10 text-center shadow-sm">
               <FileText className="mx-auto mb-4 h-14 w-14 text-indigo-200" />
-              <h2 className="text-xl font-bold text-slate-900">No report found</h2>
-              <p className="mt-1 text-sm text-slate-500">Try another month or class.</p>
+              <h2 className="text-xl font-bold text-slate-900">{t('student.report.noReport')}</h2>
+              <p className="mt-1 text-sm text-slate-500">{t('student.report.tryAnother')}</p>
               <Button
                 onClick={() => navigate(-1)}
                 className="mt-5 rounded-xl bg-indigo-600 hover:bg-indigo-700"
               >
-                Go back
+                {t('student.report.goBack')}
               </Button>
             </div>
           ) : (
@@ -423,16 +427,16 @@ export default function StudentReportPage() {
                       </p>
                       <h2 className="truncate text-xl font-bold md:text-2xl">{report.student_name}</h2>
                       <p className="mt-0.5 text-sm font-medium text-indigo-100/90">
-                        Monthly performance report
+                        {t('student.report.monthlyPerformance')}
                       </p>
                     </div>
                   </div>
                   <div className="shrink-0 rounded-2xl bg-white/10 px-5 py-3 text-center ring-1 ring-white/20 backdrop-blur-sm">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-100">
-                      Total score
+                      {t('student.report.totalScore')}
                     </p>
                     <p className="text-3xl font-black tabular-nums">{report.total_cumulative_raw_400 ?? 0}</p>
-                    <p className="text-[11px] font-medium text-indigo-100/80">out of 400</p>
+                    <p className="text-[11px] font-medium text-indigo-100/80">{t('student.report.outOf400')}</p>
                   </div>
                 </div>
               </div>
@@ -448,7 +452,7 @@ export default function StudentReportPage() {
                     <MarksGridTable
                       key={cReport.class_id}
                       title={cReport.class_name}
-                      subtitle="Class breakdown"
+                      subtitle={t('student.report.classBreakdown')}
                       icon={<GraduationCap className="h-4 w-4" />}
                       rows={cReport.grid}
                       total={cReport.total_cumulative_raw_400 ?? 0}
@@ -458,8 +462,8 @@ export default function StudentReportPage() {
                 )}
 
               <MarksGridTable
-                title={selectedClassId === 'overall' ? 'Overall marks' : 'Daily breakdown'}
-                subtitle="Reviewed marks by day"
+                title={selectedClassId === 'overall' ? t('student.report.overallMarks') : t('student.report.dailyBreakdown')}
+                subtitle={t('student.report.reviewedMarks')}
                 icon={<TrendingUp className="h-4 w-4" />}
                 rows={report.grid}
                 total={report.total_cumulative_raw_400 ?? 0}
@@ -469,11 +473,10 @@ export default function StudentReportPage() {
               {isEmptyReport ? (
                 <div className="rounded-2xl border border-dashed border-indigo-200/80 bg-[radial-gradient(ellipse_at_top_left,_#f5f3ff_0%,_#ffffff_100%)] px-6 py-10 text-center">
                   <p className="text-sm font-semibold text-slate-600">
-                    No reviewed marks for lessons scheduled in {monthLabel}.
+                    {t('student.report.noReviewedMarks', { month: monthLabel })}
                   </p>
                   <p className="mx-auto mt-2 max-w-md text-xs font-medium text-slate-500">
-                    Switch month to see other parts of your study plan if your plan starts in another
-                    month.
+                    {t('student.report.switchMonth')}
                   </p>
                 </div>
               ) : null}

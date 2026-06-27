@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,6 +40,7 @@ export function StudyPlanDayCardEditor({
   onDeletePeriod,
   onSaveColumn,
 }: StudyPlanDayCardEditorProps) {
+  const { t } = useTranslation()
   const columns = useMemo(() => getEditablePlanColumns(source), [source])
   const [localValues, setLocalValues] = useState<Record<string, Record<string, string>>>({})
   const [ensuring, setEnsuring] = useState(false)
@@ -73,7 +75,7 @@ export function StudyPlanDayCardEditor({
   if (!columns.length) {
     return (
       <p className="text-sm text-slate-500">
-        No import columns are available. Apply a study plan PDF with column mapping first.
+        {t('studyPlan.noImportColumns')}
       </p>
     )
   }
@@ -82,7 +84,7 @@ export function StudyPlanDayCardEditor({
     return (
       <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Preparing period…
+        {t('studyPlan.preparingPeriod')}
       </div>
     )
   }
@@ -146,7 +148,7 @@ export function StudyPlanDayCardEditor({
                 size="icon"
                 className="h-7 w-7 text-slate-400 hover:bg-red-50 hover:text-red-600"
                 disabled={busy}
-                aria-label="Delete period"
+                aria-label={t('studyPlan.deletePeriod')}
                 onClick={() => void onDeletePeriod(dayIndex, pIdx)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -197,13 +199,13 @@ export function StudyPlanDayCardEditor({
           disabled={busy || !hasPendingEdits}
           onClick={() =>
             void flushPendingEdits().then((ok) => {
-              if (ok) toast.success('Changes saved')
-              else toast.error('Failed to save some changes')
+              if (ok) toast.success(t('studyPlan.savedChanges'))
+              else toast.error(t('studyPlan.failedSave'))
             })
           }
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          Save changes
+          {t('studyPlan.saveChangesBtn')}
         </Button>
         <Button
           type="button"
@@ -213,7 +215,7 @@ export function StudyPlanDayCardEditor({
           onClick={() => void onAddPeriod(dayIndex, periods.length > 0 ? periods.length - 1 : undefined)}
         >
           <Plus className="h-3.5 w-3.5" />
-          Add period
+          {t('studyPlan.addPeriod')}
         </Button>
       </div>
     </div>

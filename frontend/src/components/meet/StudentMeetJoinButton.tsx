@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ExternalLink, Lock, PlayCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { canJoinMeeting, joinOpensLabel } from '@/lib/meetScheduleTime'
@@ -15,6 +16,7 @@ export function StudentMeetJoinButton({
   startAt,
   variant = 'card',
 }: StudentMeetJoinButtonProps) {
+  const { t } = useTranslation()
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export function StudentMeetJoinButton({
         )}
       >
         <PlayCircle className={variant === 'hero' ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
-        Join {variant === 'hero' ? 'Class' : 'Meet'}
+        {variant === 'hero' ? t('student.meetings.joinClass') : t('student.meetings.joinMeet')}
         <ExternalLink className={variant === 'hero' ? 'h-3.5 w-3.5' : 'h-3 w-3'} />
       </a>
     )
@@ -58,7 +60,7 @@ export function StudentMeetJoinButton({
         )}
       >
         <Lock className={variant === 'hero' ? 'h-4 w-4' : 'h-3 w-3'} />
-        Join {variant === 'hero' ? 'Class' : 'Meet'}
+        {variant === 'hero' ? t('student.meetings.joinClass') : t('student.meetings.joinMeet')}
       </Button>
       {opensLabel ? (
         <span

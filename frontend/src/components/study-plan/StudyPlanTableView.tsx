@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -31,9 +32,11 @@ export function StudyPlanTableView({
   onSelectedRowIndexesChange,
   onRowsChange,
   className,
-  emptyMessage = 'No rows available.',
+  emptyMessage,
   rowsPerPage,
 }: StudyPlanTableViewProps) {
+  const { t } = useTranslation()
+  const resolvedEmptyMessage = emptyMessage ?? t('common.noRowsAvailable')
   const [page, setPage] = useState(0)
   const pageSize = rowsPerPage && rowsPerPage > 0 ? rowsPerPage : rows.length
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
@@ -95,7 +98,7 @@ export function StudyPlanTableView({
   const paginationBar = paginated ? (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2">
       <p className="text-xs font-semibold text-slate-600">
-        Rows {startIndex + 1}–{endIndex} of {rows.length}
+        {t('common.rowsOf', { start: startIndex + 1, end: endIndex, total: rows.length })}
       </p>
       <div className="flex items-center gap-2">
         <Button
@@ -110,7 +113,7 @@ export function StudyPlanTableView({
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <span className="min-w-[4.5rem] text-center text-xs font-bold text-slate-700">
-          Page {safePage + 1} / {pageCount}
+          {t('common.page')} {safePage + 1} / {pageCount}
         </span>
         <Button
           type="button"
@@ -137,7 +140,7 @@ export function StudyPlanTableView({
             style={{ gridTemplateColumns: editable ? `36px repeat(${columns.length}, minmax(100px, 1fr))` : `repeat(${columns.length}, minmax(100px, 1fr))` }}
           >
             {editable && onSelectedRowIndexesChange ? (
-              <div className="flex h-9 items-center justify-center px-1" title={paginated ? 'Select all rows on this page' : 'Select all rows'}>
+              <div className="flex h-9 items-center justify-center px-1" title={t('common.selectAll')}>
                 <input
                   type="checkbox"
                   checked={headerChecked}
@@ -159,7 +162,7 @@ export function StudyPlanTableView({
           <div>
             {rows.length === 0 ? (
               <div className="flex items-center justify-center px-3 py-6 text-xs text-slate-500" style={{ minHeight: '80px' }}>
-                {emptyMessage}
+                {resolvedEmptyMessage}
               </div>
             ) : (
               visibleRows.map((row, localIndex) => {

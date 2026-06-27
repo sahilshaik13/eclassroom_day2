@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Calendar, Clock, Loader2, Video } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Link } from 'react-router-dom'
@@ -11,6 +12,7 @@ import {
 } from '@/lib/studentMeetings'
 
 export function StudentTodayMeetingsSection() {
+  const { t } = useTranslation()
   const { data: meetings = [], isPending } = useQuery({
     queryKey: queryKeys.student.meetingsToday(),
     queryFn: fetchStudentTodayMeetings,
@@ -28,18 +30,18 @@ export function StudentTodayMeetingsSection() {
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="text-lg font-bold text-slate-900">Today&apos;s classes</h2>
-        <p className="text-xs text-slate-500">{todayLabel} · meetings from all your classes</p>
+        <h2 className="text-lg font-bold text-slate-900">{t('student.meetings.todaysClasses')}</h2>
+        <p className="text-xs text-slate-500">{t('student.meetings.meetingsFromAll', { date: todayLabel })}</p>
       </div>
 
       <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
         {isPending ? (
           <div className="flex items-center gap-3 text-sm text-slate-500">
             <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-            Loading today&apos;s meetings…
+            {t('student.meetings.loadingMeetings')}
           </div>
         ) : meetings.length === 0 ? (
-          <p className="text-sm text-slate-500">No class meetings scheduled for today.</p>
+          <p className="text-sm text-slate-500">{t('student.meetings.noMeetings')}</p>
         ) : (
           <div className="space-y-3">
             {meetings.map((meeting) => {
@@ -79,7 +81,7 @@ export function StudentTodayMeetingsSection() {
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="h-3.5 w-3.5" />
-                        Today
+                        {t('common.today')}
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <Clock className="h-3.5 w-3.5" />
@@ -97,7 +99,7 @@ export function StudentTodayMeetingsSection() {
                       className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     >
                       <Video className="h-3.5 w-3.5" />
-                      Details
+                      {t('student.meetings.details')}
                     </Link>
                   </div>
                 </div>

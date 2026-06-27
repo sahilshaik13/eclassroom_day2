@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { 
   ChevronLeft, Loader2, MessageSquare, 
@@ -19,6 +20,7 @@ import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player';
 import clsx from 'clsx';
 
 export default function TeacherEvaluationPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { mode, id, studentId } = useParams<{ mode: string, id: string, studentId?: string }>();
   const [loading, setLoading] = useState(true);
@@ -58,7 +60,7 @@ export default function TeacherEvaluationPage() {
       });
       setReviews(initialReviews);
     } catch (err) {
-      toast.error("Failed to load evaluation data");
+      toast.error(t('teacher.evaluation.loadFailed'));
       navigate(-1);
     } finally {
       setLoading(false);
@@ -97,10 +99,10 @@ export default function TeacherEvaluationPage() {
       });
       
       await Promise.all(promises);
-      toast.success(publish ? "Results Published successfully!" : "Progress saved successfully!");
+      toast.success(publish ? t('teacher.evaluation.resultsPublished') : t('teacher.evaluation.progressSaved'));
       if (publish) navigate(-1);
     } catch (err) {
-      toast.error("Failed to save evaluations");
+      toast.error(t('teacher.evaluation.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -115,17 +117,17 @@ export default function TeacherEvaluationPage() {
   }
 
   const submissions = Array.isArray(data) ? data : [data];
-  const student = submissions[0]?.student || submissions[0]?.student_name || 'Student';
-  const title = mode === 'period' ? `Period Evaluation: ${submissions[0]?.period_title || 'Period'}` : `Task Evaluation: ${submissions[0]?.task_title || 'Task'}`;
+  const student = submissions[0]?.student || submissions[0]?.student_name || t('teacher.evaluation.studentFallback');
+  const title = mode === 'period' ? t('teacher.evaluation.periodEval', { name: submissions[0]?.period_title || 'Period' }) : t('teacher.evaluation.taskEval', { name: submissions[0]?.task_title || 'Task' });
 
   return (
     <DashboardPageLayout
-      title="Professional Evaluation"
-      description="Review student work, calculate scores, and publish final results."
+      title={t('teacher.evaluation.professionalEvaluation')}
+      description={t('teacher.evaluation.evaluationDesc')}
       actions={
         <div className="flex gap-3">
           <Button variant="ghost" onClick={() => navigate(-1)} className="rounded-xl font-bold text-slate-500">
-            <ChevronLeft className="h-4 w-4 mr-2" /> Back
+            <ChevronLeft className="h-4 w-4 mr-2" /> {t('common.back')}
           </Button>
           <Button 
             variant="outline" 
@@ -133,14 +135,14 @@ export default function TeacherEvaluationPage() {
             disabled={saving}
             className="rounded-xl font-bold bg-white"
           >
-            <Save className="w-4 h-4 mr-2" /> Save Draft
+            <Save className="w-4 h-4 mr-2" /> {t('teacher.evaluation.saveDraft')}
           </Button>
           <Button 
             onClick={() => handleSaveAll(true)}
             disabled={saving}
             className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/20"
           >
-            <SaveAll className="w-4 h-4 mr-2" /> Publish Results
+            <SaveAll className="w-4 h-4 mr-2" /> {t('teacher.evaluation.publishResults')}
           </Button>
         </div>
       }
@@ -155,7 +157,7 @@ export default function TeacherEvaluationPage() {
                     <User className="h-6 w-6" />
                  </div>
                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 opacity-80">Evaluating Participant</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300 opacity-80">{t('teacher.evaluation.evaluatingParticipant')}</span>
                     <h1 className="text-xl font-black">{typeof student === 'string' ? student : student.name}</h1>
                     <p className="text-xs font-bold text-slate-300 mt-0.5">{title}</p>
                  </div>
@@ -163,11 +165,11 @@ export default function TeacherEvaluationPage() {
               
                <div className="flex items-center gap-4">
                   <div className="text-right">
-                     <p className="text-[10px] font-black uppercase text-indigo-300 mb-1">Day Result</p>
+                     <p className="text-[10px] font-black uppercase text-indigo-300 mb-1">{t('teacher.evaluation.dayResult')}</p>
                      <div className="flex items-center gap-2">
                         <div className="text-right">
                            <span className="text-xl font-black">{submissions[0]?.day_progress?.average_score ?? '—'}%</span>
-                           <p className="text-[10px] font-bold text-indigo-300 mt-0.5">{submissions[0]?.day_progress?.completed || 0}/{submissions[0]?.day_progress?.total || 0} Tasks</p>
+                           <p className="text-[10px] font-bold text-indigo-300 mt-0.5">{submissions[0]?.day_progress?.completed || 0}/{submissions[0]?.day_progress?.total || 0} {t('teacher.evaluation.tasks')}</p>
                         </div>
                         <div className="w-20 h-2 bg-white/10 rounded-full overflow-hidden">
                            <div 
@@ -194,7 +196,7 @@ export default function TeacherEvaluationPage() {
                          <div>
                             <div className="flex items-center gap-2 mb-2">
                                <BadgeCheck className="h-4 w-4 text-indigo-500" />
-                               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Task {idx + 1} of {submissions.length}</span>
+                               <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('teacher.evaluation.taskOf', { idx: idx + 1, total: submissions.length })}</span>
                             </div>
                             <h3 className="text-lg font-black text-slate-900">{sub.task_title || sub.task?.title}</h3>
                          </div>
@@ -205,7 +207,7 @@ export default function TeacherEvaluationPage() {
 
                       <div className="space-y-4">
                          <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 relative group">
-                            <Label className="absolute -top-3 left-8 bg-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-indigo-600 border border-indigo-100 shadow-sm">Student Response</Label>
+                            <Label className="absolute -top-3 left-8 bg-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-indigo-600 border border-indigo-100 shadow-sm">{t('teacher.evaluation.studentResponse')}</Label>
                             
                             {sub.audio_url ? (
                               <div className="flex flex-col items-center gap-3 py-2">
@@ -213,18 +215,18 @@ export default function TeacherEvaluationPage() {
                                     <Mic className="w-5 h-5" />
                                  </div>
                                  <AudioWaveformPlayer src={sub.audio_url} className="w-full" height={36} />
-                                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Audio Recording Provided</p>
+                                 <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">{t('teacher.evaluation.audioRecording')}</p>
                               </div>
                             ) : (
                               <div className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed text-sm italic">
-                                 "{sub.content?.submission_text || sub.submission_text || 'No written response provided.'}"
+                                 "{sub.content?.submission_text || sub.submission_text || t('teacher.evaluation.noWrittenResponse')}"
                               </div>
                             )}
                          </div>
 
                          {sub.content?.responses && (
                            <div className="space-y-4">
-                              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">MCQ Answers Analysis</Label>
+                              <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">{t('teacher.evaluation.mcqAnalysis')}</Label>
                               <div className="grid gap-3">
                                  {Object.entries(sub.content.responses).map(([key, val]: [string, any], qIdx) => (
                                    <div key={key} className="bg-white p-5 rounded-2xl border border-slate-100 flex items-center justify-between shadow-sm">
@@ -233,9 +235,9 @@ export default function TeacherEvaluationPage() {
                                          <p className="font-bold text-slate-700">{val.answer}</p>
                                       </div>
                                       {val.is_correct ? (
-                                        <Badge className="bg-emerald-50 text-emerald-600 border-none">Correct</Badge>
+                                        <Badge className="bg-emerald-50 text-emerald-600 border-none">{t('teacher.evaluation.correct')}</Badge>
                                       ) : (
-                                        <Badge className="bg-rose-50 text-rose-600 border-none">Incorrect</Badge>
+                                        <Badge className="bg-rose-50 text-rose-600 border-none">{t('teacher.evaluation.incorrect')}</Badge>
                                       )}
                                    </div>
                                  ))}
@@ -249,23 +251,23 @@ export default function TeacherEvaluationPage() {
                    <div className="p-4 sm:p-5 bg-slate-50/50 space-y-4">
                       <div className="flex items-center gap-3">
                          <Trophy className="h-6 w-6 text-indigo-600" />
-                         <h4 className="text-base font-black text-slate-900">Grading System</h4>
+                         <h4 className="text-base font-black text-slate-900">{t('teacher.evaluation.gradingSystem')}</h4>
                       </div>
 
                       <div className="space-y-4">
                          {/* Marks System */}
                          <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-3">
-                               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Calculated Marks</Label>
+                               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('teacher.evaluation.calculatedMarks')}</Label>
                                <div className="h-16 bg-white rounded-xl border border-slate-200 flex flex-col items-center justify-center group transition-all hover:border-indigo-300">
                                   <span className="text-xl font-black text-slate-900">
                                     {sub.auto_score ?? sub.score ?? '—'}%
                                   </span>
-                                  <span className="text-[8px] font-bold text-emerald-500 uppercase">AI Suggested</span>
+                                  <span className="text-[8px] font-bold text-emerald-500 uppercase">{t('teacher.evaluation.aiSuggested')}</span>
                                </div>
                             </div>
                             <div className="space-y-3">
-                               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Override Marks</Label>
+                               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('teacher.evaluation.overrideMarks')}</Label>
                                <div className="relative">
                                   <Input 
                                     type="number"
@@ -287,8 +289,8 @@ export default function TeacherEvaluationPage() {
                          {/* Feedback */}
                          <div className="space-y-3">
                             <div className="flex items-center justify-between px-2">
-                               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Teacher's Remarks</Label>
-                               <span className="text-[10px] font-bold text-indigo-600 uppercase">Visible to student</span>
+                               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t('teacher.evaluation.teacherRemarks')}</Label>
+                               <span className="text-[10px] font-bold text-indigo-600 uppercase">{t('teacher.evaluation.visibleToStudent')}</span>
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <Button
@@ -297,7 +299,7 @@ export default function TeacherEvaluationPage() {
                                 onClick={() => applyRubricPreset(sub.id, 'excellent')}
                                 className="h-8 rounded-xl bg-emerald-600 px-3 text-[10px] font-black text-white hover:bg-emerald-700"
                               >
-                                Excellent
+                                {t('teacher.evaluation.excellent')}
                               </Button>
                               <Button
                                 type="button"
@@ -305,7 +307,7 @@ export default function TeacherEvaluationPage() {
                                 onClick={() => applyRubricPreset(sub.id, 'acceptable')}
                                 className="h-8 rounded-xl bg-blue-600 px-3 text-[10px] font-black text-white hover:bg-blue-700"
                               >
-                                Acceptable
+                                {t('teacher.evaluation.acceptable')}
                               </Button>
                               <Button
                                 type="button"
@@ -314,12 +316,12 @@ export default function TeacherEvaluationPage() {
                                 onClick={() => applyRubricPreset(sub.id, 'needs_repeat')}
                                 className="h-8 rounded-xl px-3 text-[10px] font-black text-rose-700"
                               >
-                                Needs Repeat
+                                {t('teacher.evaluation.needsRepeat')}
                               </Button>
                             </div>
                             <div className="relative">
                                <Textarea 
-                                 placeholder="Excellent work! Keep improving..."
+                                 placeholder={t('teacher.evaluation.remarkPlaceholder')}
                                  value={reviews[sub.id]?.feedback}
                                  onChange={(e) => handleUpdateReview(sub.id, { feedback: e.target.value })}
                                  className="min-h-[100px] rounded-xl bg-white border-slate-200 pl-10 pt-4 font-medium focus:ring-indigo-500/20 text-sm leading-relaxed shadow-sm"
@@ -331,7 +333,7 @@ export default function TeacherEvaluationPage() {
                          <div className="flex items-center gap-4 p-4 bg-indigo-50 rounded-2xl border border-indigo-100">
                             <Info className="h-5 w-5 text-indigo-600 shrink-0" />
                             <p className="text-[10px] font-bold text-indigo-700 leading-tight">
-                               Once published, these marks will be added to the student's progress report and cannot be modified. Ensure accuracy before hitting publish.
+                               {t('teacher.evaluation.publishWarning')}
                             </p>
                          </div>
                       </div>
@@ -349,8 +351,8 @@ export default function TeacherEvaluationPage() {
                  <BadgeCheck className="h-5 w-5" />
               </div>
               <div>
-                 <h4 className="text-base font-black text-slate-900">Finalize Evaluation</h4>
-                 <p className="text-xs font-bold text-slate-400">Confirm all scores and remarks for this {mode}.</p>
+                 <h4 className="text-base font-black text-slate-900">{t('teacher.evaluation.finalizeEvaluation')}</h4>
+                 <p className="text-xs font-bold text-slate-400">{t('teacher.evaluation.confirmScores', { mode })}</p>
               </div>
            </div>
            
@@ -362,7 +364,7 @@ export default function TeacherEvaluationPage() {
                 onClick={() => handleSaveAll(false)}
                 disabled={saving}
               >
-                <RefreshCcw className={clsx("h-5 w-5 mr-2", saving && "animate-spin")} /> Save Progress
+                <RefreshCcw className={clsx("h-5 w-5 mr-2", saving && "animate-spin")} /> {t('teacher.evaluation.saveProgress')}
               </Button>
               <Button 
                 size="lg" 
@@ -370,7 +372,7 @@ export default function TeacherEvaluationPage() {
                 onClick={() => handleSaveAll(true)}
                 disabled={saving}
               >
-                <SaveAll className="h-5 w-5 mr-2" /> Publish Results
+                <SaveAll className="h-5 w-5 mr-2" /> {t('teacher.evaluation.publishResults')}
               </Button>
            </div>
         </div>

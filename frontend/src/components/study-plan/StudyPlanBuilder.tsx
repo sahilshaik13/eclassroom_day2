@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, GripVertical, ChevronRight, ChevronDown, Clock, BookOpen, CheckSquare, HelpCircle, Calendar, Eye, EyeOff, Headphones, FileText, PenLine, RefreshCw, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -109,6 +110,7 @@ export default function StudyPlanBuilder({
   onUpdateDayAccessibility,
   onDeleteDay
 }: StudyPlanBuilderProps) {
+  const { t } = useTranslation();
   const [expandedDays, setExpandedDays] = useState<Record<number, boolean>>({ 1: true });
   const [activeMCQTask, setActiveMCQTask] = useState<{ dIdx: number, pIdx: number, tIdx: number } | null>(null);
 
@@ -141,7 +143,7 @@ export default function StudyPlanBuilder({
     if (onAddPeriod) return onAddPeriod(dayIdx);
     const newDays = [...days];
     newDays[dayIdx].periods.push({
-      title: `Period ${newDays[dayIdx].periods.length + 1}`,
+      title: t('teacher.studyPlan.defaultPeriod', { n: newDays[dayIdx].periods.length + 1 }),
       duration_minutes: 30,
       order_index: newDays[dayIdx].periods.length,
       tasks: []
@@ -184,7 +186,7 @@ export default function StudyPlanBuilder({
     if (onAddTask) return onAddTask(dayIdx, periodIdx, type);
     const newDays = [...days];
     newDays[dayIdx].periods[periodIdx].tasks.push({
-      title: 'New Task',
+      title: t('studyPlan.newTask'),
       task_type: type,
       required: true,
       order_index: newDays[dayIdx].periods[periodIdx].tasks.length,
@@ -224,9 +226,9 @@ export default function StudyPlanBuilder({
                 {day.day_number}
               </div>
               <div>
-                <h3 className="font-bold text-slate-900">Day {day.day_number}</h3>
+                <h3 className="font-bold text-slate-900">{t('studyPlan.day', { n: day.day_number })}</h3>
                 <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">
-                  {(day.periods || []).length} Periods • {(day.periods || []).reduce((acc, p) => acc + (p.tasks || []).length, 0)} Tasks
+                  {(day.periods || []).length} {t('studyPlan.periods')} • {(day.periods || []).reduce((acc, p) => acc + (p.tasks || []).length, 0)} {t('studyPlan.tasks')}
                 </p>
               </div>
             </div>
@@ -261,12 +263,12 @@ export default function StudyPlanBuilder({
                   {day.is_accessible ? (
                     <>
                       <Eye className="h-3.5 w-3.5" />
-                      <span className="text-[10px] uppercase tracking-widest">Accessible</span>
+                      <span className="text-[10px] uppercase tracking-widest">{t('studyPlan.accessible')}</span>
                     </>
                   ) : (
                     <>
                       <EyeOff className="h-3.5 w-3.5" />
-                      <span className="text-[10px] uppercase tracking-widest">Locked</span>
+                      <span className="text-[10px] uppercase tracking-widest">{t('studyPlan.locked')}</span>
                     </>
                   )}
                 </Button>
@@ -301,7 +303,7 @@ export default function StudyPlanBuilder({
                       <EditableField 
                         value={displayPeriodTitle(period.title)} 
                         onBlur={(val: string) => handleUpdatePeriod(dIdx, pIdx, { title: val })}
-                        placeholder="عنوان الحصة / Period"
+                        placeholder={t('studyPlan.periodPlaceholder')}
                         className="h-8 bg-transparent border-none font-bold text-slate-700 focus-visible:ring-0 px-0 w-48"
                         readOnly={readOnly}
                       />
@@ -314,7 +316,7 @@ export default function StudyPlanBuilder({
                           className="h-8 w-16 bg-transparent border-none text-xs font-bold focus-visible:ring-0 p-0"
                           readOnly={readOnly}
                         />
-                        <span className="text-[10px] uppercase font-bold tracking-wider">min</span>
+                        <span className="text-[10px] uppercase font-bold tracking-wider">{t('studyPlan.min')}</span>
                       </div>
                     </div>
                     {!readOnly && (
@@ -325,8 +327,8 @@ export default function StudyPlanBuilder({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg"
-                            title="Duplicate this period"
-                            aria-label="Duplicate period"
+                            title={t('studyPlan.duplicatePeriod')}
+                            aria-label={t('studyPlan.duplicatePeriod')}
                             onClick={() => handleDuplicatePeriod(dIdx, pIdx)}
                           >
                             <Copy className="h-3.5 w-3.5" />
@@ -337,8 +339,8 @@ export default function StudyPlanBuilder({
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-slate-300 hover:text-red-500 rounded-lg"
-                          title="Delete period"
-                          aria-label="Delete period"
+                          title={t('studyPlan.deletePeriod')}
+                          aria-label={t('studyPlan.deletePeriod')}
                           onClick={() => handleRemovePeriod(dIdx, pIdx)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -376,7 +378,7 @@ export default function StudyPlanBuilder({
                               value={task.title}
                               onBlur={(val: string) => handleUpdateTask(dIdx, pIdx, tIdx, { title: val })}
                               className="h-7 bg-transparent border-none font-bold text-sm text-slate-800 p-0 focus-visible:ring-0"
-                              placeholder="Task Title"
+                              placeholder={t('studyPlan.taskTitlePlaceholder')}
                               readOnly={readOnly}
                             />
                             <div className="flex items-center gap-2">
@@ -389,14 +391,14 @@ export default function StudyPlanBuilder({
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="memorise">Memorise</SelectItem>
-                                  <SelectItem value="review">Review</SelectItem>
-                                  <SelectItem value="recite">Recite</SelectItem>
-                                  <SelectItem value="listen">Listen</SelectItem>
-                                  <SelectItem value="read">Read</SelectItem>
-                                  <SelectItem value="mcq">Quiz (MCQ)</SelectItem>
-                                  <SelectItem value="written">Written</SelectItem>
-                                  <SelectItem value="reflection">Reflection</SelectItem>
+                                  <SelectItem value="memorise">{t('studyPlan.memorise')}</SelectItem>
+                                  <SelectItem value="review">{t('studyPlan.reviewType')}</SelectItem>
+                                  <SelectItem value="recite">{t('studyPlan.recite')}</SelectItem>
+                                  <SelectItem value="listen">{t('studyPlan.listen')}</SelectItem>
+                                  <SelectItem value="read">{t('studyPlan.readType')}</SelectItem>
+                                  <SelectItem value="mcq">{t('studyPlan.quizMcq')}</SelectItem>
+                                  <SelectItem value="written">{t('studyPlan.written')}</SelectItem>
+                                  <SelectItem value="reflection">{t('studyPlan.reflection')}</SelectItem>
                                 </SelectContent>
                               </Select>
                               {!readOnly && (
@@ -415,7 +417,7 @@ export default function StudyPlanBuilder({
                             value={task.description || ''}
                             onBlur={(val: string) => handleUpdateTask(dIdx, pIdx, tIdx, { description: val })}
                             className="h-6 bg-transparent border-none text-xs text-slate-500 p-0 focus-visible:ring-0"
-                            placeholder="Add instructions or description..."
+                            placeholder={t('studyPlan.addInstructions')}
                             readOnly={readOnly}
                           />
 
@@ -427,7 +429,7 @@ export default function StudyPlanBuilder({
                                  className="h-7 text-[10px] font-bold uppercase tracking-wider rounded-lg border-dashed border-violet-200 text-violet-600 hover:bg-violet-50"
                                  onClick={() => setActiveMCQTask({ dIdx, pIdx, tIdx })}
                                >
-                                 Configure MCQ ({task.config?.questions?.length || 0} Questions)
+                                 {t('studyPlan.configureMcq', { count: task.config?.questions?.length || 0 })}
                                </Button>
                             </div>
                           )}
@@ -441,7 +443,7 @@ export default function StudyPlanBuilder({
                         className="w-full h-10 border border-dashed border-slate-200 text-slate-400 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-100 rounded-xl font-bold text-xs gap-2"
                         onClick={() => handleAddTask(dIdx, pIdx)}
                       >
-                        <Plus className="h-4 w-4" /> Add Task
+                        <Plus className="h-4 w-4" /> {t('studyPlan.addTask')}
                       </Button>
                     )}
                   </CardContent>
@@ -453,7 +455,7 @@ export default function StudyPlanBuilder({
                   className="w-full gap-2 rounded-2xl border-dashed border-slate-300 py-6 text-sm font-black text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                   onClick={() => handleAddPeriod(dIdx)}
                 >
-                  <Plus className="h-5 w-5" /> Add New Period
+                  <Plus className="h-5 w-5" /> {t('studyPlan.addNewPeriod')}
                 </Button>
               )}
             </div>
@@ -466,7 +468,7 @@ export default function StudyPlanBuilder({
           onClick={addDay}
           className="w-full py-8 bg-slate-900 hover:bg-slate-800 text-white rounded-3xl font-black text-lg shadow-xl shadow-slate-200 flex items-center justify-center gap-3 transition-transform hover:scale-[1.01] active:scale-[0.99]"
         >
-          <Plus className="h-6 w-6" /> Add Next Day
+          <Plus className="h-6 w-6" /> {t('studyPlan.addNextDay')}
         </Button>
       )}
 

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import {
   formatClockTimeLabel,
@@ -13,12 +14,13 @@ interface MeetClockTimePickerProps {
 }
 
 export function MeetClockTimePicker({ value, onChange }: MeetClockTimePickerProps) {
+  const { t } = useTranslation()
   const setPeriod = (period: AmPm) => onChange({ ...value, period })
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
       <div className="mb-4 text-center">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Start time</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{t('meet.startTime')}</p>
         <p className="mt-1 font-mono text-3xl font-black tabular-nums text-slate-900">
           {formatClockTimeLabel(value)}
         </p>
@@ -47,7 +49,7 @@ export function MeetClockTimePicker({ value, onChange }: MeetClockTimePickerProp
 
       <div className="mb-3">
         <p className="mb-1.5 text-center text-[10px] font-bold uppercase tracking-wide text-slate-500">
-          Minutes
+          {t('meet.minutes')}
         </p>
         <div className="flex flex-wrap justify-center gap-1">
           {MINUTE_STEPS.map((m) => (
@@ -69,7 +71,7 @@ export function MeetClockTimePicker({ value, onChange }: MeetClockTimePickerProp
       </div>
 
       <div className="flex justify-center gap-2">
-        {(['AM', 'PM'] as const).map((p) => (
+        {([{ val: 'AM' as const, label: t('meet.am') }, { val: 'PM' as const, label: t('meet.pm') }]).map(({ val: p, label }) => (
           <button
             key={p}
             type="button"
@@ -81,7 +83,7 @@ export function MeetClockTimePicker({ value, onChange }: MeetClockTimePickerProp
                 : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100',
             )}
           >
-            {p}
+            {label}
           </button>
         ))}
       </div>

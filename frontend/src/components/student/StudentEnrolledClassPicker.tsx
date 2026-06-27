@@ -1,5 +1,6 @@
 import { clsx } from 'clsx'
 import { User } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 
 const DOT_OVERLAY =
   'radial-gradient(circle at 2px 2px, rgb(99 102 241 / 0.07) 1px, transparent 0)'
@@ -21,17 +22,19 @@ export function StudentEnrolledClassPicker({
   classes,
   selectedClassId,
   onSelect,
-  heading = 'Enrolled classes',
+  heading,
 }: StudentEnrolledClassPickerProps) {
+  const { t } = useTranslation()
+  const displayHeading = heading ?? t('student.enrolledClasses.heading')
   return (
     <div className="flex flex-col gap-2.5">
       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-        {heading}
+        {displayHeading}
       </h3>
       <div className="flex flex-wrap gap-2.5 sm:gap-3">
         {classes.map((c) => {
           const selected = c.id === selectedClassId
-          const teacherName = c.teacher?.name?.trim() || 'Teacher'
+          const teacherName = c.teacher?.name?.trim() || t('student.enrolledClasses.teacherFallback')
           return (
             <button
               key={c.id}

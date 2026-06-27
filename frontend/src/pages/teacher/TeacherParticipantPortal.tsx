@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Save, CheckCircle, SaveAll, FileText, BadgeCheck, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -16,6 +17,7 @@ import { useCompetitionGradingRealtime } from '@/hooks/useCompetitionRealtime'
 import { isAutoGradableMcq, migrateExamContent } from '@/lib/competitionExam'
 
 export default function TeacherParticipantPortal() {
+  const { t } = useTranslation()
   const { competition_id, registration_id } = useParams<{ competition_id: string; registration_id: string }>()
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -63,12 +65,12 @@ export default function TeacherParticipantPortal() {
             setRemarks('')
           }
         } else {
-          toast.error("Participant not found")
+          toast.error(t('teacher.participant.notFound'))
           navigate(`/teacher/competitions`)
         }
       }
     } catch (err) {
-      if (!opts?.silent) toast.error('Failed to load evaluation data')
+      if (!opts?.silent) toast.error(t('teacher.participant.loadFailed'))
     } finally {
       if (!opts?.silent) setLoading(false)
     }
@@ -95,7 +97,7 @@ export default function TeacherParticipantPortal() {
   const handleSave = async (releaseResults: boolean) => {
     if (!competition_id || !registration_id) return
     if (score === null) {
-      toast.error('Please enter a score before saving')
+      toast.error(t('teacher.evaluation.enterScore'))
       return
     }
     const collaborative = evalMeta?.collaborative_grading ?? false
@@ -111,9 +113,9 @@ export default function TeacherParticipantPortal() {
         effectiveRelease
       )
       if (collaborative) {
-        toast.success('Your score was saved. Once every grader submits, the admin can publish the results to students.')
+        toast.success(t('teacher.evaluation.scoreInfo'))
       } else {
-        toast.success(releaseResults ? 'Results Published to Student!' : 'Evaluation Draft Saved!')
+        toast.success(releaseResults ? t('teacher.evaluation.published') : t('teacher.evaluation.draftSaved'))
       }
       await fetchData()
     } catch (err) {
@@ -126,7 +128,7 @@ export default function TeacherParticipantPortal() {
   if (loading) return (
     <div className="flex justify-center items-center h-64 text-slate-400 gap-3">
       <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      Loading participant data...
+      {t('teacher.participant.loading')}
     </div>
   )
 
@@ -135,11 +137,11 @@ export default function TeacherParticipantPortal() {
   if (user?.role === 'teacher' && evalMeta && !evalMeta.my_can_grade) {
     return (
       <div className="max-w-lg mx-auto py-20 px-6 text-center space-y-4">
-        <p className="text-lg font-bold text-slate-800">Grading not assigned</p>
+        <p className="text-lg font-bold text-slate-800">{t('teacher.participant.gradingNotAssigned')}</p>
         <p className="text-sm text-slate-600">
-          You can configure this exam if you have setup access, but you are not on the grading roster for this competition.
+          {t('teacher.participant.gradingNotAssignedDesc')}
         </p>
-        <Button variant="outline" onClick={() => navigate('/teacher/competitions')}>Back to competitions</Button>
+        <Button variant="outline" onClick={() => navigate('/teacher/competitions')}>{t('teacher.participant.backToCompetitions')}</Button>
       </div>
     )
   }
@@ -155,20 +157,20 @@ export default function TeacherParticipantPortal() {
 
   const statusBadge = isReleased ? (
     <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 sm:text-xs">
-      <CheckCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> Released
+      <CheckCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> {t('teacher.participant.released')}
     </div>
   ) : allGradersSubmitted ? (
     <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-800 sm:text-xs">
-      <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> Admin publish
+      <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> {t('teacher.participant.adminPublish')}
     </div>
   ) : collaborative ? (
     <div className="inline-flex w-fit max-w-full flex-wrap items-center gap-1 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 sm:text-xs">
       <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
-      <span>Graders {submittedN}/{expectedN}</span>
+      <span>{t('teacher.participant.graders', { submitted: submittedN, expected: expectedN })}</span>
     </div>
   ) : (
     <div className="inline-flex w-fit items-center gap-1 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-800 sm:text-xs">
-      <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> Draft
+      <AlertCircle className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" /> {t('teacher.participant.draft')}
     </div>
   )
 
@@ -181,13 +183,13 @@ export default function TeacherParticipantPortal() {
           onClick={() => navigate(-1)}
           className="-ml-2 h-9 px-2 text-slate-500 hover:text-slate-900"
         >
-          <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
+          <ArrowLeft className="mr-1.5 h-4 w-4" /> {t('common.back')}
         </Button>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="min-w-0 space-y-2">
             <h1 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl lg:text-3xl">
-              Participant review
+              {t('teacher.participant.participantReview')}
             </h1>
             {statusBadge}
           </div>
@@ -202,7 +204,7 @@ export default function TeacherParticipantPortal() {
                 className="h-10 min-h-10 w-full gap-1.5 font-semibold sm:w-auto sm:min-w-[8.5rem]"
               >
                 <Save className="h-4 w-4 shrink-0" />
-                <span className="truncate">{collaborative ? 'Save' : 'Save draft'}</span>
+                <span className="truncate">{collaborative ? t('common.save') : t('teacher.participant.saveDraft')}</span>
               </Button>
               {!collaborative && (
                 <Button
@@ -212,7 +214,7 @@ export default function TeacherParticipantPortal() {
                   className="h-10 min-h-10 w-full gap-1.5 font-semibold sm:w-auto sm:min-w-[8.5rem] bg-blue-600 hover:bg-blue-700"
                 >
                   <SaveAll className="h-4 w-4 shrink-0" />
-                  <span className="truncate">Publish</span>
+                  <span className="truncate">{t('teacher.participant.publishBtn')}</span>
                 </Button>
               )}
             </div>
@@ -238,10 +240,10 @@ export default function TeacherParticipantPortal() {
                   <BadgeCheck className="h-5 w-5 text-white lg:h-6 lg:w-6" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-blue-100">Participant</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-blue-100">{t('teacher.participant.participantLabel')}</p>
                   <CardTitle className="truncate text-lg font-black lg:text-xl">{registration.name}</CardTitle>
                   <p className="mt-1 truncate text-xs text-blue-100/90">
-                    <span className="opacity-70">Phone</span> {registration.phone}
+                    <span className="opacity-70">{t('teacher.participant.phoneLabel')}</span> {registration.phone}
                   </p>
                 </div>
               </div>
@@ -251,25 +253,25 @@ export default function TeacherParticipantPortal() {
                 <div className="space-y-1 rounded-lg border border-white/20 bg-white/10 p-3 text-xs text-blue-50">
                   <p className="font-bold text-white/90">
                     {allGradersSubmitted && !isReleased
-                      ? 'All grader scores in — awaiting admin publish'
+                      ? t('teacher.participant.allScoresIn')
                       : collaborative && !isReleased
-                        ? 'Provisional average (hidden from students)'
+                        ? t('teacher.participant.provisionalAvg')
                         : graderScores.length > 1
-                          ? 'Official average'
-                          : 'Official score'}
+                          ? t('teacher.participant.officialAvg')
+                          : t('teacher.participant.officialScore')}
                   </p>
                   <p className="text-2xl font-black text-white">{official.score}/100</p>
                   {collaborative && expectedN > 0 && (
                     <p className="pt-1 text-[10px] opacity-90">
                       {allGradersSubmitted
-                        ? `Submitted ${submittedN} / ${expectedN} — admin can publish`
-                        : `Submitted ${submittedN} / ${expectedN}`}
+                        ? t('teacher.participant.submittedOfAdmin', { submitted: submittedN, expected: expectedN })
+                        : t('teacher.participant.submittedOf', { submitted: submittedN, expected: expectedN })}
                     </p>
                   )}
                   <ul className="mt-2 space-y-0.5 text-[11px] opacity-90">
                     {graderScores.map((s) => (
                       <li key={s.id} className="flex justify-between gap-2">
-                        <span className="truncate">{s.grader_name || 'Evaluator'}</span>
+                        <span className="truncate">{s.grader_name || t('teacher.participant.evaluatorFallback')}</span>
                         <span className="shrink-0 font-semibold tabular-nums">{s.score}</span>
                       </li>
                     ))}
@@ -279,8 +281,8 @@ export default function TeacherParticipantPortal() {
               <div>
                 <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-blue-100 lg:text-xs">
                   {collaborative
-                    ? 'Your score (0–100), averaged when all graders save'
-                    : 'Final score (0–100)'}
+                    ? t('teacher.participant.scoreHintMulti')
+                    : t('teacher.participant.scoreHintSingle')}
                 </Label>
                 <Input
                   type="number"
@@ -295,10 +297,10 @@ export default function TeacherParticipantPortal() {
 
               <div>
                 <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-blue-100 lg:text-xs">
-                  General remarks
+                  {t('teacher.participant.generalRemarks')}
                 </Label>
                 <Textarea
-                  placeholder="Overall feedback…"
+                  placeholder={t('teacher.participant.feedbackPlaceholder')}
                   disabled={!registration.is_submitted || isReleased}
                   className="min-h-[100px] resize-none rounded-xl border-white/20 bg-white/10 text-sm text-white placeholder:text-blue-200/50 focus-visible:ring-white/30 disabled:opacity-50 lg:min-h-[120px]"
                   value={remarks}
@@ -312,7 +314,7 @@ export default function TeacherParticipantPortal() {
                   onClick={() => handleSave(true)}
                   disabled={!registration.is_submitted || isSaving || score === null}
                 >
-                  {isSaving ? 'Processing…' : 'Publish results'}
+                  {isSaving ? t('teacher.participant.processing') : t('teacher.participant.publishResultsBtn')}
                 </Button>
               )}
               {!isReleased && collaborative && (
@@ -321,7 +323,7 @@ export default function TeacherParticipantPortal() {
                   onClick={() => handleSave(false)}
                   disabled={!registration.is_submitted || isSaving || score === null}
                 >
-                  {isSaving ? 'Saving…' : 'Save your score'}
+                  {isSaving ? t('teacher.participant.saving') : t('teacher.participant.saveYourScore')}
                 </Button>
               )}
             </CardContent>
@@ -334,14 +336,14 @@ export default function TeacherParticipantPortal() {
             <CardHeader className="border-b border-slate-100 bg-slate-50/80 p-4">
               <CardTitle className="flex items-center gap-2 text-base font-bold sm:text-lg">
                 <FileText className="h-4 w-4 shrink-0 text-indigo-500 sm:h-5 sm:w-5" />
-                Submission details
+                {t('teacher.participant.submissionDetails')}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 sm:p-5">
               {!registration.is_submitted ? (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center">
                   <AlertCircle className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-                  <p className="font-medium text-slate-500">Participant has not submitted the exam yet.</p>
+                  <p className="font-medium text-slate-500">{t('teacher.participant.notSubmitted')}</p>
                 </div>
               ) : (
                 <div className="space-y-6 sm:space-y-8">
@@ -365,7 +367,7 @@ export default function TeacherParticipantPortal() {
                               'inline-flex w-fit shrink-0 rounded-lg px-2 py-1 text-[10px] font-black uppercase tracking-wide sm:text-xs',
                               finalIsCorrect ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-red-50 text-red-700 ring-1 ring-red-100'
                             )}>
-                              {finalIsCorrect ? 'Correct' : 'Incorrect'}
+                              {finalIsCorrect ? t('teacher.evaluation.correct') : t('teacher.evaluation.incorrect')}
                             </div>
                           </div>
 
@@ -395,12 +397,12 @@ export default function TeacherParticipantPortal() {
                                     <div className="flex shrink-0 flex-wrap items-center gap-1.5 pl-9 sm:pl-0">
                                       {isSelected && (
                                         <span className="rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200/80">
-                                          Selected
+                                          {t('teacher.participant.selected')}
                                         </span>
                                       )}
                                       {isCorrectOpt && (
                                         <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200/80">
-                                          Key
+                                          {t('teacher.participant.key')}
                                         </span>
                                       )}
                                     </div>
@@ -412,7 +414,7 @@ export default function TeacherParticipantPortal() {
 
                           <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
                             <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                              Manual override
+                              {t('teacher.participant.manualOverride')}
                             </Label>
                             <div className="flex flex-wrap gap-2">
                               <Button
@@ -425,7 +427,7 @@ export default function TeacherParticipantPortal() {
                                 onClick={() => handleUpdateResponse(index, { teacher_override: teacherOverride === 'correct' ? undefined : 'correct' })}
                                 disabled={isReleased}
                               >
-                                Mark correct
+                                {t('teacher.participant.markCorrect')}
                               </Button>
                               <Button
                                 size="sm"
@@ -437,7 +439,7 @@ export default function TeacherParticipantPortal() {
                                 onClick={() => handleUpdateResponse(index, { teacher_override: teacherOverride === 'wrong' ? undefined : 'wrong' })}
                                 disabled={isReleased}
                               >
-                                Mark wrong
+                                {t('teacher.participant.markWrong')}
                               </Button>
                             </div>
                           </div>
@@ -448,14 +450,14 @@ export default function TeacherParticipantPortal() {
                     // Hifz / Khirat
                     return (
                       <div key={index} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
-                        <h4 className="mb-2 text-sm font-bold text-slate-800 sm:text-base">Passage {index + 1}</h4>
+                        <h4 className="mb-2 text-sm font-bold text-slate-800 sm:text-base">{t('teacher.participant.passage', { n: index + 1 })}</h4>
                         <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm font-medium leading-relaxed text-slate-700">
                           {item.prompt}
                         </div>
 
                         <div className="mb-4">
                           <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                            Student recording
+                            {t('teacher.participant.studentRecording')}
                           </Label>
                           {response?.audio_url ? (
                             <div className="rounded-lg border border-indigo-100 bg-indigo-50/80 p-3">
@@ -463,17 +465,17 @@ export default function TeacherParticipantPortal() {
                             </div>
                           ) : (
                             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-sm italic text-slate-400">
-                              No audio recorded for this passage.
+                              {t('teacher.participant.noAudio')}
                             </div>
                           )}
                         </div>
 
                         <div>
                           <Label className="mb-2 block text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                            Teacher feedback
+                            {t('teacher.participant.teacherFeedback')}
                           </Label>
                           <Textarea
-                            placeholder="Pronunciation, tajweed, memorization…"
+                            placeholder={t('teacher.participant.feedbackDetailPlaceholder')}
                             className="min-h-[88px] resize-none rounded-lg border-slate-200 text-sm focus-visible:ring-indigo-500"
                             value={response?.teacher_comment || ''}
                             onChange={(e) => handleUpdateResponse(index, { teacher_comment: e.target.value })}

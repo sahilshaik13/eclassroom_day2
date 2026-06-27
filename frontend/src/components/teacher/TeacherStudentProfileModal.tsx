@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import {
   X,
@@ -42,29 +43,29 @@ type Student = {
 const ACADEMIC = [
   {
     match: 'Hifz',
-    label: 'Hifz',
-    sub: 'Plan average (memorisation)',
+    labelKey: 'teacher.studentProfile.hifz',
+    subKey: 'teacher.studentProfile.hifzSub',
     bar: 'bg-blue-900',
     pct: 'text-blue-900',
   },
   {
     match: 'Kubra',
-    label: 'Kubra',
-    sub: 'Retention focus',
+    labelKey: 'teacher.studentProfile.kubra',
+    subKey: 'teacher.studentProfile.kubraSub',
     bar: 'bg-emerald-500',
     pct: 'text-emerald-600',
   },
   {
     match: 'Sughra',
-    label: 'Sughra',
-    sub: 'Consistency',
+    labelKey: 'teacher.studentProfile.sughra',
+    subKey: 'teacher.studentProfile.sughraSub',
     bar: 'bg-violet-500',
     pct: 'text-violet-600',
   },
   {
     match: 'Tajweed',
-    label: 'Tajweed',
-    sub: 'Theory & drills',
+    labelKey: 'teacher.studentProfile.tajweed',
+    subKey: 'teacher.studentProfile.tajweedSub',
     bar: 'bg-amber-500',
     pct: 'text-amber-600',
   },
@@ -83,14 +84,14 @@ function pctFromBuckets(
   return row?.progress_pct ?? 0
 }
 
-function fmtLogin(iso?: string | null) {
-  if (!iso) return 'Never'
+function fmtLogin(iso: string | null | undefined, fallback: string) {
+  if (!iso) return fallback
   try {
     const d = parseISO(iso)
-    if (!isValid(d)) return 'Never'
+    if (!isValid(d)) return fallback
     return `${format(d, 'EEE, MMM d')} · ${format(d, 'h:mm a')} (${formatDistanceToNow(d, { addSuffix: true })})`
   } catch {
-    return 'Never'
+    return fallback
   }
 }
 
@@ -108,12 +109,12 @@ function fmtNoteTime(iso?: string | null) {
   }
 }
 
-function fmtAttDate(d: string) {
+function fmtAttDate(d: string, todayLabel?: string) {
   try {
     const x = parseISO(typeof d === 'string' && d.length <= 10 ? d + 'T12:00:00' : d)
     if (!isValid(x)) return d
     if (format(x, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')) {
-      return `Today, ${format(x, 'MMM d')}`
+      return `${todayLabel ?? 'Today'}, ${format(x, 'MMM d')}`
     }
     return format(x, 'EEE, MMM d')
   } catch {
@@ -178,6 +179,7 @@ export function TeacherStudentProfileModal({
   /** When set (e.g. admin portal), shows a control to open account/enrollment management. */
   onManageAccount?: () => void
 }) {
+  const { t } = useTranslation()
   const [attendancePage, setAttendancePage] = useState(0)
   const [selectedAttendanceDate, setSelectedAttendanceDate] = useState<string | null>(null)
   const ATTENDANCE_ROWS_PER_PAGE = 7
@@ -239,7 +241,7 @@ export function TeacherStudentProfileModal({
   })
 
   useEffect(() => {
-    if (overviewError || reportError) toast.error('Could not load student report')
+    if (overviewError || reportError) toast.error(t('teacher.studentProfile.couldNotLoad'))
   }, [overviewError, reportError])
 
   const loading =
@@ -253,7 +255,7 @@ export function TeacherStudentProfileModal({
 
   if (!student) return null
 
-  const status = student.status || 'Active'
+  const status = student.status || t('common.active')
   const phone = (student.phone || '').replace(/\s/g, '')
   const lastIso = student.last_login_at ?? overview?.last_login_at ?? null
   const attendanceRows = overview?.attendance_history ?? []
@@ -314,13 +316,13 @@ export function TeacherStudentProfileModal({
                 ) : (
                   <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-md text-[11px] sm:text-xs text-slate-600 border border-slate-200">
                     <School className="h-3 w-3" />
-                    {student.class_name || 'No class'}
+                    {student.class_name || t('teacher.students.noClass')}
                   </div>
                 )}
               </div>
               <p className="text-[11px] sm:text-xs text-slate-500 mt-1.5 sm:mt-2">
-                Last check-in:{' '}
-                <span className="font-semibold text-slate-800">{fmtLogin(lastIso)}</span>
+                {t('teacher.studentProfile.lastCheckIn')}{' '}
+                <span className="font-semibold text-slate-800">{fmtLogin(lastIso, t('common.never'))}</span>
               </p>
               {onManageAccount ? (
                 <Button
@@ -330,7 +332,7 @@ export function TeacherStudentProfileModal({
                   className="mt-2 h-8 rounded-xl border-slate-200 text-slate-700 font-semibold sm:hidden"
                   onClick={() => onManageAccount()}
                 >
-                  Account
+                  {t('teacher.studentProfile.account')}
                 </Button>
               ) : null}
             </div>
@@ -344,14 +346,14 @@ export function TeacherStudentProfileModal({
                 className="hidden sm:inline-flex rounded-xl border-slate-200 text-slate-700 font-semibold"
                 onClick={() => onManageAccount()}
               >
-                Account & enrollment
+                {t('teacher.studentProfile.accountEnrollment')}
               </Button>
             ) : null}
             <button
               type="button"
               className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full shrink-0"
               onClick={() => onOpenChange(false)}
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               <X className="h-6 w-6" />
             </button>
@@ -360,11 +362,11 @@ export function TeacherStudentProfileModal({
 
         <div className="p-3.5 sm:p-5 md:p-6 space-y-4 sm:space-y-6">
           {profileUpdating && (
-            <p className="text-center text-[10px] font-medium text-slate-400">Updating…</p>
+            <p className="text-center text-[10px] font-medium text-slate-400">{t('common.updating')}</p>
           )}
           {loading && (
             <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-              Loading report…
+              {t('common.loading')}
             </div>
           )}
 
@@ -373,7 +375,7 @@ export function TeacherStudentProfileModal({
               <section>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-4">
                   <BarChart2 className="h-5 w-5 text-blue-900 shrink-0" />
-                  Academic Progress
+                  {t('teacher.studentProfile.academicProgress')}
                 </h3>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   {ACADEMIC.map((a) => {
@@ -384,7 +386,7 @@ export function TeacherStudentProfileModal({
                         className="bg-white rounded-xl p-3 sm:p-4 shadow-sm border border-slate-200"
                       >
                         <div className="flex justify-between items-center mb-2.5">
-                          <span className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-wide">{a.label}</span>
+                          <span className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-wide">{t(a.labelKey)}</span>
                           <span className={clsx('text-base sm:text-lg font-bold', a.pct)}>
                             {pct}%
                           </span>
@@ -395,7 +397,7 @@ export function TeacherStudentProfileModal({
                             style={{ width: `${Math.min(100, pct)}%` }}
                           />
                         </div>
-                        <div className="text-[10px] sm:text-xs text-slate-500 leading-snug">{a.sub}</div>
+                        <div className="text-[10px] sm:text-xs text-slate-500 leading-snug">{t(a.subKey)}</div>
                       </div>
                     )
                   })}
@@ -408,7 +410,7 @@ export function TeacherStudentProfileModal({
                     <div className="p-4 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm uppercase tracking-wide">
                         <StickyNote className="h-4 w-4 text-slate-400" />
-                        Notes
+                        {t('teacher.studentProfile.notes')}
                       </h3>
                     </div>
                     <div className="p-4 flex-1 space-y-3 max-h-[280px] overflow-y-auto">
@@ -440,7 +442,7 @@ export function TeacherStudentProfileModal({
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm text-slate-400 text-center py-6">No notes yet.</p>
+                        <p className="text-sm text-slate-400 text-center py-6">{t('teacher.studentProfile.noNotes')}</p>
                       )}
                     </div>
                     <div className="p-3 border-t border-slate-100 bg-slate-50/30">
@@ -448,7 +450,7 @@ export function TeacherStudentProfileModal({
                         <input
                           readOnly
                           className="w-full bg-white border-slate-200 rounded-lg text-xs pl-3 pr-9 py-2 text-slate-500"
-                          placeholder="Notes are added when students send doubts"
+                          placeholder={t('teacher.studentProfile.notesPlaceholder')}
                           type="text"
                         />
                         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300">
@@ -460,7 +462,7 @@ export function TeacherStudentProfileModal({
 
                   <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
                     <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide mb-3">
-                      Quick actions
+                      {t('teacher.studentProfile.quickActions')}
                     </h3>
                     <div className="space-y-2">
                       <a
@@ -474,7 +476,7 @@ export function TeacherStudentProfileModal({
                         onClick={(e) => !phone && e.preventDefault()}
                       >
                         <Mail className="h-4 w-4" />
-                        Message
+                        {t('teacher.studentProfile.message')}
                       </a>
                       <a
                         href={phone ? `tel:${phone}` : undefined}
@@ -487,7 +489,7 @@ export function TeacherStudentProfileModal({
                         onClick={(e) => !phone && e.preventDefault()}
                       >
                         <Phone className="h-4 w-4" />
-                        Call
+                        {t('teacher.studentProfile.call')}
                       </a>
                     </div>
                   </div>
@@ -498,11 +500,11 @@ export function TeacherStudentProfileModal({
                     <div className="p-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
                       <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide flex items-center gap-2">
                         <Calendar className="h-4 w-4 text-slate-400" />
-                        Attendance
+                        {t('teacher.studentProfile.attendanceLabel')}
                       </h3>
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex items-center gap-1 text-sm font-bold text-slate-800">
-                          <span className="hidden sm:inline text-xs text-slate-400 font-semibold uppercase mr-1">Streak</span>
+                          <span className="hidden sm:inline text-xs text-slate-400 font-semibold uppercase mr-1">{t('teacher.studentProfile.streak')}</span>
                           {overview?.attendance_streak ?? 0}
                           <Flame className="h-4 w-4 text-orange-500" />
                         </div>
@@ -537,9 +539,9 @@ export function TeacherStudentProfileModal({
                       <table className="w-full text-left border-collapse text-sm">
                         <thead className="bg-slate-50/50 text-xs text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-100">
                           <tr>
-                            <th className="px-4 py-2">Date</th>
-                            <th className="px-4 py-2">Status</th>
-                            <th className="px-4 py-2">Check-in</th>
+                            <th className="px-4 py-2">{t('common.date')}</th>
+                            <th className="px-4 py-2">{t('common.status')}</th>
+                            <th className="px-4 py-2">{t('teacher.studentProfile.lastCheckIn').replace(':', '')}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
@@ -553,12 +555,12 @@ export function TeacherStudentProfileModal({
                                       onClick={() => setSelectedAttendanceDate(row.date.slice(0, 10))}
                                       className="rounded px-1 py-0.5 text-left underline decoration-slate-300 underline-offset-2 hover:bg-slate-100 hover:decoration-slate-500"
                                     >
-                                      {fmtAttDate(row.date)}
+                                      {fmtAttDate(row.date, t('common.today'))}
                                     </button>
                                   </td>
                                   <td className="px-4 py-2.5">
                                     <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                                      {row.status || 'Present'}
+                                      {row.status || t('common.present')}
                                     </span>
                                   </td>
                                   <td className="px-4 py-2.5 text-slate-600 font-mono text-xs tabular-nums">
@@ -577,7 +579,7 @@ export function TeacherStudentProfileModal({
                           ) : (
                             <tr>
                               <td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">
-                                No attendance recorded yet.
+                                {t('teacher.studentProfile.noAttendance')}
                               </td>
                             </tr>
                           )}
@@ -595,10 +597,10 @@ export function TeacherStudentProfileModal({
         <DialogContent className="max-w-md rounded-2xl border border-slate-200 bg-white p-0">
           <div className="border-b border-slate-100 px-4 py-3">
             <h4 className="text-sm font-bold text-slate-900">
-              Tasks on {selectedAttendanceDate ? fmtAttDate(selectedAttendanceDate) : ''}
+              {t('teacher.studentProfile.tasksOn')}{selectedAttendanceDate ? fmtAttDate(selectedAttendanceDate, t('common.today')) : ''}
             </h4>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              {selectedDateTasks?.submitted_count ?? 0}/{selectedDateTasks?.total_count ?? 0} submitted
+              {selectedDateTasks?.submitted_count ?? 0}/{selectedDateTasks?.total_count ?? 0}{t('teacher.studentProfile.submittedSuffix')}
             </p>
           </div>
           <div className="max-h-[320px] space-y-1 overflow-y-auto p-3">
@@ -618,7 +620,7 @@ export function TeacherStudentProfileModal({
               ))
             ) : (
               <p className="py-8 text-center text-xs text-slate-400">
-                No study-plan tasks scheduled for this date.
+                {t('teacher.studentProfile.noTasksScheduled')}
               </p>
             )}
           </div>

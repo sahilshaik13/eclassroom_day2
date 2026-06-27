@@ -42,13 +42,13 @@ const STATUS_STYLES: Record<string, string> = {
 }
 
 function formatLastSeen(iso?: string | null) {
-  if (!iso) return 'Never'
+  if (!iso) return null
   try {
     const d = parseISO(iso)
-    if (!isValid(d)) return 'Never'
+    if (!isValid(d)) return null
     return formatDistanceToNow(d, { addSuffix: true })
   } catch {
-    return 'Never'
+    return null
   }
 }
 
@@ -84,7 +84,7 @@ export default function TeacherStudentsPage() {
   })
 
   useEffect(() => {
-    if (studentsError) toast.error('Could not load students')
+    if (studentsError) toast.error(t('teacher.students.couldNotLoad'))
   }, [studentsError])
 
   useEffect(() => {
@@ -112,20 +112,20 @@ export default function TeacherStudentsPage() {
             className="gap-2 border-slate-200 rounded-xl hidden sm:flex"
             onClick={() => {
               const csv = [
-                'Name,Phone,Class,Status,Last check-in',
+                t('teacher.students.csvHeaders'),
                 ...filtered.map(
                   (s) =>
-                    `"${s.name.replace(/"/g, '""')}",${s.phone || ''},${s.class_name || ''},${s.status || 'Active'},${formatLastSeen(s.last_login_at)}`
+                    `"${s.name.replace(/"/g, '""')}",${s.phone || ''},${s.class_name || ''},${s.status || t('teacher.students.active')},${formatLastSeen(s.last_login_at) || t('common.never')}`
                 ),
               ].join('\n')
               const a = document.createElement('a')
               a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
               a.download = 'students.csv'
               a.click()
-              toast.success('Exported!')
+              toast.success(t('teacher.students.exported'))
             }}
           >
-            <Download className="h-4 w-4" /> Export
+            <Download className="h-4 w-4" /> {t('teacher.students.export')}
           </Button>
         </div>
       }
@@ -136,7 +136,7 @@ export default function TeacherStudentsPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search students..."
+            placeholder={t('teacher.students.searchPlaceholder')}
             className="pl-9 h-10 border-slate-200 rounded-xl bg-white"
           />
         </div>
@@ -144,10 +144,10 @@ export default function TeacherStudentsPage() {
           <div className="relative shrink-0 w-full sm:w-44">
             <Select value={classFilter} onValueChange={setClassFilter}>
               <SelectTrigger className="h-10 w-full border-slate-200 rounded-xl bg-white">
-                <SelectValue placeholder="All Classes" />
+                <SelectValue placeholder={t('teacher.students.allClasses')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Classes</SelectItem>
+                <SelectItem value="all">{t('teacher.students.allClasses')}</SelectItem>
                 {classes.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.name}
@@ -169,10 +169,10 @@ export default function TeacherStudentsPage() {
                 bandedTableHeadCellClass,
               )}
             >
-              <span>Student Name</span>
-              <span className="shrink-0">ID</span>
-              <span className="hidden md:block shrink-0">Last Check-In</span>
-              <span className="shrink-0">Status</span>
+              <span>{t('teacher.students.studentName')}</span>
+              <span className="shrink-0">{t('teacher.students.id')}</span>
+              <span className="hidden md:block shrink-0">{t('teacher.students.lastCheckIn')}</span>
+              <span className="shrink-0">{t('common.status')}</span>
               <span className="shrink-0" aria-hidden />
             </div>
             {loading ? (
@@ -190,9 +190,9 @@ export default function TeacherStudentsPage() {
                 <div className="h-14 w-14 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 border border-slate-100">
                   <User className="h-7 w-7 text-slate-300" />
                 </div>
-                <h3 className="text-base font-bold text-slate-700">No students yet</h3>
+                <h3 className="text-base font-bold text-slate-700">{t('teacher.students.noStudentsYet')}</h3>
                 <p className="text-sm text-slate-400 mt-1 max-w-xs">
-                  Ask your coordinator to assign students to your class.
+                  {t('teacher.students.askCoordinator')}
                 </p>
               </div>
             ) : (
@@ -205,7 +205,7 @@ export default function TeacherStudentsPage() {
                     .join('')
                     .toUpperCase()
                     .slice(0, 2)
-                  const seen = formatLastSeen(s.last_login_at)
+                  const seen = formatLastSeen(s.last_login_at) || t('common.never')
                   return (
                     <button
                       key={s.id}
@@ -237,7 +237,7 @@ export default function TeacherStudentsPage() {
                                 </Badge>
                               ))
                             ) : (
-                              <p className="text-xs text-slate-400 truncate">{s.class_name || 'No class'}</p>
+                              <p className="text-xs text-slate-400 truncate">{s.class_name || t('teacher.students.noClass')}</p>
                             )}
                           </div>
                         </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   addMonths,
   eachDayOfInterval,
@@ -73,6 +74,7 @@ export function StudyPlanCalendarPanel({
   calendarOnly = false,
   className,
 }: StudyPlanCalendarPanelProps) {
+  const { t } = useTranslation()
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()))
   const [isEditing, setIsEditing] = useState(false)
 
@@ -137,7 +139,7 @@ export function StudyPlanCalendarPanel({
   return (
     <div className={cn('space-y-4', className)}>
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Calendar</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('studyPlan.calendar')}</h3>
         <div className="flex items-center gap-1">
           <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setCursor((d) => addMonths(d, -1))}>
             <ChevronLeft className="h-4 w-4" />
@@ -153,7 +155,7 @@ export function StudyPlanCalendarPanel({
         <div className="min-w-[420px]">
           {/* Calendar Header - Days of Week */}
           <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((w) => (
+            {(t('studyPlan.weekdays', { returnObjects: true }) as string[]).map((w) => (
               <div key={w} className="px-0.5 py-1 text-center text-[9px] font-semibold uppercase tracking-wide text-slate-500">
                 {w}
               </div>
@@ -213,12 +215,12 @@ export function StudyPlanCalendarPanel({
                         ))}
                         {overflowCount > 0 ? (
                           <span className="truncate px-0.5 text-[8px] font-medium text-slate-500">
-                            +{overflowCount} more
+                            {t('studyPlan.moreItems', { count: overflowCount })}
                           </span>
                         ) : null}
                       </div>
                     ) : pd ? (
-                      <span className="px-0.5 text-[8px] text-slate-400">No tasks</span>
+                      <span className="px-0.5 text-[8px] text-slate-400">{t('studyPlan.noTasks')}</span>
                     ) : null}
                   </button>
                 </div>
@@ -233,15 +235,15 @@ export function StudyPlanCalendarPanel({
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h4 className="text-sm font-semibold text-slate-900">{selectedDateLabel}</h4>
           {selectedPlanDay ? (
-            <Badge className="border-0 bg-slate-100 font-medium text-slate-700">Plan day {selectedPlanDay.day_number}</Badge>
+            <Badge className="border-0 bg-slate-100 font-medium text-slate-700">{t('studyPlan.planDay', { n: selectedPlanDay.day_number })}</Badge>
           ) : (
             <Badge variant="outline" className="font-normal text-slate-500">
-              Not on study plan
+              {t('studyPlan.notOnPlan')}
             </Badge>
           )}
           {!readOnly && selectedPlanDay?.is_accessible === false ? (
             <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-900">
-              Locked for students
+              {t('studyPlan.lockedForStudents')}
             </Badge>
           ) : null}
           {!readOnly && selectedPlanDay && canEditDay ? (
@@ -256,7 +258,7 @@ export function StudyPlanCalendarPanel({
                   : 'text-slate-400 hover:bg-indigo-50 hover:text-indigo-600'
               )}
               onClick={() => setIsEditing((v) => !v)}
-              aria-label={isEditing ? 'Close editor' : `Edit plan day ${selectedPlanDay.day_number}`}
+              aria-label={isEditing ? t('studyPlan.closeEditor') : t('studyPlan.editPlanDay', { n: selectedPlanDay.day_number })}
               aria-pressed={isEditing}
             >
               <Pencil className="h-4 w-4" />
@@ -266,13 +268,13 @@ export function StudyPlanCalendarPanel({
 
         {!selectedPlanDay ? (
           <p className="text-sm text-slate-500">
-            No tasks for {selectedDateLabel}. This date is not on the study plan calendar.
+            {t('studyPlan.noTasksForDate', { date: selectedDateLabel })}
           </p>
         ) : isEditing && canEditDay && dayEditor ? (
           <div className="border-t border-slate-100 pt-4">{dayEditor}</div>
         ) : !selectedHasTasks ? (
           <p className="text-sm text-slate-500">
-            No tasks scheduled for {selectedDateLabel}. Click the pencil to add columns for this day.
+            {t('studyPlan.noTasksClick', { date: selectedDateLabel })}
           </p>
         ) : (
           <ul className="space-y-4">

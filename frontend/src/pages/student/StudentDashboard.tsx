@@ -204,7 +204,7 @@ export default function StudentDashboard() {
           reader.onerror = () => reject(new Error('Could not read recording'))
           reader.readAsDataURL(blob)
         })
-        setAudioDataUrls((prev) => ({ ...prev, [taskId]: { name: 'Recorded audio.webm', dataUrl } }))
+        setAudioDataUrls((prev) => ({ ...prev, [taskId]: { name: t('student.dashboard.recordedAudio'), dataUrl } }))
         stopRecorderStream()
       }
       mediaRecorderRef.current = recorder
@@ -326,7 +326,7 @@ export default function StudentDashboard() {
           <h2 className="text-lg font-bold text-slate-900">
             {t('student.dashboard.todaysCurriculum')}
             {tasksFetching && !loadingTasks && (
-              <span className="ml-2 text-[10px] font-medium text-slate-400">· Updating…</span>
+              <span className="ml-2 text-[10px] font-medium text-slate-400">· {t('common.updating')}</span>
             )}
           </h2>
           <Button variant="outline" size="sm" className="rounded-xl border-slate-200 text-xs font-semibold" asChild>
@@ -337,15 +337,15 @@ export default function StudentDashboard() {
           {loadingTasks ? (
             <div className="flex items-center gap-3 text-sm text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-              Loading today&apos;s plan…
+              {t('student.dashboard.loadingTodaysPlan')}
             </div>
           ) : tasks.length === 0 ? (
             <p className="text-sm text-slate-500">
-              No tasks scheduled for today yet.{' '}
+              {t('student.dashboard.noTasks')}{' '}
               <Link to="/student/classes" className="font-semibold text-blue-600 hover:underline">
-                Open My Classes
+                {t('student.dashboard.openMyClasses')}
               </Link>{' '}
-              for your full study plan.
+              {t('student.dashboard.forYourFullPlan')}
             </p>
           ) : (
             <div className="space-y-4">
@@ -404,9 +404,9 @@ export default function StudentDashboard() {
                         {busyTaskId === task.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : task.completed ? (
-                          'Undo'
+                          t('common.undo')
                         ) : (
-                          'Done'
+                          t('common.done')
                         )}
                       </Button>
                     </div>
@@ -415,7 +415,7 @@ export default function StudentDashboard() {
                         <label className="flex cursor-pointer items-center gap-2 rounded-md border border-violet-200 bg-white px-2.5 py-2 text-[10px] font-semibold text-violet-700 hover:bg-violet-50">
                           <Upload className="h-3.5 w-3.5" />
                           <span className="truncate">
-                            {audioDataUrls[task.id]?.name || 'Upload audio (optional fallback)'}
+                            {audioDataUrls[task.id]?.name || t('student.dashboard.uploadAudioFallback')}
                           </span>
                           <input
                             type="file"
@@ -449,7 +449,7 @@ export default function StudentDashboard() {
                               className="h-8 rounded-md bg-rose-600 px-2.5 text-[10px] font-black text-white hover:bg-rose-700"
                             >
                               <Square className="mr-1 h-3.5 w-3.5 fill-current" />
-                              Stop
+                              {t('common.stop')}
                             </Button>
                           ) : (
                             <Button
@@ -461,7 +461,7 @@ export default function StudentDashboard() {
                               className="h-8 rounded-md px-2.5 text-[10px] font-bold text-violet-700"
                             >
                               <Mic className="mr-1 h-3.5 w-3.5" />
-                              Record audio
+                              {t('student.dashboard.recordAudio')}
                             </Button>
                           )}
                           {audioDataUrls[task.id]?.dataUrl && (
@@ -480,7 +480,7 @@ export default function StudentDashboard() {
                               className="h-8 rounded-md px-2.5 text-[10px] font-bold"
                             >
                               <Trash2 className="mr-1 h-3.5 w-3.5" />
-                              Clear
+                              {t('common.clear')}
                             </Button>
                           )}
                         </div>
@@ -499,7 +499,7 @@ export default function StudentDashboard() {
                             onClick={() => void handleToggleTask(task, true)}
                             className="h-8 rounded-md bg-violet-600 px-2.5 text-[10px] font-black text-white hover:bg-violet-700"
                           >
-                            Submit with audio
+                            {t('student.dashboard.submitWithAudio')}
                           </Button>
                           <Button
                             type="button"
@@ -517,7 +517,7 @@ export default function StudentDashboard() {
                             }}
                             className="h-8 rounded-md px-2.5 text-[10px] font-bold"
                           >
-                            Cancel
+                            {t('common.cancel')}
                           </Button>
                         </div>
                       </div>
@@ -526,7 +526,7 @@ export default function StudentDashboard() {
                 ))}
               </div>
               <Button variant="outline" size="sm" className="w-full rounded-xl text-xs font-semibold" asChild>
-                <Link to="/student/classes">View full study plan in My Classes</Link>
+                <Link to="/student/classes">{t('student.dashboard.viewFullPlan')}</Link>
               </Button>
             </div>
           )}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import {
   Dialog,
@@ -44,15 +45,15 @@ type StudyPlanTaskEditModalProps = {
   }) => void | Promise<void>
 }
 
-const TASK_TYPES: { value: TaskType; label: string }[] = [
-  { value: 'memorise', label: 'Memorise' },
-  { value: 'review', label: 'Review' },
-  { value: 'recite', label: 'Recite' },
-  { value: 'listen', label: 'Listen' },
-  { value: 'read', label: 'Read' },
-  { value: 'mcq', label: 'Quiz (MCQ)' },
-  { value: 'written', label: 'Written' },
-  { value: 'reflection', label: 'Reflection' },
+const TASK_TYPE_KEYS: { value: TaskType; key: string }[] = [
+  { value: 'memorise', key: 'studyPlan.memorise' },
+  { value: 'review', key: 'studyPlan.reviewType' },
+  { value: 'recite', key: 'studyPlan.recite' },
+  { value: 'listen', key: 'studyPlan.listen' },
+  { value: 'read', key: 'studyPlan.readType' },
+  { value: 'mcq', key: 'studyPlan.quizMcq' },
+  { value: 'written', key: 'studyPlan.written' },
+  { value: 'reflection', key: 'studyPlan.reflection' },
 ]
 
 export function StudyPlanTaskEditModal({
@@ -64,6 +65,7 @@ export function StudyPlanTaskEditModal({
   onClose,
   onSave,
 }: StudyPlanTaskEditModalProps) {
+  const { t } = useTranslation()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [taskType, setTaskType] = useState<TaskType>('memorise')
@@ -92,15 +94,15 @@ export function StudyPlanTaskEditModal({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-md rounded-2xl">
         <DialogHeader>
-          <DialogTitle>Edit task</DialogTitle>
+          <DialogTitle>{t('studyPlan.editTask')}</DialogTitle>
           <DialogDescription>
-            {dayLabel ? `${dayLabel}` : 'Study plan task'}
+            {dayLabel ? `${dayLabel}` : t('studyPlan.studyPlanTask')}
             {periodLabel ? ` · ${periodLabel}` : ''}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="task-title">Title</Label>
+            <Label htmlFor="task-title">{t('studyPlan.taskTitle')}</Label>
             <Input
               id="task-title"
               value={title}
@@ -110,7 +112,7 @@ export function StudyPlanTaskEditModal({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="task-desc">Description (optional)</Label>
+            <Label htmlFor="task-desc">{t('studyPlan.descriptionOptional')}</Label>
             <Textarea
               id="task-desc"
               value={description}
@@ -120,22 +122,22 @@ export function StudyPlanTaskEditModal({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Type</Label>
+              <Label>{t('studyPlan.type')}</Label>
               <Select value={taskType} onValueChange={(v) => setTaskType(v as TaskType)}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {TASK_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
+                  {TASK_TYPE_KEYS.map((tt) => (
+                    <SelectItem key={tt.value} value={tt.value}>
+                      {t(tt.key)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Required</Label>
+              <Label>{t('common.required')}</Label>
               <Select
                 value={required ? 'yes' : 'no'}
                 onValueChange={(v) => setRequired(v === 'yes')}
@@ -144,18 +146,18 @@ export function StudyPlanTaskEditModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="yes">Yes</SelectItem>
-                  <SelectItem value="no">No</SelectItem>
+                  <SelectItem value="yes">{t('common.yes')}</SelectItem>
+                  <SelectItem value="no">{t('common.no')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" className="rounded-xl" onClick={onClose} disabled={saving}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" className="rounded-xl bg-slate-900 hover:bg-slate-800" disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save changes'}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : t('studyPlan.saveChanges')}
             </Button>
           </DialogFooter>
         </form>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { format, parseISO } from 'date-fns'
 import { ExternalLink, Loader2, Pencil, Trash2, Video } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -46,6 +47,7 @@ export function TeacherClassMeetPanel({
   defaultDate,
   compact,
 }: TeacherClassMeetPanelProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMeeting, setEditingMeeting] = useState<ClassMeeting | null>(null)
@@ -131,32 +133,32 @@ export function TeacherClassMeetPanel({
     },
     onSuccess: (meeting) => {
       if (!meeting) return
-      toast.success('Google Meet created')
+      toast.success(t('teacher.meet.meetCreated'))
       setModalOpen(false)
       resetForm()
       void queryClient.invalidateQueries({ queryKey: meetingsKey })
     },
-    onError: (err: Error) => toast.error(err.message || 'Could not create meeting'),
+    onError: (err: Error) => toast.error(err.message || t('teacher.meet.createFailed')),
   })
 
   const updateMutation = useMutation({
     mutationFn: async (meetingId: string) => updateClassMeeting(meetingId, buildPayload()),
     onSuccess: () => {
-      toast.success('Meeting time updated')
+      toast.success(t('teacher.schedule.meetingUpdated'))
       setEditingMeeting(null)
       void queryClient.invalidateQueries({ queryKey: meetingsKey })
       void queryClient.invalidateQueries({ queryKey: queryKeys.student.upcomingMeetings() })
     },
-    onError: () => toast.error('Could not update meeting'),
+    onError: () => toast.error(t('teacher.schedule.updateFailed')),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteClassMeeting(id),
     onSuccess: () => {
-      toast.success('Meeting removed')
+      toast.success(t('teacher.schedule.meetingRemoved'))
       void queryClient.invalidateQueries({ queryKey: meetingsKey })
     },
-    onError: () => toast.error('Could not remove meeting'),
+    onError: () => toast.error(t('teacher.schedule.removeFailed')),
   })
 
   const openCreate = () => {
@@ -205,8 +207,8 @@ export function TeacherClassMeetPanel({
       size="icon"
       className="h-8 w-8 text-slate-400 hover:bg-emerald-50 hover:text-emerald-700"
       onClick={openCreate}
-      aria-label="Create Google Meet"
-      title="Create Google Meet"
+      aria-label={t('teacher.meet.createGoogleMeet')}
+      title={t('teacher.meet.createGoogleMeet')}
     >
       <Video className="h-4 w-4" />
     </Button>
@@ -224,7 +226,7 @@ export function TeacherClassMeetPanel({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Upcoming meetings</p>
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t('teacher.meet.upcomingMeetings')}</p>
         <Button
           type="button"
           size="sm"
@@ -233,7 +235,7 @@ export function TeacherClassMeetPanel({
           onClick={openCreate}
         >
           <Video className="h-3.5 w-3.5" />
-          Create Meet
+          {t('teacher.meet.createMeet')}
         </Button>
       </div>
       {isLoading ? (
@@ -241,7 +243,7 @@ export function TeacherClassMeetPanel({
           <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
         </div>
       ) : meetings.length === 0 ? (
-        <p className="text-xs text-slate-500">No upcoming meetings for this class.</p>
+        <p className="text-xs text-slate-500">{t('teacher.meet.noUpcoming')}</p>
       ) : (
         <ul className="space-y-2">
           {meetings.map((m) => (
@@ -271,6 +273,7 @@ function MeetingRow({
   onDelete: () => void
   deleting: boolean
 }) {
+  const { t } = useTranslation()
   const canJoin = canJoinMeeting(meeting.start_at)
 
   return (
@@ -285,8 +288,8 @@ function MeetingRow({
         size="icon"
         className="h-7 w-7 text-slate-400 hover:text-indigo-600"
         onClick={onEdit}
-        aria-label="Change meeting time"
-        title="Edit meeting"
+        aria-label={t('meet.changeMeetingTime')}
+        title={t('teacher.schedule.editMeeting')}
       >
         <Pencil className="h-3.5 w-3.5" />
       </Button>
@@ -297,12 +300,12 @@ function MeetingRow({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[10px] font-bold text-white hover:bg-emerald-700"
         >
-          Join
+          {t('teacher.meet.join')}
           <ExternalLink className="h-3 w-3" />
         </a>
       ) : (
         <span className="rounded-md bg-slate-200 px-2.5 py-1 text-[10px] font-bold text-slate-500">
-          Scheduled
+          {t('teacher.meet.scheduled')}
         </span>
       )}
       <Button
@@ -312,7 +315,7 @@ function MeetingRow({
         className="h-7 w-7 text-slate-400 hover:text-red-600"
         disabled={deleting}
         onClick={onDelete}
-        aria-label="Remove meeting"
+        aria-label={t('teacher.schedule.removeMeeting')}
       >
         <Trash2 className="h-3.5 w-3.5" />
       </Button>

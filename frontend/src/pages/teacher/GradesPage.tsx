@@ -56,7 +56,7 @@ export default function GradesPage() {
 
   const save = async () => {
     const valid = rows.filter(r => r.score !== '')
-    if (!valid.length) return toast.error('Enter at least one score')
+    if (!valid.length) return toast.error(t('teacher.grades.enterScore'))
     setSaving(true)
     try {
       await api.post('/teacher/grades', {
@@ -64,8 +64,8 @@ export default function GradesPage() {
         month,
         grades: valid.map(r => ({ student_id: r.student_id, score: Number(r.score), remarks: r.remarks || undefined }))
       })
-      toast.success('Grades successfully recorded')
-    } catch { toast.error('Failed to save grades') } finally { setSaving(false) }
+      toast.success(t('teacher.grades.gradesRecorded'))
+    } catch { toast.error(t('teacher.grades.saveFailed')) } finally { setSaving(false) }
   }
 
   return (
@@ -76,7 +76,7 @@ export default function GradesPage() {
         <div className="flex items-center gap-3">
           <Select value={classId} onValueChange={setClassId}>
             <SelectTrigger className="w-[180px] bg-white border-slate-200 shadow-sm h-10">
-              <SelectValue placeholder="Select Class" />
+              <SelectValue placeholder={t('teacher.grades.selectClass')} />
             </SelectTrigger>
             <SelectContent>
               {classes.map(c => (
@@ -97,8 +97,8 @@ export default function GradesPage() {
         <Card className="border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden bg-white/50 backdrop-blur-sm">
           <CardHeader className="border-b border-slate-100 bg-slate-50/30 p-6 flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="text-lg font-black text-slate-900">Monthly Scoresheet</CardTitle>
-              <CardDescription>Enter grades (0-100) and remarks for students.</CardDescription>
+              <CardTitle className="text-lg font-black text-slate-900">{t('teacher.grades.monthlyScoresheet')}</CardTitle>
+              <CardDescription>{t('teacher.grades.enterGrades')}</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -111,9 +111,9 @@ export default function GradesPage() {
                 <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 border border-slate-100">
                   <GraduationCap className="h-8 w-8 text-slate-300" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900">No active students</h3>
+                <h3 className="text-lg font-bold text-slate-900">{t('teacher.grades.noActiveStudents')}</h3>
                 <p className="text-sm text-slate-500 max-w-xs mt-2 leading-relaxed">
-                  Select a class above to begin entering monthly performance data.
+                  {t('teacher.grades.selectClassAbove')}
                 </p>
               </div>
             ) : (
@@ -129,7 +129,7 @@ export default function GradesPage() {
                         </Avatar>
                         <div>
                           <p className="text-sm font-bold text-slate-900">{row.name}</p>
-                          <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mt-0.5">Student ID: {row.student_id.slice(0, 8)}</p>
+                          <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider mt-0.5">{t('teacher.grades.studentId')} {row.student_id.slice(0, 8)}</p>
                         </div>
                       </div>
 
@@ -142,7 +142,7 @@ export default function GradesPage() {
                             max="100"
                             value={row.score}
                             onChange={e => update(row.student_id, 'score', e.target.value)}
-                            placeholder="Score"
+                            placeholder={t('teacher.grades.scorePlaceholder')}
                             className="pl-9 h-11 border-slate-200 focus:border-primary/50 focus:ring-primary/10 rounded-xl font-black tabular-nums"
                           />
                         </div>
@@ -151,7 +151,7 @@ export default function GradesPage() {
                           <Input
                             value={row.remarks}
                             onChange={e => update(row.student_id, 'remarks', e.target.value)}
-                            placeholder="Feedback or observations..."
+                            placeholder={t('teacher.grades.feedbackPlaceholder')}
                             className="pl-9 h-11 border-slate-200 focus:border-primary/50 focus:ring-primary/10 rounded-xl font-medium"
                           />
                         </div>
@@ -167,7 +167,7 @@ export default function GradesPage() {
             <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-400 italic text-xs">
                 <AlertCircle className="h-3.5 w-3.5" />
-                <span>Scores are saved for the month of {new Date(month).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+                <span>{t('teacher.grades.scoresSaved', { month: new Date(month).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) })}</span>
               </div>
               <Button
                 onClick={save}
@@ -178,7 +178,7 @@ export default function GradesPage() {
                   <RefreshCw className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    <Save className="h-4 w-4" /> Save Grades
+                    <Save className="h-4 w-4" /> {t('teacher.grades.saveGrades')}
                   </>
                 )}
               </Button>

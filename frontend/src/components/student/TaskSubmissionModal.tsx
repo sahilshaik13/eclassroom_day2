@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Upload, Loader2, Send, CheckCircle2, AlertCircle, Mic, Square, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ interface TaskSubmissionModalProps {
 }
 
 export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }: TaskSubmissionModalProps) {
+  const { t } = useTranslation();
   const [submitting, setSubmitting] = useState(false);
   const [submission, setSubmission] = useState({
     submission_text: '',
@@ -59,7 +61,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
       recorder.start();
       setIsRecording(true);
     } catch (err) {
-      toast.error("Microphone access denied");
+      toast.error(t('student.taskSubmission.micDenied'));
     }
   };
 
@@ -99,14 +101,14 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
       
       if (task.task_type === 'mcq') {
         setResult(data);
-        toast.success("MCQ submitted! Your teacher will review and share the results.");
+        toast.success(t('student.taskSubmission.mcqSubmitted'));
       } else {
-        toast.success("Submission received! Teacher will review soon.");
+        toast.success(t('student.taskSubmission.submissionReceived'));
         onSuccess();
         onClose();
       }
     } catch (err) {
-      toast.error("Failed to submit task");
+      toast.error(t('student.taskSubmission.submissionFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -120,12 +122,12 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
             <div className="h-20 w-20 rounded-full flex items-center justify-center mb-4 bg-blue-100 text-blue-600">
               <CheckCircle2 className="h-10 w-10" />
             </div>
-            <h3 className="text-2xl font-black text-slate-900">Submitted for Review!</h3>
-            <p className="text-slate-500 font-bold mt-1">Your teacher will review your answers and share the results.</p>
+            <h3 className="text-2xl font-black text-slate-900">{t('student.taskSubmission.submittedForReview')}</h3>
+            <p className="text-slate-500 font-bold mt-1">{t('student.taskSubmission.teacherWillReview')}</p>
           </div>
           
           <Button onClick={() => { onSuccess(); onClose(); }} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black">
-            Done
+            {t('common.done')}
           </Button>
         </div>
       );
@@ -174,7 +176,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
             disabled={submitting || Object.keys(submission.mcq_answers).length < config.questions.length} 
             className="w-full h-16 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-lg shadow-xl shadow-blue-200"
           >
-            {submitting ? <Loader2 className="h-6 w-6 animate-spin" /> : "Submit Answers"}
+            {submitting ? <Loader2 className="h-6 w-6 animate-spin" /> : t('student.taskSubmission.submitAnswers')}
           </Button>
         </div>
       );
@@ -190,8 +192,8 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
             
             {isRecording ? (
               <div className="space-y-4">
-                <h3 className="text-xl font-black text-slate-900">Recording In Progress...</h3>
-                <p className="text-slate-500 font-medium">Recite clearly into your microphone.</p>
+                <h3 className="text-xl font-black text-slate-900">{t('student.taskSubmission.recordingInProgress')}</h3>
+                <p className="text-slate-500 font-medium">{t('student.taskSubmission.reciteClearly')}</p>
                 <LiveWaveform
                   active
                   mode="scrolling"
@@ -206,12 +208,12 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
                   onClick={stopRecording}
                   className="bg-red-600 hover:bg-red-700 text-white rounded-2xl px-8 h-14 font-black text-lg shadow-xl shadow-red-200"
                 >
-                  <Square className="h-5 w-5 mr-2 fill-current" /> Stop Recording
+                  <Square className="h-5 w-5 mr-2 fill-current" /> {t('student.taskSubmission.stopRecording')}
                 </Button>
               </div>
             ) : audioUrl ? (
               <div className="space-y-6 w-full">
-                <h3 className="text-xl font-black text-slate-900">Recitation Recorded!</h3>
+                <h3 className="text-xl font-black text-slate-900">{t('student.taskSubmission.recitationRecorded')}</h3>
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <AudioWaveformPlayer src={audioUrl} height={42} />
                 </div>
@@ -221,35 +223,35 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
                     variant="outline"
                     className="rounded-xl font-bold border-slate-200"
                   >
-                    <Trash2 className="h-4 w-4 mr-2" /> Re-record
+                    <Trash2 className="h-4 w-4 mr-2" /> {t('student.taskSubmission.reRecord')}
                   </Button>
                   <Button 
                     onClick={handleSubmit}
                     disabled={submitting}
                     className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-8 font-black shadow-lg shadow-blue-200"
                   >
-                    {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Send className="h-5 w-5 mr-2" /> Submit Recitation</>}
+                    {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Send className="h-5 w-5 mr-2" /> {t('student.taskSubmission.submitRecitation')}</>}
                   </Button>
                 </div>
               </div>
             ) : (
               <div className="space-y-4">
-                <h3 className="text-xl font-black text-slate-900">Ready to Record</h3>
-                <p className="text-slate-500 font-medium leading-relaxed">Click the button below and start reciting your assigned passage.</p>
+                <h3 className="text-xl font-black text-slate-900">{t('student.taskSubmission.readyToRecord')}</h3>
+                <p className="text-slate-500 font-medium leading-relaxed">{t('student.taskSubmission.clickToStart')}</p>
                 <Button 
                   onClick={startRecording}
                   className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl px-10 h-16 font-black text-xl shadow-xl shadow-blue-200"
                 >
-                  <Mic className="h-6 w-6 mr-2" /> Start Recording
+                  <Mic className="h-6 w-6 mr-2" /> {t('student.taskSubmission.startRecording')}
                 </Button>
               </div>
             )}
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Additional Notes (Optional)</Label>
+            <Label className="text-xs font-black uppercase tracking-widest text-slate-400">{t('student.taskSubmission.additionalNotes')}</Label>
             <Textarea 
-              placeholder="Any comments for your teacher..."
+              placeholder={t('student.taskSubmission.commentsPlaceholder')}
               value={submission.submission_text}
               onChange={(e) => setSubmission({ ...submission, submission_text: e.target.value })}
               className="rounded-2xl border-slate-200 focus:border-blue-500 focus:ring-blue-500/20 font-medium"
@@ -262,9 +264,9 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
     return (
       <div className="space-y-6 py-4">
         <div className="space-y-2">
-          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Notes or Text Submission</Label>
+          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">{t('student.taskSubmission.notesOrText')}</Label>
           <Textarea 
-            placeholder="Type your response here..."
+            placeholder={t('student.taskSubmission.responseTypePlaceholder')}
             value={submission.submission_text}
             onChange={(e) => setSubmission({ ...submission, submission_text: e.target.value })}
             className="min-h-[150px] rounded-2xl border-slate-200 focus:border-blue-500 focus:ring-blue-500/20 font-medium"
@@ -272,10 +274,10 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
         </div>
 
         <div className="space-y-2">
-          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">Media/Attachment Link</Label>
+          <Label className="text-xs font-black uppercase tracking-widest text-slate-400">{t('student.taskSubmission.mediaLink')}</Label>
           <div className="relative">
             <Input 
-              placeholder="Google Drive link, Loom, or Image URL"
+              placeholder={t('student.taskSubmission.linkPlaceholder')}
               value={submission.media_url}
               onChange={(e) => setSubmission({ ...submission, media_url: e.target.value })}
               className="h-14 pl-12 rounded-2xl border-slate-200 focus:border-blue-500 focus:ring-blue-500/20 font-bold"
@@ -287,7 +289,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
         <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3">
           <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0" />
           <p className="text-[11px] font-bold text-amber-700 leading-relaxed">
-            Please ensure any external links (Drive/Dropbox) have the "Anyone with link" permission enabled for teacher review.
+            {t('student.taskSubmission.linkPermission')}
           </p>
         </div>
 
@@ -296,7 +298,7 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
           disabled={submitting || (!submission.submission_text && !submission.media_url)} 
           className="w-full h-16 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black text-lg"
         >
-          {submitting ? <Loader2 className="h-6 w-6 animate-spin" /> : "Submit Work"}
+          {submitting ? <Loader2 className="h-6 w-6 animate-spin" /> : t('student.taskSubmission.submitWork')}
         </Button>
       </div>
     );
@@ -308,10 +310,10 @@ export default function TaskSubmissionModal({ task, isOpen, onClose, onSuccess }
         <DialogHeader className="bg-slate-900 text-white p-8 text-left">
           <div className="flex items-center gap-3 mb-2">
             <Send className="h-5 w-5 text-blue-400" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Task Submission</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">{t('student.taskSubmission.title')}</span>
           </div>
           <DialogTitle className="text-2xl font-black">{task.title}</DialogTitle>
-          <p className="text-slate-400 text-sm mt-1">Submit your progress for evaluation by your teacher.</p>
+          <p className="text-slate-400 text-sm mt-1">{t('student.taskSubmission.subtitle')}</p>
         </DialogHeader>
         <div className="p-8 max-h-[70vh] overflow-y-auto">
           {renderContent()}

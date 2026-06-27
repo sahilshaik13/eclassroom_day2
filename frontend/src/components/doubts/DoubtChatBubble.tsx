@@ -1,5 +1,6 @@
 import { Check, CheckCheck, Clock, FileText } from 'lucide-react'
 import { clsx } from 'clsx'
+import { useTranslation } from 'react-i18next'
 import type { DoubtChatMessage } from '@/lib/doubtChatMerge'
 import { AudioWaveformPlayer } from '@/components/ui/audio-waveform-player'
 
@@ -16,16 +17,17 @@ function isSending(message: DoubtChatMessage): boolean {
 }
 
 function OutgoingStatus({ message }: { message: DoubtChatMessage }) {
+  const { t } = useTranslation()
   if (message.failed) {
-    return <span className="text-[9px] text-rose-500">Failed</span>
+    return <span className="text-[9px] text-rose-500">{t('common.failed')}</span>
   }
   if (isSending(message)) {
-    return <Clock className="h-3 w-3 shrink-0 opacity-70" aria-label="Sending" />
+    return <Clock className="h-3 w-3 shrink-0 opacity-70" aria-label={t('common.sending')} />
   }
   if (message.deliveryStatus === 'read' || message.teacherSeen) {
-    return <CheckCheck className="h-3 w-3 shrink-0 text-[#53bdeb]" aria-label="Read" />
+    return <CheckCheck className="h-3 w-3 shrink-0 text-[#53bdeb]" aria-label={t('common.read')} />
   }
-  return <Check className="h-3 w-3 shrink-0 opacity-80" aria-label="Delivered" />
+  return <Check className="h-3 w-3 shrink-0 opacity-80" aria-label={t('common.delivered')} />
 }
 
 function displayTimestamp(message: DoubtChatMessage, outgoing: boolean): string {
@@ -36,6 +38,7 @@ function displayTimestamp(message: DoubtChatMessage, outgoing: boolean): string 
 }
 
 export function DoubtChatBubble({ message, outgoingSide, formatTime }: DoubtChatBubbleProps) {
+  const { t } = useTranslation()
   const outgoing = message.side === outgoingSide
   const timeLabel = displayTimestamp(message, outgoing)
 
@@ -62,13 +65,13 @@ export function DoubtChatBubble({ message, outgoingSide, formatTime }: DoubtChat
         {(message.replyType === 'file' || message.fileUrl) && message.fileUrl && (
           <a
             href={message.fileUrl}
-            download={message.fileName || 'attachment'}
+            download={message.fileName || t('common.attachment')}
             target="_blank"
             rel="noreferrer"
             className="mt-0.5 flex items-center gap-1.5 rounded bg-black/5 px-1.5 py-1 text-[11px] font-medium text-[#128c7e] hover:underline"
           >
             <FileText className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{message.fileName || 'Download file'}</span>
+            <span className="truncate">{message.fileName || t('common.downloadFile')}</span>
           </a>
         )}
 
@@ -78,7 +81,7 @@ export function DoubtChatBubble({ message, outgoingSide, formatTime }: DoubtChat
             outgoing ? 'text-[#667781]' : 'text-slate-400',
           )}
         >
-          <span title={outgoing ? 'Sent at' : 'Received at'}>{formatTime(timeLabel)}</span>
+          <span title={outgoing ? t('common.sentAt') : t('common.receivedAt')}>{formatTime(timeLabel)}</span>
           {outgoing && <OutgoingStatus message={message} />}
         </div>
       </div>

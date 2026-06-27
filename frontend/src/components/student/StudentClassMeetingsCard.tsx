@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { format, parseISO } from 'date-fns'
 import { Loader2, Video } from 'lucide-react'
 import { StudentMeetJoinButton } from '@/components/meet/StudentMeetJoinButton'
@@ -18,6 +19,7 @@ function formatWhen(iso: string) {
 }
 
 export function StudentClassMeetingsCard({ classId }: { classId: string }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const key = queryKeys.student.classMeetings(classId)
 
@@ -33,10 +35,10 @@ export function StudentClassMeetingsCard({ classId }: { classId: string }) {
     return subscribeToClassMeetings(classId, (event) => {
       void queryClient.invalidateQueries({ queryKey: key })
       if (event === 'insert') {
-        toast('A new class meeting is available', { icon: '📹', duration: 5000 })
+        toast(t('student.meetings.newMeeting'), { icon: '📹', duration: 5000 })
       }
     })
-  }, [classId, key, queryClient])
+  }, [classId, key, queryClient, t])
 
   if (!isLoading && meetings.length === 0) return null
 
@@ -45,10 +47,10 @@ export function StudentClassMeetingsCard({ classId }: { classId: string }) {
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-sm font-black text-slate-900">
           <Video className="h-4 w-4 text-emerald-600" />
-          Live class meetings
+          {t('student.meetings.liveClassMeetings')}
         </CardTitle>
         <CardDescription className="text-[10px] font-semibold text-slate-500">
-          Join when your teacher starts a Google Meet session
+          {t('student.meetings.joinWhenTeacher')}
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-0">

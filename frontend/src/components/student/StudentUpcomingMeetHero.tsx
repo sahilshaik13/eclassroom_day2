@@ -1,4 +1,5 @@
 import { BookOpen, Calendar, Clock } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,7 @@ interface StudentUpcomingMeetHeroProps {
 }
 
 export function StudentUpcomingMeetHero({ meeting }: StudentUpcomingMeetHeroProps) {
+  const { t } = useTranslation()
   const classLabel = meeting.class_name?.trim()
   const detailsHref = `/student/classes?class=${encodeURIComponent(meeting.class_id)}`
 
@@ -52,7 +54,7 @@ export function StudentUpcomingMeetHero({ meeting }: StudentUpcomingMeetHeroProp
             className="rounded-xl border-white/40 bg-transparent text-white hover:bg-white/10"
             asChild
           >
-            <Link to={detailsHref}>View Details</Link>
+            <Link to={detailsHref}>{t('student.meetings.viewDetails')}</Link>
           </Button>
         </div>
       </CardContent>

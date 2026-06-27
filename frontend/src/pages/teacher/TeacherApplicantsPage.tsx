@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { GraduationCap, CheckCircle2, Clock, User, Phone, Mail, FileText, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '@/services/api'
@@ -24,6 +25,7 @@ interface Applicant {
 type Tab = 'pending' | 'approved' | 'all'
 
 export default function TeacherApplicantsPage() {
+    const { t } = useTranslation()
     const [applicants, setApplicants] = useState<Applicant[]>([])
     const [loading, setLoading] = useState(true)
     const [tab, setTab] = useState<Tab>('pending')
@@ -33,7 +35,7 @@ export default function TeacherApplicantsPage() {
         setLoading(true)
         api.get('/admin/students?limit=50')
             .then(r => setApplicants(r.data.data || []))
-            .catch(() => toast.error('Could not load applicants'))
+            .catch(() => toast.error(t('teacher.applicants.couldNotLoad')))
             .finally(() => setLoading(false))
     }
 
@@ -51,15 +53,15 @@ export default function TeacherApplicantsPage() {
         if (!dateStr) return ''
         const diff = Date.now() - new Date(dateStr).getTime()
         const hours = Math.floor(diff / 3600000)
-        if (hours < 1) return 'Just now'
-        if (hours < 24) return `${hours}h ago`
+        if (hours < 1) return t('teacher.applicants.justNow')
+        if (hours < 24) return t('teacher.applicants.hoursAgo', { hours })
         return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     }
 
     return (
         <DashboardPageLayout
-            title="New Applicants"
-            description="Review students who have registered and are awaiting class enrollment."
+            title={t('teacher.applicants.title')}
+            description={t('teacher.applicants.description')}
         >
             <div className="space-y-5">
 
@@ -99,7 +101,7 @@ export default function TeacherApplicantsPage() {
                             <GraduationCap className="h-7 w-7 text-slate-300" />
                         </div>
                         <h3 className="text-base font-bold text-slate-700">
-                            {tab === 'pending' ? 'No pending applicants' : 'No applicants found'}
+                            {tab === 'pending' ? t('teacher.applicants.noPending') : t('teacher.applicants.noApplicants')}
                         </h3>
                         <p className="text-sm text-slate-400 mt-1 max-w-xs leading-relaxed">
                             {tab === 'pending'
@@ -135,6 +137,7 @@ function ApplicantCard({
     onProcess: (id: string | null) => void
     formatDate: (d: string) => string
 }) {
+    const { t } = useTranslation()
     const isApproved = !!applicant.is_registered
     const initials = applicant.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 
@@ -142,7 +145,7 @@ function ApplicantCard({
         onProcess(applicant.id)
         try {
             await api.patch(`/admin/students/${applicant.id}`, { is_registered: true })
-            toast.success(`${applicant.name} approved!`)
+            toast.success(t('teacher.applicants.approvedToast', { name: applicant.name }))
             onRefresh()
         } catch {
             toast.error('Could not approve applicant')
@@ -173,7 +176,7 @@ function ApplicantCard({
                                 'text-[10px] font-bold border-none px-2 py-0.5',
                                 isApproved ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
                             )}>
-                                {isApproved ? '✓ Approved' : '⏳ Pending'}
+                                {isApproved ? t('teacher.applicants.approved') : t('teacher.applicants.pendingStatus')}
                             </Badge>
                         </div>
 
@@ -195,11 +198,11 @@ function ApplicantCard({
                             )}
                             {applicant.level && (
                                 <span className="flex items-center gap-1">
-                                    <FileText className="h-3 w-3" />Level {applicant.level}
+                                    <FileText className="h-3 w-3" />{t('teacher.applicants.levelPrefix')}{applicant.level}
                                 </span>
                             )}
                             <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />Applied {formatDate(applicant.created_at)}
+                                <Clock className="h-3 w-3" />{t('teacher.applicants.appliedPrefix')}{formatDate(applicant.created_at)}
                             </span>
                         </div>
                     </div>
@@ -215,12 +218,12 @@ function ApplicantCard({
                     >
                         {processing
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <><CheckCircle2 className="h-3.5 w-3.5" />Approve</>
+                            : <><CheckCircle2 className="h-3.5 w-3.5" />{t('teacher.applicants.approve')}</>
                         }
                     </Button>
                 ) : (
                     <div className="flex items-center gap-1.5 text-emerald-600 text-xs font-bold shrink-0">
-                        <CheckCircle2 className="h-4 w-4" />Enrolled
+                        <CheckCircle2 className="h-4 w-4" />{t('teacher.applicants.enrolled')}
                     </div>
                 )}
 

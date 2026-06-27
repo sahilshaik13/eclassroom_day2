@@ -1,4 +1,5 @@
 import { Plus, Trash2, GripVertical } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { clsx } from 'clsx'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +18,7 @@ type Props = {
 }
 
 export function ExamQuestionEditor({ question, index, onChange, onRemove }: Props) {
+  const { t } = useTranslation()
   const setType = (type: ExamQuestionType) => {
     const next = defaultQuestion(type)
     onChange({ ...next, id: question.id, prompt: question.prompt })
@@ -32,7 +34,7 @@ export function ExamQuestionEditor({ question, index, onChange, onRemove }: Prop
         </span>
         <GripVertical className="mt-2 h-4 w-4 shrink-0 text-slate-300" aria-hidden />
         <div className="min-w-0 flex-1 space-y-1">
-          <label className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Question type</label>
+          <label className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t('studyPlan.questionType')}</label>
           <select
             className="w-full rounded-md border border-slate-200 p-2 text-sm"
             value={question.type}
@@ -50,7 +52,7 @@ export function ExamQuestionEditor({ question, index, onChange, onRemove }: Prop
           type="button"
           onClick={onRemove}
           className="ml-auto p-2 text-slate-300 transition-colors hover:text-red-500"
-          aria-label="Remove question"
+          aria-label={t('studyPlan.removeQuestion')}
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -59,7 +61,7 @@ export function ExamQuestionEditor({ question, index, onChange, onRemove }: Prop
       <div className="space-y-3 pl-0 sm:pl-10">
         <div>
           <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-400">
-            {question.type === 'description' ? 'Description text' : 'Question / prompt'}
+            {question.type === 'description' ? t('studyPlan.descriptionText') : t('studyPlan.questionPrompt')}
           </label>
           {question.type === 'long_answer' || question.type === 'description' ? (
             <textarea
@@ -68,15 +70,15 @@ export function ExamQuestionEditor({ question, index, onChange, onRemove }: Prop
               onChange={(e) => onChange({ ...question, prompt: e.target.value })}
               placeholder={
                 question.type === 'description'
-                  ? 'Section / group name (questions below use this label)…'
-                  : 'Enter the question…'
+                  ? t('studyPlan.sectionPlaceholder')
+                  : t('studyPlan.enterQuestion')
               }
             />
           ) : (
             <Input
               value={question.prompt}
               onChange={(e) => onChange({ ...question, prompt: e.target.value })}
-              placeholder="Enter the question…"
+              placeholder={t('studyPlan.enterQuestion')}
               className="font-medium"
             />
           )}
@@ -88,7 +90,7 @@ export function ExamQuestionEditor({ question, index, onChange, onRemove }: Prop
         {question.type === 'short_answer' && (
           <div>
             <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              Character limit
+              {t('studyPlan.charLimit')}
             </label>
             <Input
               type="number"
@@ -107,7 +109,7 @@ export function ExamQuestionEditor({ question, index, onChange, onRemove }: Prop
         {question.type === 'image_upload' && (
           <div>
             <label className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              Max files
+              {t('studyPlan.maxFiles')}
             </label>
             <Input
               type="number"
@@ -135,6 +137,7 @@ function McqEditor({
   question: Extract<ExamQuestion, { type: 'mcq' }>
   onChange: (q: ExamQuestion) => void
 }) {
+  const { t } = useTranslation()
   const updateOption = (oIdx: number, value: string) => {
     const options = [...question.options]
     options[oIdx] = value
@@ -178,7 +181,7 @@ function McqEditor({
           onChange={toggleMulti}
           className="rounded border-slate-300"
         />
-        Allow multiple selections
+        {t('studyPlan.allowMultiple')}
       </label>
       <div className="space-y-2">
         {question.options.map((opt, oIdx) => (
@@ -189,7 +192,7 @@ function McqEditor({
                 checked={(question.correct_options ?? []).includes(oIdx)}
                 onChange={() => toggleCorrectMulti(oIdx)}
                 className="accent-emerald-600"
-                title="Mark as correct"
+                title={t('studyPlan.markCorrect')}
               />
             ) : (
               <input
@@ -198,11 +201,11 @@ function McqEditor({
                 checked={question.correct_option === oIdx}
                 onChange={() => toggleCorrectSingle(oIdx)}
                 className="accent-emerald-600"
-                title="Mark as correct"
+                title={t('studyPlan.markCorrect')}
               />
             )}
             <Input
-              placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
+              placeholder={t('studyPlan.optionLabel', { letter: String.fromCharCode(65 + oIdx) })}
               value={opt}
               onChange={(e) => updateOption(oIdx, e.target.value)}
               className={clsx(
@@ -225,10 +228,10 @@ function McqEditor({
         ))}
       </div>
       <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addOption}>
-        <Plus className="h-3.5 w-3.5" /> Add option
+        <Plus className="h-3.5 w-3.5" /> {t('studyPlan.addOption')}
       </Button>
       <p className="text-[10px] italic text-slate-400">
-        Mark the correct answer(s) for auto-grading.
+        {t('studyPlan.markCorrectHint')}
       </p>
     </div>
   )

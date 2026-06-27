@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { Trophy, Calendar, ArrowRight, Loader2, Info, Search, SlidersHorizontal } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -27,9 +28,9 @@ import {
 
 type SortOrder = 'newest' | 'oldest'
 
-function supplementaryResultText(graderCount: number, remarks?: string | null) {
+function supplementaryResultText(graderCount: number, remarks?: string | null, t?: (key: string, opts?: Record<string, unknown>) => string) {
   const parts: string[] = []
-  if (graderCount > 1) parts.push(`Avg. ${graderCount} graders`)
+  if (graderCount > 1) parts.push(t ? t('student.competitions.avgGraders', { count: graderCount }) : `Avg. ${graderCount} graders`)
   if (remarks?.trim()) parts.push(remarks.trim())
   return parts.join(' · ')
 }
@@ -62,6 +63,7 @@ function matchesSearch(reg: CompetitionRegistration, q: string): boolean {
 }
 
 export default function StudentCompetitionsPage() {
+  const { t } = useTranslation()
   useStudentCompetitionRealtime()
   const navigate = useNavigate()
   const [feedbackReg, setFeedbackReg] = useState<CompetitionRegistration | null>(null)
@@ -87,8 +89,8 @@ export default function StudentCompetitionsPage() {
   const loading = isLoading
 
   useEffect(() => {
-    if (isError) toast.error('Could not load competitions')
-  }, [isError])
+    if (isError) toast.error(t('student.competitions.couldNotLoad'))
+  }, [isError, t])
 
   const filtered = useMemo(() => {
     let list = registrations.filter((reg) => {
@@ -109,11 +111,11 @@ export default function StudentCompetitionsPage() {
     <div className="mx-auto max-w-4xl space-y-3 pb-24 md:pb-12">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-lg font-bold text-slate-900 md:text-xl">Competitions</h1>
+          <h1 className="text-lg font-bold text-slate-900 md:text-xl">{t('student.competitions.title')}</h1>
           <p className="text-xs text-slate-500">
-            Your registrations and exam status
+            {t('student.competitions.subtitle')}
             {isFetching && !loading && (
-              <span className="ml-2 text-[10px] font-medium text-slate-400">· Updating…</span>
+              <span className="ml-2 text-[10px] font-medium text-slate-400">· {t('common.updating')}</span>
             )}
           </p>
         </div>
@@ -131,7 +133,7 @@ export default function StudentCompetitionsPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or date…"
+              placeholder={t('student.competitions.searchPlaceholder')}
               className="h-8 border-slate-200 pl-8 text-xs"
             />
           </div>
@@ -142,8 +144,8 @@ export default function StudentCompetitionsPage() {
               className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700"
               aria-label="Sort competitions"
             >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
+              <option value="newest">{t('student.competitions.newestFirst')}</option>
+              <option value="oldest">{t('student.competitions.oldestFirst')}</option>
             </select>
             <select
               value={typeFilter}
@@ -170,16 +172,16 @@ export default function StudentCompetitionsPage() {
         <Card className="border border-dashed border-slate-200 bg-slate-50/50">
           <CardContent className="flex flex-col items-center py-10 text-center">
             <Trophy className="mb-2 h-8 w-8 text-slate-300" />
-            <h3 className="text-sm font-semibold text-slate-900">No registrations</h3>
+            <h3 className="text-sm font-semibold text-slate-900">{t('student.competitions.noRegistrations')}</h3>
             <p className="mt-1 max-w-xs text-xs text-slate-500">
-              Use a competition link from your teacher to register.
+              {t('student.competitions.useLink')}
             </p>
           </CardContent>
         </Card>
       ) : filtered.length === 0 ? (
         <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-6 text-xs text-slate-500">
           <SlidersHorizontal className="h-4 w-4 shrink-0" />
-          No competitions match your search or filters.
+          {t('student.competitions.noMatch')}
         </div>
       ) : (
         <ul className="space-y-2">
@@ -192,7 +194,7 @@ export default function StudentCompetitionsPage() {
             const isUnderReview =
               !!reg.competition_results?.length && !reg.results_released
             const extraScoreDetail = hasResult
-              ? supplementaryResultText(graderCount, result?.remarks)
+              ? supplementaryResultText(graderCount, result?.remarks, t)
               : ''
             const canEnter =
               !reg.is_submitted && !!comp?.is_exam_active && comp?.status === 'active'
@@ -206,7 +208,7 @@ export default function StudentCompetitionsPage() {
                   day: 'numeric',
                   year: 'numeric',
                 })
-              : 'Date TBD'
+              : t('student.competitions.dateTbd')
 
             return (
               <li
@@ -236,12 +238,12 @@ export default function StudentCompetitionsPage() {
                         {comp && <CompetitionTypeBadge competition={comp} dense />}
                         {reg.is_submitted && (
                           <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase text-emerald-700">
-                            Submitted
+                            {t('common.submitted')}
                           </span>
                         )}
                       </div>
                       <h3 className="truncate text-sm font-semibold text-slate-900">
-                        {comp?.title || 'Competition'}
+                        {comp?.title || t('student.competitions.competition')}
                       </h3>
                       <p className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-500">
                         <Calendar className="h-3 w-3 shrink-0" />
@@ -266,7 +268,7 @@ export default function StudentCompetitionsPage() {
                       {hasResult ? (
                         <div className="flex w-[3.25rem] shrink-0 flex-col items-center rounded-md bg-emerald-600 px-1.5 py-1 text-white sm:w-[4.5rem] sm:px-2 sm:py-1.5">
                           <span className="text-[7px] font-bold uppercase tracking-wide text-white/80 sm:text-[8px]">
-                            Score
+                            {t('common.score')}
                           </span>
                           <span className="text-base font-black leading-none tabular-nums sm:text-lg">
                             {result?.score}
@@ -276,16 +278,16 @@ export default function StudentCompetitionsPage() {
                             onClick={() => setFeedbackReg(reg)}
                             className="mt-0.5 text-[8px] text-white/80 underline sm:text-[9px]"
                           >
-                            Feedback
+                            {t('student.competitions.feedback')}
                           </button>
                         </div>
                       ) : isUnderReview ? (
                         <span className="rounded-md border border-amber-100 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">
-                          Review
+                          {t('common.review')}
                         </span>
                       ) : (
                         <span className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-500">
-                          {reg.is_submitted ? 'Done' : 'Pending'}
+                          {reg.is_submitted ? t('common.done') : t('common.pending')}
                         </span>
                       )}
 
@@ -305,12 +307,12 @@ export default function StudentCompetitionsPage() {
                         >
                           {canEnter ? (
                             <>
-                              Exam <ArrowRight className="h-3 w-3" />
+                              {t('student.competitions.exam')} <ArrowRight className="h-3 w-3" />
                             </>
                           ) : comp?.status !== 'active' ? (
-                            'Inactive'
+                            t('student.competitions.inactive')
                           ) : (
-                            'Waiting'
+                            t('student.competitions.waiting')
                           )}
                         </Button>
                       )}
@@ -331,7 +333,7 @@ export default function StudentCompetitionsPage() {
       <div className="flex gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2">
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600" />
         <p className="text-[11px] leading-snug text-blue-800/90">
-          Open a link from your teacher to join more competitions. Exam answers save automatically while you work.
+          {t('student.competitions.openLink')}
         </p>
       </div>
 
@@ -339,7 +341,7 @@ export default function StudentCompetitionsPage() {
         <Dialog open={!!feedbackReg} onOpenChange={(o) => !o && setFeedbackReg(null)}>
           <DialogContent className="max-h-[80vh] max-w-lg overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="text-base font-bold">Teacher feedback</DialogTitle>
+              <DialogTitle className="text-base font-bold">{t('student.competitions.teacherFeedback')}</DialogTitle>
             </DialogHeader>
             <div className="mt-3 space-y-3">
               {feedbackReg.competitions?.content?.map((item: unknown, idx: number) => {
@@ -373,7 +375,7 @@ export default function StudentCompetitionsPage() {
                 (r: { teacher_comment?: string }) => r.teacher_comment,
               ) && (
                 <p className="py-6 text-center text-xs italic text-slate-400">
-                  No question notes from your teacher.
+                  {t('student.competitions.noQuestionNotes')}
                 </p>
               )}
             </div>

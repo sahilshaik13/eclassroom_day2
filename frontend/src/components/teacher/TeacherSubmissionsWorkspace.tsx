@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
@@ -42,6 +43,7 @@ interface TeacherSubmissionsWorkspaceProps {
 }
 
 export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissionsWorkspaceProps) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const embedded = layout === 'embedded'
   const [selectedClassId, setSelectedClassId] = useState<string>('')
@@ -117,12 +119,12 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
     }
     if (classesErrorToastShown.current) return
     classesErrorToastShown.current = true
-    toast.error('Could not load your classes')
+    toast.error(t('teacher.submissions.couldNotLoadClasses'))
   }, [classesError])
 
   useEffect(() => {
     if (!studentsError || embedded) return
-    toast.error('Could not load students for this class')
+    toast.error(t('teacher.submissions.couldNotLoadStudents'))
   }, [studentsError, embedded])
 
   const loadStudentProgress = async (studentId: string) => {
@@ -132,7 +134,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
       const res = await api.get(`/teacher/students/${studentId}/study-plan/${selectedClassId}/progress`)
       setProgressData(res.data.data)
     } catch {
-      toast.error('Failed to load student progress')
+      toast.error(t('teacher.submissions.failedLoadProgress'))
     } finally {
       setLoadingProgress(false)
     }
@@ -253,12 +255,12 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
           embedded ? 'w-full sm:w-[200px] h-9 text-sm rounded-lg border-slate-200 bg-white' : 'w-[220px] rounded-xl font-bold border-slate-200 bg-white'
         )}
       >
-        <SelectValue>{classes.find((c) => c.id === selectedClassId)?.name || 'Select Class'}</SelectValue>
+        <SelectValue>{classes.find((c) => c.id === selectedClassId)?.name || t('teacher.submissions.selectClass')}</SelectValue>
       </SelectTrigger>
       <SelectContent>
         {classes.map((c) => (
           <SelectItem key={c.id} value={c.id} className={embedded ? 'text-sm' : 'font-bold'}>
-            {c.name || 'Unnamed Class'}
+            {c.name || t('teacher.submissions.unnamedClass')}
           </SelectItem>
         ))}
       </SelectContent>
@@ -276,8 +278,8 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
         <section className="space-y-4">
           <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">Submissions</h2>
-              <p className="text-xs text-slate-500">Study plan tasks awaiting your review.</p>
+              <h2 className="text-sm font-semibold text-slate-900">{t('teacher.submissions.title')}</h2>
+              <p className="text-xs text-slate-500">{t('teacher.submissions.subtitle')}</p>
             </div>
           </header>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">{spinner}</div>
@@ -315,12 +317,12 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                 embedded ? 'text-[10px] font-semibold' : 'text-[10px] font-bold tracking-widest',
               )}
             >
-              Students
+              {t('nav.students')}
             </h3>
             <div className="flex items-center gap-1.5">
               {pendingStudentCount > 0 ? (
                 <Badge className="h-5 rounded-md border-0 bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-900">
-                  {pendingStudentCount} awaiting review
+                  {t('teacher.submissions.awaitingReview', { count: pendingStudentCount })}
                 </Badge>
               ) : null}
               <Badge
@@ -381,11 +383,11 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                         <p className="truncate text-sm font-semibold text-slate-900">{student.name}</p>
                         {hasPendingReview ? (
                           <Badge className="h-4 shrink-0 border-0 bg-amber-200/80 px-1.5 text-[9px] font-semibold text-amber-950">
-                            {pendingCount > 1 ? `${pendingCount} pending` : 'Review'}
+                            {pendingCount > 1 ? `${pendingCount} ${t('common.pending').toLowerCase()}` : t('common.review')}
                           </Badge>
                         ) : null}
                       </div>
-                      <p className="truncate text-[11px] text-slate-500">{student.phone || 'No phone'}</p>
+                      <p className="truncate text-[11px] text-slate-500">{student.phone || t('teacher.submissions.noPhone')}</p>
                     </div>
                     {isSelected ? <ChevronRight className="h-4 w-4 shrink-0 text-indigo-400" /> : null}
                   </div>
@@ -413,7 +415,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
             })()}
             {sortedStudents.length === 0 && (
               <div className="flex min-h-[120px] items-center justify-center px-4 py-10 text-center">
-                <p className="text-xs text-slate-500">No students in this class.</p>
+                <p className="text-xs text-slate-500">{t('teacher.submissions.noStudents')}</p>
               </div>
             )}
           </div>
@@ -454,7 +456,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                       <>
                         <span className="h-1 w-1 rounded-full bg-slate-300" />
                         <Badge variant="secondary" className="border-0 bg-indigo-50 text-[10px] font-semibold text-indigo-700">
-                          Active
+                          {t('common.active')}
                         </Badge>
                       </>
                     )}
@@ -471,7 +473,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                 onClick={() => navigate(`/student/progress-report/${selectedStudent.id}`)}
               >
                 <FileText className={clsx('text-indigo-600', embedded ? 'mr-2 h-4 w-4' : 'mr-2 h-5 w-5')} />
-                Report
+                {t('nav.report')}
               </Button>
             </div>
 
@@ -493,10 +495,10 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
               >
                 <AlertCircle className={clsx('text-slate-300', embedded ? 'mb-3 h-10 w-10' : 'mb-4 h-10 w-10')} />
                 <h3 className={clsx('font-semibold text-slate-900', embedded ? 'text-sm' : 'text-xl font-black')}>
-                  No study plan progress
+                  {t('teacher.submissions.noProgress')}
                 </h3>
                 <p className="mt-2 max-w-sm text-xs text-slate-500">
-                  This student has not started their study plan for this class yet.
+                  {t('teacher.submissions.notStarted')}
                 </p>
               </div>
             ) : (
@@ -510,7 +512,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                     onClick={() => setDayPage((p) => Math.max(0, p - 1))}
                   >
                     <ChevronLeft className="mr-1 h-4 w-4" />
-                    Prev
+                    {t('teacher.submissions.prev')}
                   </Button>
                   <p className="text-[10px] font-semibold text-slate-500">
                     Days {pagedDays.totalDays === 0 ? 0 : pagedDays.safePage * DAYS_PER_PAGE + 1}-
@@ -526,7 +528,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                     disabled={pagedDays.safePage >= pagedDays.totalPages - 1}
                     onClick={() => setDayPage((p) => Math.min(pagedDays.totalPages - 1, p + 1))}
                   >
-                    Next
+                    {t('common.next')}
                     <ChevronRight className="ml-1 h-4 w-4" />
                   </Button>
                 </div>
@@ -561,16 +563,16 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                         <div className="min-w-0 flex-1">
                           <div className="mb-0 flex flex-wrap items-center gap-1.5">
                             <span className="text-[9px] font-medium uppercase tracking-wide text-slate-500">
-                              Day {day.day_number}
+                              {t('teacher.submissions.dayPrefix')}{day.day_number}
                             </span>
                             {day.progress.completed > 0 && day.progress.completed === day.progress.reviewed && (
                               <Badge className="border-0 bg-white/80 px-1.5 py-0 text-[8px] font-medium text-indigo-700">
-                                Corrected
+                                {t('teacher.submissions.corrected')}
                               </Badge>
                             )}
                             {day.progress.completed > day.progress.reviewed && (
                               <Badge className="border-0 bg-amber-50/90 px-1.5 py-0 text-[8px] font-medium text-amber-800">
-                                Pending review
+                                {t('teacher.submissions.pendingReview')}
                               </Badge>
                             )}
                           </div>
@@ -581,12 +583,12 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                                   month: 'short',
                                   day: 'numeric',
                                 })
-                              : `Day ${day.day_number}`}
+                              : `${t('teacher.submissions.dayPrefix')}${day.day_number}`}
                           </h3>
                         </div>
                         <div className="hidden items-center gap-3 border-l border-emerald-200/60 pl-3 sm:flex">
                           <div className="text-center">
-                            <p className="mb-0 text-[8px] font-medium uppercase text-slate-500">Score</p>
+                            <p className="mb-0 text-[8px] font-medium uppercase text-slate-500">{t('common.score')}</p>
                             <p className="text-xs font-semibold leading-tight text-slate-900">{day.progress.average_score}%</p>
                             <p className="text-[9px] leading-tight text-slate-500">
                               {day.progress.completed}/{day.progress.total}
@@ -633,7 +635,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                                   </div>
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="text-[10px] text-slate-500">
-                                      {period.progress.completed}/{period.progress.total} done
+                                      {period.progress.completed}/{period.progress.total} {t('teacher.submissions.done')}
                                     </span>
                                     <div className="w-14">
                                       <Progress
@@ -644,12 +646,12 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                                     </div>
                                     {period.progress.completed > 0 && period.progress.completed === period.progress.reviewed && (
                                       <Badge className="border-0 bg-emerald-50 text-[9px] font-medium text-emerald-700">
-                                        Corrected
+                                        {t('teacher.submissions.corrected')}
                                       </Badge>
                                     )}
                                     {period.progress.completed > period.progress.reviewed && (
                                       <Badge className="border-0 bg-amber-50 text-[9px] font-medium text-amber-800">
-                                        Pending
+                                        {t('common.pending')}
                                       </Badge>
                                     )}
                                   </div>
@@ -697,7 +699,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                                                 variant="outline"
                                                 className="border-amber-100 bg-amber-50 text-[9px] font-medium text-amber-800"
                                               >
-                                                Pending review
+                                                {t('teacher.submissions.pendingReview')}
                                               </Badge>
                                             )}
                                             <Button
@@ -706,7 +708,7 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
                                               className="h-8 rounded-lg text-xs font-medium text-indigo-600 hover:bg-indigo-50"
                                               onClick={() => navigate(`/teacher/evaluate/submission/${task.submission.id}`)}
                                             >
-                                              Review
+                                              {t('common.review')}
                                             </Button>
                                           </>
                                         )}
@@ -734,10 +736,10 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
           >
             <TrendingUp className={clsx('text-slate-300', embedded ? 'mb-3 h-9 w-9' : 'mb-6 h-12 w-12')} />
             <h3 className={clsx('font-semibold text-slate-900', embedded ? 'text-sm' : 'text-xl font-black lg:text-2xl')}>
-              Select a student
+              {t('teacher.submissions.selectStudent')}
             </h3>
             <p className="mt-2 max-w-sm text-xs leading-relaxed text-slate-500">
-              Choose someone from the list on the left to review their plan and grade submissions.
+              {t('teacher.submissions.selectStudentDesc')}
             </p>
           </div>
         )}
@@ -750,8 +752,8 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
       <section className="space-y-4">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold tracking-tight text-slate-900">Submissions</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Review tasks and open evaluations without leaving home.</p>
+            <h2 className="text-sm font-semibold tracking-tight text-slate-900">{t('teacher.submissions.title')}</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{t('teacher.submissions.subtitle')}</p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">{classSelect}</div>
         </header>
@@ -762,13 +764,13 @@ export function TeacherSubmissionsWorkspace({ layout = 'page' }: TeacherSubmissi
 
   return (
     <DashboardPageLayout
-      title="Student Progress & Grading"
-      description="Track study plan completion and evaluate student performance."
+      title={t('teacher.submissions.titleFull')}
+      description={t('teacher.submissions.subtitleFull')}
       actions={
         <div className="flex gap-3">
           {classSelect}
           <Button variant="ghost" onClick={() => navigate(-1)} className="rounded-xl font-bold text-slate-500">
-            <ChevronLeft className="mr-2 h-4 w-4" /> Back
+            <ChevronLeft className="mr-2 h-4 w-4" /> {t('common.back')}
           </Button>
         </div>
       }

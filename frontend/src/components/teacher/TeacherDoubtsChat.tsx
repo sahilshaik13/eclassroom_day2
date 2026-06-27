@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { subscribeToTeacherDoubts } from '@/lib/realtime'
 import { useDoubtChatLive } from '@/hooks/useDoubtChatLive'
@@ -104,7 +105,7 @@ function formatChatTime(dateStr: string): string {
   return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 
-function formatListTime(dateStr: string): string {
+function formatListTime(dateStr: string, t: (key: string) => string): string {
   if (!dateStr) return ''
   const d = new Date(dateStr)
   const now = new Date()
@@ -120,23 +121,23 @@ function formatListTime(dateStr: string): string {
     d.getMonth() === yesterday.getMonth() &&
     d.getFullYear() === yesterday.getFullYear()
   ) {
-    return 'Yesterday'
+    return t('chat.yesterday')
   }
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
-function previewForMessage(msg: ChatMessage): string {
+function previewForMessage(msg: ChatMessage, t: (key: string) => string): string {
   if (msg.text?.trim()) return msg.text.trim()
-  if (msg.replyType === 'audio' || msg.audioUrl) return '🎤 Voice message'
-  if (msg.replyType === 'file' || msg.fileUrl) return `📎 ${msg.fileName || 'File'}`
-  return 'New message'
+  if (msg.replyType === 'audio' || msg.audioUrl) return t('chat.voiceMessage')
+  if (msg.replyType === 'file' || msg.fileUrl) return `📎 ${msg.fileName || t('chat.file')}`
+  return t('chat.newMessage')
 }
 
 function buildMessages(doubts: ApiDoubt[]): ChatMessage[] {
   return buildChatMessagesFromDoubts(doubts, 'teacher') as ChatMessage[]
 }
 
-function buildThreads(doubts: ApiDoubt[]): StudentThread[] {
+function buildThreads(doubts: ApiDoubt[], t: (key: string) => string): StudentThread[] {
   const byStudent = new Map<string, ApiDoubt[]>()
   for (const doubt of doubts) {
     const studentId =
@@ -152,7 +153,7 @@ function buildThreads(doubts: ApiDoubt[]): StudentThread[] {
 
   const threads: StudentThread[] = []
   for (const [studentId, studentDoubts] of byStudent) {
-    const studentName = studentDoubts[0]?.students?.name ?? 'Student'
+    const studentName = studentDoubts[0]?.students?.name ?? t('chat.studentFallback')
     const messages = buildMessages(studentDoubts)
     const last = messages[messages.length - 1]
     const pending = studentDoubts.filter((d) => d.status === 'pending')
@@ -167,7 +168,7 @@ function buildThreads(doubts: ApiDoubt[]): StudentThread[] {
       initials: initialsFor(studentName),
       pendingCount: pending.length,
       lastAt: last?.createdAt ?? studentDoubts[0]?.created_at ?? '',
-      preview: last ? previewForMessage(last) : 'No messages yet',
+      preview: last ? previewForMessage(last, t) : t('chat.noMessagesYet'),
       doubts: studentDoubts,
       messages,
       activeDoubtId,
@@ -186,6 +187,7 @@ export function TeacherDoubtsChat({
   variant = 'embedded',
   statusFilter = 'all',
 }: TeacherDoubtsChatProps) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const userId = useAuthStore((s) => s.user?.id)
   const tenantId = useAuthStore((s) => s.user?.tenant_id)
@@ -308,18 +310,18 @@ export function TeacherDoubtsChat({
     onFailed: () => setOutboxTick((n) => n + 1),
   })
 
-  const baseThreads = useMemo(() => buildThreads(doubtsRaw), [doubtsRaw])
+  const baseThreads = useMemo(() => buildThreads(doubtsRaw, t), [doubtsRaw, t])
 
   const sentAtMap = useMemo(() => sentAtByClientId(), [outboxTick])
 
   const threads = useMemo(() => {
-    return baseThreads.map((t) => {
-      const serverMsgs = t.messages as DoubtChatMessage[]
+    return baseThreads.map((th) => {
+      const serverMsgs = th.messages as DoubtChatMessage[]
       const hasClient = (clientId: string) =>
         serverHasClientMessage(serverMsgs, clientId)
-      const ephemeral = ephemeralByThread[t.studentId] ?? []
+      const ephemeral = ephemeralByThread[th.studentId] ?? []
       const threadOutbox = listVisibleOutbox('teacher_reply', hasClient).filter(
-        (e) => e.threadKey === t.studentId,
+        (e) => e.threadKey === th.studentId,
       )
       const statusOverlay = outboxEntriesToMessages(threadOutbox, 'teacher')
       const prunedEphemeral = pruneEphemeral(ephemeral, serverMsgs)
@@ -334,13 +336,13 @@ export function TeacherDoubtsChat({
       )
       const last = messages[messages.length - 1]
       return {
-        ...t,
+        ...th,
         messages,
-        lastAt: last?.sentAt ?? last?.receivedAt ?? last?.createdAt ?? t.lastAt,
-        preview: last ? previewForMessage(last) : t.preview,
+        lastAt: last?.sentAt ?? last?.receivedAt ?? last?.createdAt ?? th.lastAt,
+        preview: last ? previewForMessage(last, t) : th.preview,
       }
     })
-  }, [baseThreads, ephemeralByThread, mergeMsgs, pruneEphemeral, outboxTick, sentAtMap])
+  }, [baseThreads, ephemeralByThread, mergeMsgs, pruneEphemeral, outboxTick, sentAtMap, t])
   const displayThreads = threads
 
   const activeThread =
@@ -355,7 +357,7 @@ export function TeacherDoubtsChat({
   }, [displayThreads, selectedStudentId])
 
   useEffect(() => {
-    if (isError) toast.error('Could not load student doubts')
+    if (isError) toast.error(t('chat.couldNotLoadTeacher'))
   }, [isError])
 
   useEffect(() => {
@@ -388,7 +390,7 @@ export function TeacherDoubtsChat({
   const clearChat = async () => {
     if (!activeThread?.studentId || clearing) return
     const ok = window.confirm(
-      `Clear chat with ${activeThread.studentName}? Messages will be hidden from both of you but kept on record.`,
+      t('chat.clearConfirmTeacher', { student: activeThread.studentName }),
     )
     if (!ok) return
     setClearing(true)
@@ -397,9 +399,9 @@ export function TeacherDoubtsChat({
       clearTeacherStudentChatCache(queryClient, activeThread.studentId)
       clearEphemeralThread(activeThread.studentId)
       refresh()
-      toast.success('Chat cleared (archived)')
+      toast.success(t('chat.chatCleared'))
     } catch {
-      toast.error('Could not clear chat')
+      toast.error(t('chat.clearFailed'))
     } finally {
       setClearing(false)
     }
@@ -470,7 +472,7 @@ export function TeacherDoubtsChat({
       setIsRecording(true)
       setAttachedFile(null)
     } catch {
-      toast.error('Microphone access denied')
+      toast.error(t('chat.micDenied'))
     }
   }
 
@@ -490,14 +492,14 @@ export function TeacherDoubtsChat({
   const sendReply = async () => {
     if (sending) return
     if (!activeThread?.activeDoubtId) {
-      toast.error('No chat history with this student yet')
+      toast.error(t('chat.noHistory'))
       return
     }
     const text = replyText.trim()
     const hasAudio = !!audioBlob
     const hasFile = !!attachedFile
     if (!text && !hasAudio && !hasFile) {
-      toast.error('Type a message, record audio, or attach a file')
+      toast.error(t('chat.emptyMessage'))
       return
     }
 
@@ -513,14 +515,14 @@ export function TeacherDoubtsChat({
     let fileName: string | undefined
     if (hasFile && attachedFile) {
       if (attachedFile.size > 8 * 1024 * 1024) {
-        toast.error('File must be under 8 MB')
+        toast.error(t('chat.fileTooLarge'))
         return
       }
       replyType = 'file'
       fileName = attachedFile.name
     } else if (hasAudio && audioBlob) {
       if (audioBlob.size > 5 * 1024 * 1024) {
-        toast.error('Audio must be under 5 MB')
+        toast.error(t('chat.audioTooLarge'))
         return
       }
       replyType = 'audio'
@@ -597,8 +599,8 @@ export function TeacherDoubtsChat({
       setOutboxTick((n) => n + 1)
       toast.error(
         navigator.onLine
-          ? 'Could not send — will retry when connection is stable'
-          : 'Offline — message saved and will send when you are back online',
+          ? t('chat.sendFailed')
+          : t('chat.offlineSaved'),
       )
     } finally {
       setSending(false)
@@ -623,8 +625,8 @@ export function TeacherDoubtsChat({
           )}
         >
           <div className="bg-[#f0f2f5] px-4 py-3">
-            <p className="text-sm font-bold text-slate-800">Students</p>
-            <p className="text-[11px] text-slate-500">Student chats</p>
+            <p className="text-sm font-bold text-slate-800">{t('nav.students')}</p>
+            <p className="text-[11px] text-slate-500">{t('chat.studentChats')}</p>
           </div>
           <div className="flex-1 overflow-y-auto">
             {loading ? (
@@ -636,7 +638,7 @@ export function TeacherDoubtsChat({
             ) : displayThreads.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center px-4 text-center">
                 <MessageCircle className="mb-2 h-8 w-8 text-slate-300" />
-                <p className="text-xs font-semibold text-slate-600">No student doubts</p>
+                <p className="text-xs font-semibold text-slate-600">{t('chat.noStudentDoubts')}</p>
               </div>
             ) : (
               displayThreads.map((thread) => {
@@ -662,7 +664,7 @@ export function TeacherDoubtsChat({
                           {thread.studentName}
                         </span>
                         <span className="shrink-0 text-[10px] text-slate-400">
-                          {formatListTime(thread.lastAt)}
+                          {formatListTime(thread.lastAt, t)}
                         </span>
                       </div>
                       <p className="mt-0.5 truncate text-xs text-slate-500">{thread.preview}</p>
@@ -688,21 +690,21 @@ export function TeacherDoubtsChat({
                   <p className="truncate text-sm font-semibold text-slate-900">
                     {activeThread.studentName}
                   </p>
-                  <p className="text-[11px] text-slate-500">Class doubts chat</p>
+                  <p className="text-[11px] text-slate-500">{t('chat.classDoubtsChat')}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => void clearChat()}
                   disabled={clearing || activeThread.messages.length === 0}
                   className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-white/80 hover:text-rose-600 disabled:opacity-40"
-                  title="Clear chat"
+                  title={t('chat.clearChat')}
                 >
                   {clearing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Trash2 className="h-4 w-4" />
                   )}
-                  <span className="hidden sm:inline">Clear</span>
+                  <span className="hidden sm:inline">{t('common.clear')}</span>
                 </button>
               </div>
 
@@ -781,7 +783,7 @@ export function TeacherDoubtsChat({
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#54656f] hover:bg-white/70"
-                      title="Attach file"
+                      title={t('chat.attachFile')}
                     >
                       <Paperclip className="h-5 w-5" />
                     </button>
@@ -800,8 +802,8 @@ export function TeacherDoubtsChat({
                         disabled={!activeThread.activeDoubtId}
                         placeholder={
                           activeThread.activeDoubtId
-                            ? 'Type a message'
-                            : 'No messages in this chat yet'
+                            ? t('chat.typePlaceholder')
+                            : t('chat.noHistoryYet')
                         }
                         className="max-h-24 w-full resize-none border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
                       />
@@ -812,7 +814,7 @@ export function TeacherDoubtsChat({
                         type="button"
                         onClick={stopRecording}
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white hover:bg-rose-600"
-                        title="Stop recording"
+                        title={t('chat.stopRecording')}
                       >
                         <Square className="h-4 w-4 fill-current" />
                       </button>
@@ -822,7 +824,7 @@ export function TeacherDoubtsChat({
                         onClick={() => void sendReply()}
                         disabled={sending}
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#128c7e] text-white hover:bg-[#0f7a6c] disabled:opacity-60"
-                        title="Send"
+                        title={t('chat.sendBtn')}
                       >
                         {sending ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -835,7 +837,7 @@ export function TeacherDoubtsChat({
                         type="button"
                         onClick={() => void startRecording()}
                         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[#54656f] hover:bg-white/70"
-                        title="Record voice"
+                        title={t('chat.recordVoice')}
                       >
                         <Mic className="h-5 w-5" />
                       </button>
@@ -846,7 +848,7 @@ export function TeacherDoubtsChat({
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
               <MessageCircle className="mb-3 h-10 w-10 text-slate-300" />
-              <p className="text-sm font-semibold text-slate-600">Select a student to start chatting</p>
+              <p className="text-sm font-semibold text-slate-600">{t('chat.selectStudentToChat')}</p>
             </div>
           )}
         </div>
@@ -860,19 +862,20 @@ export function TeacherDoubtsChatSection({
 }: {
   variant?: 'embedded' | 'full'
 }) {
+  const { t } = useTranslation()
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Students Doubts</h2>
-          <p className="text-xs text-slate-500">Reply with a message, voice note, or file.</p>
+          <h2 className="text-lg font-bold text-slate-900">{t('chat.studentDoubts')}</h2>
+          <p className="text-xs text-slate-500">{t('chat.replyWithMessage')}</p>
         </div>
         {variant === 'embedded' && (
           <Link
             to="/teacher/doubts"
             className="text-xs font-semibold uppercase tracking-wider text-[#128c7e] hover:underline"
           >
-            Open inbox →
+            {t('chat.openInbox')}
           </Link>
         )}
       </div>

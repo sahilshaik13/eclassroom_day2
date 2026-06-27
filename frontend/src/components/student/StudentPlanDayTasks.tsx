@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   CheckCircle2,
   Circle,
@@ -41,6 +42,7 @@ function TaskRow({
   isBusy?: boolean
   showPeriodMeta?: boolean
 }) {
+  const { t } = useTranslation()
   const done = isTaskDone(task)
   const needsAudio = requiresAudioOnToggle(task)
   const [showAudioField, setShowAudioField] = useState(false)
@@ -84,7 +86,7 @@ function TaskRow({
           reader.readAsDataURL(blob)
         })
         setAudioDataUrl(dataUrl)
-        setAudioName('Recorded audio.webm')
+        setAudioName(t('student.dashboard.recordedAudio'))
         stopRecorderStream()
       }
       mediaRecorderRef.current = recorder
@@ -169,7 +171,7 @@ function TaskRow({
           ) : null}
           {needsAudio ? (
             <p className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-violet-600">
-              Audio required
+              {t('student.planDay.audioRequired')}
             </p>
           ) : null}
         </div>
@@ -184,7 +186,7 @@ function TaskRow({
             done ? 'border-emerald-200 text-emerald-700' : 'bg-blue-600 text-white hover:bg-blue-700',
           )}
         >
-          {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : done ? 'Undo' : 'Done'}
+          {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : done ? t('common.undo') : t('common.done')}
         </Button>
       </div>
 
@@ -192,7 +194,7 @@ function TaskRow({
         <div className="mt-2.5 rounded-lg border border-violet-200 bg-violet-50/60 p-2.5">
           <label className="flex cursor-pointer items-center gap-2 rounded-md border border-violet-200 bg-white px-2.5 py-2 text-[10px] font-semibold text-violet-700 hover:bg-violet-50">
             <Upload className="h-3.5 w-3.5" />
-            <span className="truncate">{audioName || 'Upload audio (optional fallback)'}</span>
+            <span className="truncate">{audioName || t('student.dashboard.uploadAudioFallback')}</span>
             <input
               type="file"
               accept="audio/*"
@@ -226,7 +228,7 @@ function TaskRow({
                 className="h-8 rounded-md px-2.5 text-[10px] font-bold text-violet-700"
               >
                 <Mic className="mr-1 h-3.5 w-3.5" />
-                Record audio
+                {t('student.dashboard.recordAudio')}
               </Button>
             ) : (
               <Button
@@ -237,7 +239,7 @@ function TaskRow({
                 className="h-8 rounded-md bg-rose-600 px-2.5 text-[10px] font-black text-white hover:bg-rose-700"
               >
                 <Square className="mr-1 h-3.5 w-3.5 fill-current" />
-                Stop
+                {t('common.stop')}
               </Button>
             )}
             {audioDataUrl ? (
@@ -250,7 +252,7 @@ function TaskRow({
                 className="h-8 rounded-md px-2.5 text-[10px] font-bold"
               >
                 <Trash2 className="mr-1 h-3.5 w-3.5" />
-                Clear
+                {t('common.clear')}
               </Button>
             ) : null}
           </div>
@@ -265,7 +267,7 @@ function TaskRow({
               onClick={handleSubmitAudioToggle}
               className="h-8 rounded-md bg-violet-600 px-2.5 text-[10px] font-black text-white hover:bg-violet-700"
             >
-              {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Submit with audio'}
+              {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t('student.dashboard.submitWithAudio')}
             </Button>
             <Button
               type="button"
@@ -280,7 +282,7 @@ function TaskRow({
               }}
               className="h-8 rounded-md px-2.5 text-[10px] font-bold"
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
         </div>

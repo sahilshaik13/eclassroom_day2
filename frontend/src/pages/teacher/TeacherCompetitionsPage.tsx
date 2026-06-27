@@ -15,9 +15,9 @@ import { competitionListQueryOptions } from '@/lib/competitionQueries'
 import { useTeacherCompetitionRealtime } from '@/hooks/useCompetitionRealtime'
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
-  draft: { label: 'Draft', cls: 'text-slate-500 bg-slate-50 border-slate-200' },
-  active: { label: 'Active', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-  closed: { label: 'Closed', cls: 'text-amber-700 bg-amber-50 border-amber-200' },
+  draft: { label: 'teacher.competitions.draft', cls: 'text-slate-500 bg-slate-50 border-slate-200' },
+  active: { label: 'common.active', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+  closed: { label: 'teacher.competitions.closed', cls: 'text-amber-700 bg-amber-50 border-amber-200' },
 }
 
 export default function TeacherCompetitionsPage() {
@@ -38,14 +38,14 @@ export default function TeacherCompetitionsPage() {
     queryKey: queryKeys.teacher.competitions(),
     queryFn: async () => {
       const r = await competitionApi.getTeacherCompetitions()
-      if (!r.success) throw new Error('Could not load competitions')
+      if (!r.success) throw new Error(t('teacher.competitions.couldNotLoad'))
       return r.data
     },
     ...competitionListQueryOptions(),
   })
 
   useEffect(() => {
-    if (isError) toast.error('Could not load competitions')
+    if (isError) toast.error(t('teacher.competitions.couldNotLoad'))
   }, [isError])
 
   const selectedComp =
@@ -75,7 +75,7 @@ export default function TeacherCompetitionsPage() {
     const link = `${window.location.origin}/compete/${id}`
     navigator.clipboard.writeText(link)
     setCopiedId(id)
-    toast.success('Registration link copied!')
+    toast.success(t('teacher.competitions.linkCopied'))
     setTimeout(() => setCopiedId(null), 2000)
   }
 
@@ -105,16 +105,16 @@ export default function TeacherCompetitionsPage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search competitions..."
+                placeholder={t('teacher.competitions.searchPlaceholder')}
                 className="pl-9 border-slate-200 text-sm w-full"
               />
             </div>
           </div>
           <div className="divide-y divide-slate-50">
             {loading ? (
-              <div className="p-5 text-center text-slate-400 text-sm">Loading...</div>
+              <div className="p-5 text-center text-slate-400 text-sm">{t('common.loading')}</div>
             ) : filtered.length === 0 ? (
-              <div className="p-5 text-center text-slate-400 text-sm">No competitions found.</div>
+              <div className="p-5 text-center text-slate-400 text-sm">{t('teacher.competitions.noFound')}</div>
             ) : (
               filtered.map((c) => {
                 const statusStyle = STATUS_MAP[c.status] || STATUS_MAP.draft
@@ -138,13 +138,13 @@ export default function TeacherCompetitionsPage() {
                               statusStyle.cls,
                             )}
                           >
-                            {statusStyle.label}
+                            {statusStyle.label ? t(statusStyle.label) : ''}
                           </span>
                           <span className="text-[9px] uppercase font-black tracking-widest text-blue-500 px-1.5 py-0.5 bg-blue-50 rounded">
                             {c.category || 'mcq'}
                           </span>
                           <span className="text-xs text-slate-500">
-                            {c.start_date ? new Date(c.start_date).toLocaleDateString() : 'TBD'}
+                            {c.start_date ? new Date(c.start_date).toLocaleDateString() : t('teacher.competitions.tbd')}
                           </span>
                         </div>
                         {c.my_can_setup !== false && (
@@ -155,7 +155,7 @@ export default function TeacherCompetitionsPage() {
                             }}
                             className="mt-2 flex items-center gap-1 text-[10px] font-bold text-violet-600 hover:text-violet-800 transition-colors"
                           >
-                            <Settings2 className="h-3 w-3" /> Setup Exam
+                            <Settings2 className="h-3 w-3" /> {t('teacher.competitions.setupExam')}
                           </button>
                         )}
                       </div>
@@ -167,7 +167,7 @@ export default function TeacherCompetitionsPage() {
                             ? 'bg-green-50 border-green-200 text-green-600'
                             : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600 hover:border-slate-300',
                         )}
-                        title="Copy Registration Link"
+                        title={t('teacher.competitions.copyLink')}
                       >
                         {copiedId === c.id ? (
                           <Check className="h-3.5 w-3.5" />
@@ -187,17 +187,17 @@ export default function TeacherCompetitionsPage() {
         <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden min-w-0">
           {!selectedComp ? (
             <div className="p-12 text-center text-slate-400 text-sm">
-              Select a competition to view and score participants.
+              {t('teacher.competitions.selectToView')}
             </div>
           ) : (
             <>
               <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50">
                 <div>
                   <h2 className="text-base font-bold text-slate-800">
-                    {selectedComp.title} Participants
+                    {selectedComp.title} {t('teacher.competitions.participants')}
                   </h2>
                   <p className="text-sm text-slate-500">
-                    {registrations.length} registered
+                    {registrations.length} {t('teacher.competitions.registered')}
                     {regsUpdating && (
                       <span className="ml-2 text-[10px] text-slate-400">· Updating…</span>
                     )}
@@ -205,16 +205,16 @@ export default function TeacherCompetitionsPage() {
                 </div>
                 <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
                   <p className="text-xs text-slate-500 sm:text-right">
-                    Exam for students:{' '}
+                    {t('teacher.competitions.examForStudents')}{' '}
                     <span
                       className={clsx(
                         'font-semibold',
                         selectedComp.is_exam_active ? 'text-emerald-600' : 'text-slate-500',
                       )}
                     >
-                      {selectedComp.is_exam_active ? 'Open' : 'Closed'}
+                      {selectedComp.is_exam_active ? t('teacher.competitions.open') : t('teacher.competitions.closed')}
                     </span>
-                    <span className="text-slate-400"> · Set by admin</span>
+                    <span className="text-slate-400"> · {t('teacher.competitions.setByAdmin')}</span>
                   </p>
                 </div>
               </div>
@@ -223,16 +223,16 @@ export default function TeacherCompetitionsPage() {
                   <thead className="bg-slate-50">
                     <tr>
                       <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                        Participant
+                        {t('teacher.competitions.participant')}
                       </th>
                       <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                        Phone
+                        {t('teacher.competitions.phone')}
                       </th>
                       <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
-                        Status
+                        {t('common.status')}
                       </th>
                       <th className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 text-right">
-                        Action
+                        {t('common.action')}
                       </th>
                     </tr>
                   </thead>
@@ -240,13 +240,13 @@ export default function TeacherCompetitionsPage() {
                     {loadingRegs ? (
                       <tr>
                         <td colSpan={4} className="p-5 text-center text-slate-400 text-sm">
-                          Loading participants...
+                          {t('teacher.competitions.loadingParticipants')}
                         </td>
                       </tr>
                     ) : registrations.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="p-5 text-center text-slate-400 text-sm">
-                          No participants registered yet.
+                          {t('teacher.competitions.noParticipants')}
                         </td>
                       </tr>
                     ) : (
@@ -279,16 +279,16 @@ export default function TeacherCompetitionsPage() {
                           <td className="px-5 py-4">
                             {reg.results_released ? (
                               <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md">
-                                Published
+                                {t('teacher.competitions.published')}
                               </span>
                             ) : reg.competition_results &&
                               reg.competition_results.length > 0 ? (
                               <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-md">
-                                Draft Saved
+                                {t('teacher.competitions.draftSaved')}
                               </span>
                             ) : (
                               <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">
-                                Pending
+                                {t('common.pending')}
                               </span>
                             )}
                           </td>
@@ -305,11 +305,11 @@ export default function TeacherCompetitionsPage() {
                                   )
                                 }}
                               >
-                                Evaluate
+                                {t('teacher.competitions.evaluate')}
                               </Button>
                             ) : (
                               <span className="text-[10px] font-bold text-slate-400 uppercase">
-                                Grading N/A
+                                {t('teacher.competitions.gradingNA')}
                               </span>
                             )}
                           </td>

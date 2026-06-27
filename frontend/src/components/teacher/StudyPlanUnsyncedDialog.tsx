@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,6 +15,7 @@ import {
 } from '@/stores/studyPlanSyncStore'
 
 export function StudyPlanUnsyncedDialog() {
+  const { t } = useTranslation()
   const leaveOpen = useStudyPlanSyncStore((s) => s.leaveOpen)
   const needsStudentSync = useStudyPlanSyncStore((s) => s.needsStudentSync)
   const hasPendingEdits = useStudyPlanSyncStore((s) => s.hasPendingEdits)
@@ -44,12 +46,12 @@ export function StudyPlanUnsyncedDialog() {
     <Dialog open={leaveOpen} onOpenChange={(open) => !open && closeLeaveDialog()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Save or sync before leaving?</DialogTitle>
+          <DialogTitle>{t('teacher.unsyncedDialog.title')}</DialogTitle>
           <DialogDescription className="text-left text-slate-600">{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={() => closeLeaveDialog()}>
-            Stay on page
+            {t('teacher.unsyncedDialog.stayOnPage')}
           </Button>
           {hasPendingEdits && flushPendingEditsHandler ? (
             <Button
@@ -62,7 +64,7 @@ export function StudyPlanUnsyncedDialog() {
                 })
               }
             >
-              Save changes
+              {t('teacher.unsyncedDialog.saveChanges')}
             </Button>
           ) : null}
           {needsStudentSync ? (
@@ -72,7 +74,7 @@ export function StudyPlanUnsyncedDialog() {
               onClick={() => void handleChoice('sync')}
             >
               <BookOpen className="h-4 w-4" />
-              Sync to students
+              {t('teacher.unsyncedDialog.syncToStudents')}
             </Button>
           ) : null}
           <Button
@@ -81,7 +83,7 @@ export function StudyPlanUnsyncedDialog() {
             className="text-slate-600"
             onClick={() => void handleChoice('discard')}
           >
-            Leave without syncing
+            {t('teacher.unsyncedDialog.leaveWithoutSync')}
           </Button>
         </DialogFooter>
       </DialogContent>

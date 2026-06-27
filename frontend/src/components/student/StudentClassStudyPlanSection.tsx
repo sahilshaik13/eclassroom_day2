@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { format } from 'date-fns'
 import { Layers, Video } from 'lucide-react'
 import type { StudyPlanPdfImport } from '@/types'
@@ -34,6 +35,7 @@ export function StudentClassStudyPlanSection({
   onToggleTask: ToggleTaskHandler
   togglingTaskId?: string | null
 }) {
+  const { t } = useTranslation()
   const [selectedCalendarDate, setSelectedCalendarDate] = useState(() => new Date())
 
   const releasedPlanDays = useMemo(
@@ -100,7 +102,7 @@ export function StudentClassStudyPlanSection({
               {planName}
             </h3>
             <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400">
-              {releasedPlanDays.length} of {planDays.length} days available · study plan
+              {t('student.planDay.daysAvailable', { released: releasedPlanDays.length, total: planDays.length })}
             </p>
           </div>
         </div>
@@ -110,7 +112,7 @@ export function StudentClassStudyPlanSection({
             className="min-h-0 h-10 shrink-0 rounded-xl border-blue-200 px-4 text-xs font-black text-blue-600 hover:bg-blue-50"
             onClick={() => window.open(zoomLink, '_blank')}
           >
-            <Video className="h-4 w-4 shrink-0" /> Live Zoom
+            <Video className="h-4 w-4 shrink-0" /> {t('student.planDay.liveZoom')}
           </Button>
         ) : null}
       </div>
@@ -133,9 +135,9 @@ export function StudentClassStudyPlanSection({
 
       <StudyPlanPdfEmbed
         pdfUrl={planSource?.pdf_url}
-        title="Study plan PDF"
+        title={t('student.planDay.studyPlanPdf')}
         filename={planSource?.original_filename}
-        emptyMessage="No PDF is available for this class yet."
+        emptyMessage={t('student.planDay.noPdfYet')}
       />
     </div>
   )

@@ -1,4 +1,5 @@
 import { format, isSameDay } from 'date-fns'
+import { useTranslation } from 'react-i18next'
 import { Calendar, ListChecks, Sparkles } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -29,6 +30,7 @@ export function StudentStudyPlanDaySection({
   onToggleTask,
   togglingTaskId,
 }: StudentStudyPlanDaySectionProps) {
+  const { t } = useTranslation()
   const selectedDateLabel = format(selectedDate, 'EEEE, MMM d, yyyy')
   const selectedIsToday = isSameDay(selectedDate, new Date())
   const pageTarget = planDay ? getDayPageTarget(planDay) : null
@@ -46,7 +48,7 @@ export function StudentStudyPlanDaySection({
               ) : (
                 <ListChecks className="h-4 w-4 shrink-0 text-slate-500" />
               )}
-              {selectedIsToday ? "Today's tasks" : 'Tasks for selected day'}
+              {selectedIsToday ? t('student.planDay.todaysTasks') : t('student.planDay.tasksForDay')}
             </CardTitle>
             <CardDescription className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-slate-400">
               <Calendar className="h-3 w-3 shrink-0" />
@@ -56,16 +58,16 @@ export function StudentStudyPlanDaySection({
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {pageTarget ? (
               <Badge className="border-0 bg-indigo-50 font-semibold text-indigo-800">
-                Pages: {pageTarget}
+                {t('student.planDay.pages', { count: pageTarget })}
               </Badge>
             ) : null}
             {planDay ? (
               <Badge className="border-0 bg-slate-100 font-medium text-slate-700">
-                Plan day {planDay.day_number}
+                {t('student.planDay.planDay', { n: planDay.day_number })}
               </Badge>
             ) : (
               <Badge variant="outline" className="font-normal text-slate-500">
-                Not on study plan
+                {t('student.planDay.notOnPlan')}
               </Badge>
             )}
           </div>
@@ -79,17 +81,17 @@ export function StudentStudyPlanDaySection({
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
             <p className="text-sm font-semibold text-slate-600">
               {isFutureLocked
-                ? 'This day unlocks on its scheduled date.'
-                : 'No plan is scheduled for this date.'}
+                ? t('student.planDay.dayLocked')
+                : t('student.planDay.noScheduled')}
             </p>
             {!isFutureLocked ? (
               <p className="mx-auto mt-1 max-w-sm text-xs font-medium text-slate-500">
-                Pick another day on the calendar above to view tasks.
+                {t('student.planDay.pickAnotherDay')}
               </p>
             ) : null}
           </div>
         ) : tasks.length === 0 ? (
-          <p className="text-sm text-slate-500">No tasks scheduled for this day.</p>
+          <p className="text-sm text-slate-500">{t('student.planDay.noTasksDay')}</p>
         ) : (
           <StudentPlanDayTasks
             tasks={tasks}

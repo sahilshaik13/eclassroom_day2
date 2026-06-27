@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, CheckCircle2, Circle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,7 @@ interface MCQConfigModalProps {
 }
 
 export default function MCQConfigModal({ isOpen, onClose, config, onSave }: MCQConfigModalProps) {
+  const { t } = useTranslation();
   const [questions, setQuestions] = useState<MCQQuestion[]>(
     (config?.questions?.length || 0) > 0 ? config.questions : [{ question: '', options: ['', '', '', ''], correct_option: 0 }]
   );
@@ -47,7 +49,7 @@ export default function MCQConfigModal({ isOpen, onClose, config, onSave }: MCQC
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto rounded-3xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-black text-slate-900">Configure MCQ Quiz</DialogTitle>
+          <DialogTitle className="text-2xl font-black text-slate-900">{t('studyPlan.mcqTitle')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-8 py-4">
@@ -55,11 +57,11 @@ export default function MCQConfigModal({ isOpen, onClose, config, onSave }: MCQC
             <div key={qIdx} className="p-6 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <Label className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2 block">Question {qIdx + 1}</Label>
+                  <Label className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2 block">{t('studyPlan.question', { n: qIdx + 1 })}</Label>
                   <Input 
                     value={q.question} 
                     onChange={(e) => updateQuestion(qIdx, { question: e.target.value })}
-                    placeholder="Enter your question here..."
+                    placeholder={t('studyPlan.questionPlaceholder')}
                     className="font-bold text-slate-800 rounded-xl"
                   />
                 </div>
@@ -89,7 +91,7 @@ export default function MCQConfigModal({ isOpen, onClose, config, onSave }: MCQC
                     <Input 
                       value={opt} 
                       onChange={(e) => updateOption(qIdx, oIdx, e.target.value)}
-                      placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
+                      placeholder={t('studyPlan.optionLabel', { letter: String.fromCharCode(65 + oIdx) })}
                       className="border-none bg-transparent h-8 focus-visible:ring-0 text-sm font-medium p-0"
                     />
                   </div>
@@ -103,13 +105,13 @@ export default function MCQConfigModal({ isOpen, onClose, config, onSave }: MCQC
             className="w-full py-6 border-dashed border-slate-300 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-2xl font-black gap-2"
             onClick={addQuestion}
           >
-            <Plus className="h-5 w-5" /> Add Question
+            <Plus className="h-5 w-5" /> {t('studyPlan.addQuestionBtn')}
           </Button>
         </div>
 
         <DialogFooter className="sticky bottom-0 bg-white pt-4">
-          <Button variant="ghost" onClick={onClose} className="rounded-xl font-bold">Cancel</Button>
-          <Button onClick={() => { onSave({ questions }); onClose(); }} className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700">Save Quiz Configuration</Button>
+          <Button variant="ghost" onClick={onClose} className="rounded-xl font-bold">{t('common.cancel')}</Button>
+          <Button onClick={() => { onSave({ questions }); onClose(); }} className="rounded-xl font-bold bg-blue-600 hover:bg-blue-700">{t('studyPlan.saveQuizConfig')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

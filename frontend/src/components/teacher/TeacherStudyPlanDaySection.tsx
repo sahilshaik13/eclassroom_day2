@@ -1,4 +1,5 @@
 import { format } from 'date-fns'
+import { useTranslation } from 'react-i18next'
 import { Calendar, ListChecks, Pencil, Plus, Trash2 } from 'lucide-react'
 import { TeacherCreateMeetButton } from '@/components/teacher/TeacherClassMeetPanel'
 import type { ReactNode } from 'react'
@@ -42,6 +43,7 @@ export function TeacherStudyPlanDaySection({
   classId,
   className,
 }: TeacherStudyPlanDaySectionProps) {
+  const { t } = useTranslation()
   const selectedDateLabel = format(selectedDate, 'EEEE, MMM d, yyyy')
   const selectedHasTasks = planDayHasTasks(planDay)
   const pageTarget = planDay ? getDayPageTarget(planDay) : null
@@ -53,7 +55,7 @@ export function TeacherStudyPlanDaySection({
           <div className="min-w-0 flex-1">
             <CardTitle className="flex items-center gap-2 text-sm font-black text-slate-900">
               <ListChecks className="h-4 w-4 shrink-0 text-slate-500" />
-              Tasks for selected day
+              {t('student.planDay.tasksForDay')}
             </CardTitle>
             <CardDescription className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-slate-400">
               <Calendar className="h-3 w-3 shrink-0" />
@@ -63,21 +65,21 @@ export function TeacherStudyPlanDaySection({
           <div className="flex shrink-0 items-center gap-2">
             {pageTarget ? (
               <Badge className="border-0 bg-indigo-50 font-semibold text-indigo-800">
-                Pages: {pageTarget}
+                {t('student.planDay.pages', { count: pageTarget })}
               </Badge>
             ) : null}
             {planDay ? (
               <Badge className="border-0 bg-slate-100 font-medium text-slate-700">
-                Plan day {planDay.day_number}
+                {t('studyPlan.planDay', { n: planDay.day_number })}
               </Badge>
             ) : (
               <Badge variant="outline" className="font-normal text-slate-500">
-                Not on study plan
+                {t('studyPlan.notOnPlan')}
               </Badge>
             )}
             {planDay?.is_accessible === false ? (
               <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-900">
-                Locked for students
+                {t('studyPlan.lockedForStudents')}
               </Badge>
             ) : null}
             {classId && className ? (
@@ -96,7 +98,7 @@ export function TeacherStudyPlanDaySection({
                 disabled={busy}
                 className="h-8 w-8 text-slate-400 hover:bg-red-50 hover:text-red-600"
                 onClick={onRemovePlanForDate}
-                aria-label={`Remove plan from ${selectedDateLabel}`}
+                aria-label={t('studyPlan.removePlanFromDay')}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -113,7 +115,7 @@ export function TeacherStudyPlanDaySection({
                   : 'text-slate-400 hover:bg-indigo-50 hover:text-indigo-600',
               )}
               onClick={onToggleEdit}
-              aria-label={isEditing ? 'Close editor' : planDay ? `Edit plan day ${planDay.day_number}` : 'Add plan for this date'}
+              aria-label={isEditing ? t('studyPlan.closeEditor') : planDay ? t('studyPlan.editPlanDay', { n: planDay.day_number }) : t('studyPlan.addPlanForDate')}
               aria-pressed={isEditing}
             >
               <Pencil className="h-4 w-4" />
@@ -125,10 +127,10 @@ export function TeacherStudyPlanDaySection({
         {!planDay && !isEditing ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
             <p className="text-sm font-semibold text-slate-600">
-              This date is not on the study plan yet.
+              {t('studyPlan.notOnPlanYet')}
             </p>
             <p className="max-w-sm text-xs font-medium text-slate-500">
-              Add a plan for {selectedDateLabel} to fill columns and tasks like other scheduled days.
+              {t('studyPlan.addPlanFor', { date: selectedDateLabel })}
             </p>
             <Button
               type="button"
@@ -138,14 +140,14 @@ export function TeacherStudyPlanDaySection({
               onClick={onAddPlanForDate}
             >
               <Plus className="h-3.5 w-3.5" />
-              Add plan for this day
+              {t('studyPlan.addPlanForDay')}
             </Button>
           </div>
         ) : isEditing && dayEditor ? (
           <div>{dayEditor}</div>
         ) : planDay && !selectedHasTasks ? (
           <p className="text-sm text-slate-500">
-            No tasks yet. Click the pencil to add columns for this day.
+            {t('studyPlan.noTasksClickPencil')}
           </p>
         ) : planDay ? (
           <>
@@ -204,7 +206,7 @@ export function TeacherStudyPlanDaySection({
                 onClick={onRemovePlanForDate}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Remove plan from this day
+                {t('studyPlan.removePlanFromDay')}
               </Button>
             </div>
           ) : null}

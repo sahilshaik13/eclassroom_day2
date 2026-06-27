@@ -42,9 +42,9 @@ export default function TeacherProfilePage() {
       if (user && accessToken && refreshToken) {
         setSession({ ...user, name: data.name }, accessToken, refreshToken)
       }
-      toast.success('Your profile has been successfully updated.')
+      toast.success(t('teacher.profile.profileUpdated'))
     } catch {
-      toast.error('Failed to update profile. Please check your connection.')
+      toast.error(t('teacher.profile.profileUpdateFailed'))
     } finally {
       setSaving(false)
     }
@@ -57,7 +57,7 @@ export default function TeacherProfilePage() {
       actions={
         <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
           <BadgeCheck className="h-3.5 w-3.5" />
-          <span className="text-[10px] font-black uppercase tracking-widest">Verified Educator</span>
+          <span className="text-[10px] font-black uppercase tracking-widest">{t('teacher.profile.verifiedEducator')}</span>
         </div>
       }
     >
@@ -86,19 +86,19 @@ export default function TeacherProfilePage() {
 
               <div className="grid grid-cols-2 w-full gap-4">
                 <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Join Date</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">{t('teacher.profile.joinDate')}</p>
                   <p className="text-xs font-bold text-slate-600 mt-1">Mar 2026</p>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Status</p>
-                  <p className="text-xs font-bold text-emerald-600 mt-1">Active</p>
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">{t('common.status')}</p>
+                  <p className="text-xs font-bold text-emerald-600 mt-1">{t('common.active')}</p>
                 </div>
               </div>
             </Card>
 
             <Card className="border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden bg-white rounded-[2rem]">
               <CardHeader className="p-6 pb-2">
-                <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">Account Security</CardTitle>
+                <CardTitle className="text-sm font-black uppercase tracking-widest text-slate-400">{t('teacher.profile.accountSecurity')}</CardTitle>
               </CardHeader>
               <CardContent className="p-6 pt-2 space-y-4">
                 <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:bg-white transition-colors duration-300">
@@ -106,14 +106,14 @@ export default function TeacherProfilePage() {
                     <Fingerprint className="h-5 w-5" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-bold text-slate-900">Account Protected</p>
+                    <p className="text-xs font-bold text-slate-900">{t('teacher.profile.accountProtected')}</p>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      Password &amp; RLS Secured
+                      {t('teacher.profile.passwordSecured')}
                     </p>
                   </div>
                 </div>
                 <Button variant="outline" className="w-full rounded-xl border-slate-200 h-10 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50">
-                  Privacy Settings
+                  {t('teacher.profile.privacySettings')}
                 </Button>
               </CardContent>
             </Card>
@@ -128,8 +128,8 @@ export default function TeacherProfilePage() {
                     <User className="h-5 w-5" />
                   </div>
                   <div>
-                    <CardTitle className="text-lg font-black text-slate-900">Personal Details</CardTitle>
-                    <CardDescription>Update your professional profile information.</CardDescription>
+                    <CardTitle className="text-lg font-black text-slate-900">{t('teacher.profile.personalDetails')}</CardTitle>
+                    <CardDescription>{t('teacher.profile.updateProfile')}</CardDescription>
                   </div>
                 </div>
               </CardHeader>
@@ -137,20 +137,20 @@ export default function TeacherProfilePage() {
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Full Display Name</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{t('teacher.profile.fullDisplayName')}</label>
                       <div className="relative group">
                         <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-300 group-focus-within:text-primary transition-colors" />
                         <Input
-                          {...register('name', { required: 'Name is required' })}
+                          {...register('name', { required: t('teacher.profile.nameRequired') })}
                           className="h-14 pl-12 rounded-2xl bg-slate-50 border-slate-200 focus:bg-white focus:ring-4 focus:ring-primary/5 transition-all"
-                          placeholder="Your legal name"
+                          placeholder={t('teacher.profile.legalName')}
                         />
                       </div>
                       {errors.name && <p className="text-[10px] font-bold text-rose-500 ml-1">{errors.name.message}</p>}
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email Connection</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{t('teacher.profile.emailConnection')}</label>
                       <div className="relative group grayscale">
                         <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-300" />
                         <Input
@@ -159,11 +159,11 @@ export default function TeacherProfilePage() {
                           className="h-14 pl-12 rounded-2xl bg-slate-50/50 border-slate-100 cursor-not-allowed opacity-60 text-slate-400 font-medium"
                         />
                       </div>
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Read-only field</p>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">{t('teacher.profile.readOnlyField')}</p>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Phone Link</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{t('teacher.profile.phoneLink')}</label>
                       <div className="relative group grayscale">
                         <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-300" />
                         <Input
@@ -175,7 +175,7 @@ export default function TeacherProfilePage() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Portal Role</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">{t('teacher.profile.portalRole')}</label>
                       <div className="relative group grayscale">
                         <Shield className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-300" />
                         <Input
@@ -196,7 +196,7 @@ export default function TeacherProfilePage() {
                       {saving ? (
                         <div className="h-5 w-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
                       ) : (
-                        <><Save className="h-4 w-4" /> Synchronize Changes</>
+                        <><Save className="h-4 w-4" /> {t('teacher.profile.syncChanges')}</>
                       )}
                     </Button>
                   </div>

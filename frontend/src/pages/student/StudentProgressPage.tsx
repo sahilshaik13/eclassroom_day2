@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, CheckCircle2, Clock, Play, FileText, BarChart2, BadgeCheck, Loader2 } from 'lucide-react';
@@ -13,6 +14,7 @@ import { studyPlanQueryOptions } from '@/lib/studyPlanQueries';
 import { useStudentProgressRealtime } from '@/hooks/useStudentProgressRealtime';
 
 export default function StudentProgressPage() {
+  const { t } = useTranslation();
   useStudentProgressRealtime();
   const navigate = useNavigate();
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
@@ -81,12 +83,12 @@ export default function StudentProgressPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <TrendingUp className="h-7 w-7 text-blue-600" />
-            My Progress
+            {t('student.progress.title')}
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Track your study plan completion
+            {t('student.progress.subtitle')}
             {planFetching && !showBlockingLoader && (
-              <span className="ml-2 text-[10px] text-slate-400">· Updating…</span>
+              <span className="ml-2 text-[10px] text-slate-400">· {t('common.updating')}</span>
             )}
           </p>
         </div>
@@ -108,12 +110,12 @@ export default function StudentProgressPage() {
       {showBlockingLoader ? (
         <div className="flex items-center justify-center gap-3 py-16 text-slate-500">
           <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
-          Loading progress…
+          {t('student.progress.loading')}
         </div>
       ) : !studyPlan ? (
         <Card>
           <CardContent className="py-12 text-center text-slate-500">
-            No study plan assigned yet.
+            {t('student.progress.noPlan')}
           </CardContent>
         </Card>
       ) : (
@@ -122,7 +124,7 @@ export default function StudentProgressPage() {
             <Card className="border-blue-100 bg-blue-50/30">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-600">Overall Progress</span>
+                  <span className="text-sm font-medium text-slate-600">{t('student.progress.overallProgress')}</span>
                   <BarChart2 className="h-5 w-5 text-blue-600" />
                 </div>
                 <p className="text-3xl font-bold text-blue-900">{stats.percentage}%</p>
@@ -132,32 +134,32 @@ export default function StudentProgressPage() {
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-600">Completed</span>
+                  <span className="text-sm font-medium text-slate-600">{t('student.progress.completed')}</span>
                   <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                 </div>
                 <p className="text-3xl font-bold text-slate-900">{stats.completed}</p>
-                <p className="text-xs text-slate-500 mt-1">of {stats.total} tasks</p>
+                <p className="text-xs text-slate-500 mt-1">{t('student.progress.ofTasks', { total: stats.total })}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-600">Remaining</span>
+                  <span className="text-sm font-medium text-slate-600">{t('student.progress.remaining')}</span>
                   <Clock className="h-5 w-5 text-amber-600" />
                 </div>
                 <p className="text-3xl font-bold text-slate-900">{stats.total - stats.completed}</p>
-                <p className="text-xs text-slate-500 mt-1">tasks to go</p>
+                <p className="text-xs text-slate-500 mt-1">{t('student.progress.tasksToGo')}</p>
               </CardContent>
             </Card>
           </div>
 
           <Card>
             <CardContent className="p-6">
-              <h2 className="text-lg font-bold text-slate-900 mb-4">Study Plan Days</h2>
+              <h2 className="text-lg font-bold text-slate-900 mb-4">{t('student.progress.studyPlanDays')}</h2>
               <div className="space-y-4">
                 {studyPlan.days?.map((day: { day_number: number; periods: { title: string; tasks: { id: string; title: string; study_plan_submissions?: unknown[] }[] }[] }) => (
                   <div key={day.day_number} className="border border-slate-100 rounded-xl p-4">
-                    <h3 className="font-semibold text-slate-800 mb-3">Day {day.day_number}</h3>
+                    <h3 className="font-semibold text-slate-800 mb-3">{t('student.progress.day', { n: day.day_number })}</h3>
                     {day.periods?.map((period, pIdx) => (
                       <div key={pIdx} className="mb-3 last:mb-0">
                         <p className="text-xs font-bold text-slate-400 uppercase mb-2">
@@ -198,7 +200,7 @@ export default function StudentProgressPage() {
                 onClick={() => navigate('/student/classes')}
               >
                 <Play className="h-4 w-4 mr-2" />
-                Open full study plan
+                {t('student.progress.openFullPlan')}
               </Button>
             </CardContent>
           </Card>

@@ -136,13 +136,13 @@ export default function TeacherStudyPlanPage() {
             const meetingError = searchParams.get('meeting_error')
             if (meetingError) {
                 toast.error(
-                    'Google is connected, but the meeting could not be saved. Try Create Meet again.',
+                    t('teacher.studyPlan.googleMeetFailed'),
                 )
             } else {
                 toast.success(
                     searchParams.get('meeting_created') === '1'
-                        ? 'Google connected — meeting created'
-                        : 'Google Calendar connected',
+                        ? t('teacher.studyPlan.googleConnectedMeeting')
+                        : t('teacher.studyPlan.googleCalendarConnected'),
                 )
             }
             const cid = classFromUrl || selectedClassId
@@ -156,9 +156,9 @@ export default function TeacherStudyPlanPage() {
                 })
             }
         } else if (status === 'denied') {
-            toast.error('Google authorization was cancelled')
+            toast.error(t('teacher.studyPlan.googleCancelled'))
         } else if (status === 'error') {
-            toast.error('Google authorization failed')
+            toast.error(t('teacher.studyPlan.googleFailed'))
         }
         const next = new URLSearchParams(searchParams)
         next.delete('google_meet')
@@ -191,12 +191,12 @@ export default function TeacherStudyPlanPage() {
     )
 
     useEffect(() => {
-        if (classesError) toast.error('Could not load classes')
-    }, [classesError])
+        if (classesError) toast.error(t('teacher.studyPlan.couldNotLoad'))
+    }, [classesError, t])
 
     useEffect(() => {
-        if (planError) toast.error('Failed to load study plan')
-    }, [planError])
+        if (planError) toast.error(t('teacher.studyPlan.failedLoadPlan'))
+    }, [planError, t])
 
     useEffect(() => {
         const classFromUrl = searchParams.get('class_id')
@@ -268,7 +268,7 @@ export default function TeacherStudyPlanPage() {
         const newDays = [...days, newDay]
         replaceDays(newDays)
         markNeedsStudentSync()
-        toast.success(`Plan added for ${format(date, 'MMM d')}`)
+        toast.success(t('teacher.studyPlan.planAdded', { date: format(date, 'MMM d') }))
         return newDays.length - 1
     }
 
@@ -294,7 +294,7 @@ export default function TeacherStudyPlanPage() {
 
         const res = await api.post('/teacher/study-plans/periods', {
             day_id: day.id,
-            title: copyFrom?.title ?? (nextOrder === 0 ? '__flat_schedule__' : `Period ${nextOrder + 1}`),
+            title: copyFrom?.title ?? (nextOrder === 0 ? '__flat_schedule__' : t('teacher.studyPlan.defaultPeriod', { n: nextOrder + 1 })),
             duration_minutes: copyFrom?.duration_minutes ?? (nextOrder === 0 ? 45 : 30),
             order_index: nextOrder,
         })
@@ -328,7 +328,7 @@ export default function TeacherStudyPlanPage() {
         try {
             await createPeriodWithColumnTasks(dayIdx, undefined, { markSync: false })
         } catch {
-            toast.error('Failed to prepare period')
+            toast.error(t('teacher.studyPlan.failedPreparePeriod'))
         } finally {
             setDayEditorBusy(false)
         }
@@ -338,9 +338,9 @@ export default function TeacherStudyPlanPage() {
         setDayEditorBusy(true)
         try {
             await createPeriodWithColumnTasks(dayIdx, copyFromPeriodIndex)
-            toast.success('Period added')
+            toast.success(t('teacher.studyPlan.periodAdded'))
         } catch {
-            toast.error('Failed to add period')
+            toast.error(t('teacher.studyPlan.failedPeriod'))
         } finally {
             setDayEditorBusy(false)
         }
@@ -348,7 +348,7 @@ export default function TeacherStudyPlanPage() {
 
     const handleDeletePeriod = async (dayIdx: number, pIdx: number) => {
         const period = days[dayIdx].periods[pIdx]
-        if (!confirm('Delete this period and all its column values?')) return
+        if (!confirm(t('teacher.studyPlan.deleteConfirm'))) return
         setDayEditorBusy(true)
         try {
             await api.delete(`/teacher/study-plans/periods/${period.id}`)
@@ -356,9 +356,9 @@ export default function TeacherStudyPlanPage() {
             newDays[dayIdx].periods.splice(pIdx, 1)
             replaceDays(newDays)
             markNeedsStudentSync()
-            toast.success('Period deleted')
+            toast.success(t('teacher.studyPlan.periodDeleted'))
         } catch {
-            toast.error('Failed to delete period')
+            toast.error(t('teacher.studyPlan.failedDeletePeriod'))
         } finally {
             setDayEditorBusy(false)
         }
@@ -400,7 +400,7 @@ export default function TeacherStudyPlanPage() {
             }
             markNeedsStudentSync()
         } catch {
-            toast.error('Failed to save')
+            toast.error(t('teacher.studyPlan.failedToSave'))
         } finally {
             setDayEditorBusy(false)
         }
@@ -456,7 +456,7 @@ export default function TeacherStudyPlanPage() {
             if (idx >= 0) setSelectedDayIndex(idx)
             return idx >= 0 ? idx : null
         } catch {
-            toast.error('Failed to add plan for this date')
+            toast.error(t('teacher.studyPlan.failedAddPlan'))
             return null
         } finally {
             setDayEditorBusy(false)
@@ -490,7 +490,7 @@ export default function TeacherStudyPlanPage() {
     const requestRemovePlanForSelectedDate = () => {
         const dayIdx = resolveDayIndexForSelectedDate()
         if (dayIdx < 0 || !days[dayIdx]?.id) {
-            toast.error('No plan to remove for this date')
+            toast.error(t('teacher.studyPlan.noPlanToRemove'))
             return
         }
         setConfirmDialog('remove-day')
@@ -510,9 +510,9 @@ export default function TeacherStudyPlanPage() {
             setSelectedDayIndex(null)
             setIsDayEditing(false)
             markNeedsStudentSync()
-            toast.success(`Plan removed from ${format(selectedCalendarDate, 'MMM d')}`)
+            toast.success(t('teacher.studyPlan.planRemoved', { date: format(selectedCalendarDate, 'MMM d') }))
         } catch {
-            toast.error('Failed to remove plan for this day')
+            toast.error(t('teacher.studyPlan.failedRemovePlan'))
         } finally {
             setDayEditorBusy(false)
             setConfirmDialog(null)
@@ -523,7 +523,7 @@ export default function TeacherStudyPlanPage() {
         const flush = useStudyPlanSyncStore.getState().flushPendingEditsHandler
         if (!flush) {
             if (!hasPendingEdits) {
-                toast.success('All changes are already saved')
+                toast.success(t('teacher.studyPlan.allSaved'))
                 return true
             }
             return false
@@ -531,8 +531,8 @@ export default function TeacherStudyPlanPage() {
         setSavingPlan(true)
         try {
             const ok = await flush()
-            if (ok) toast.success('Changes saved')
-            else toast.error('Failed to save some changes')
+            if (ok) toast.success(t('teacher.studyPlan.changesSaved'))
+            else toast.error(t('teacher.studyPlan.failedToSave'))
             return ok
         } finally {
             setSavingPlan(false)
@@ -547,10 +547,10 @@ export default function TeacherStudyPlanPage() {
             const now = new Date().toISOString()
             replacePlan({ ...plan, status: 'active', published_at: now, updated_at: now })
             markSyncedToStudents()
-            toast.success('Study plan synced to students')
+            toast.success(t('teacher.studyPlan.planSynced'))
             return true
         } catch {
-            toast.error('Failed to sync study plan')
+            toast.error(t('teacher.studyPlan.failedToSync'))
             return false
         } finally {
             setPublishing(false)
@@ -609,7 +609,7 @@ export default function TeacherStudyPlanPage() {
                     <div className="flex flex-wrap items-center gap-2">
                         {needsStudentSync ? (
                             <span className="hidden text-[10px] font-semibold text-amber-700 sm:inline">
-                                Unsynced edits — students won&apos;t see changes until you sync
+                                {t('teacher.studyPlan.unsyncedEdits')}
                             </span>
                         ) : null}
                         <Button
@@ -629,7 +629,7 @@ export default function TeacherStudyPlanPage() {
                             ) : (
                                 <Save className="h-4 w-4" />
                             )}
-                            Save
+                            {t('common.save')}
                         </Button>
                         <Button
                             type="button"
@@ -653,10 +653,10 @@ export default function TeacherStudyPlanPage() {
                         >
                             <BookOpen className="h-4 w-4" />
                             {isPublishSynced
-                                ? 'Synced'
+                                ? t('teacher.studyPlan.synced')
                                 : displayPlan.status === 'active'
-                                  ? 'Sync updates'
-                                  : 'Publish to students'}
+                                  ? t('teacher.studyPlan.syncUpdates')
+                                  : t('teacher.studyPlan.publishToStudents')}
                         </Button>
                     </div>
                 ) : null
@@ -666,26 +666,26 @@ export default function TeacherStudyPlanPage() {
                 {showBlockingLoader ? (
                     <div className="flex flex-col items-center justify-center py-20 gap-4">
                         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                        <p className="text-slate-400 text-sm font-medium">Synchronizing curriculum...</p>
+                        <p className="text-slate-400 text-sm font-medium">{t('teacher.studyPlan.synchronizing')}</p>
                     </div>
                 ) : classes.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-24 text-center bg-white rounded-3xl border border-slate-100 shadow-sm">
                         <Layers className="h-12 w-12 text-slate-300 mb-4" />
-                        <h3 className="text-base font-bold text-slate-900">No classes assigned</h3>
-                        <p className="text-sm text-slate-400 max-w-xs mt-2">Your admin needs to assign you to a class first.</p>
+                        <h3 className="text-base font-bold text-slate-900">{t('teacher.studyPlan.noClassesAssigned')}</h3>
+                        <p className="text-sm text-slate-400 max-w-xs mt-2">{t('teacher.studyPlan.adminNeedsAssign')}</p>
                     </div>
                 ) : !displayPlan ? (
                     <div className="flex flex-col items-center justify-center py-24 text-center bg-white rounded-3xl border border-slate-100 shadow-sm">
                         <BookOpen className="h-12 w-12 text-slate-300 mb-4" />
-                        <h3 className="text-base font-bold text-slate-900">No study plan assigned</h3>
-                        <p className="text-sm text-slate-400 max-w-xs mt-2">Ask your admin to apply a template to this classroom to start editing.</p>
+                        <h3 className="text-base font-bold text-slate-900">{t('teacher.studyPlan.noPlanAssigned')}</h3>
+                        <p className="text-sm text-slate-400 max-w-xs mt-2">{t('teacher.studyPlan.askAdmin')}</p>
                     </div>
                 ) : (
                     <div className="space-y-4">
                         {classes.length > 1 ? (
                             <div className="flex flex-col gap-2">
                                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                    Your classes
+                                    {t('teacher.studyPlan.yourClasses')}
                                 </h3>
                                 <div className="flex gap-1.5 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                                     {classes.map((c: ClassItem) => (
@@ -718,7 +718,7 @@ export default function TeacherStudyPlanPage() {
                                         {className}
                                     </h3>
                                     <p className="mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400">
-                                        {displayPlan.name as string} · {displayDays.length} days
+                                        {displayPlan.name as string} · {t('teacher.studyPlan.days', { count: displayDays.length })}
                                     </p>
                                 </div>
                             </div>
@@ -767,9 +767,9 @@ export default function TeacherStudyPlanPage() {
 
                         <StudyPlanPdfEmbed
                             pdfUrl={source?.pdf_url}
-                            title="Study plan PDF"
+                            title={t('teacher.studyPlan.pdfTitle')}
                             filename={source?.original_filename}
-                            emptyMessage="No PDF is available for this class yet."
+                            emptyMessage={t('teacher.studyPlan.noPdfYet')}
                         />
                     </div>
                 )}
@@ -781,16 +781,15 @@ export default function TeacherStudyPlanPage() {
                         <>
                             <DialogHeader>
                                 <DialogTitle>
-                                    {plan?.status === 'active' ? 'Sync updates to students?' : 'Publish study plan?'}
+                                    {plan?.status === 'active' ? t('teacher.studyPlan.syncConfirmTitle') : t('teacher.studyPlan.publishConfirmTitle')}
                                 </DialogTitle>
                                 <DialogDescription className="text-left text-slate-600">
-                                    Your edits are saved on this page, but students only see the plan after you sync.
-                                    Syncing shares your latest calendar and task changes with the class.
+                                    {t('teacher.studyPlan.syncConfirmBody')}
                                 </DialogDescription>
                             </DialogHeader>
                             <DialogFooter className="gap-2 sm:gap-0">
                                 <Button type="button" variant="outline" onClick={() => setConfirmDialog(null)}>
-                                    Cancel
+                                    {t('common.cancel')}
                                 </Button>
                                 <Button
                                     type="button"
@@ -798,7 +797,7 @@ export default function TeacherStudyPlanPage() {
                                     className="bg-blue-600 text-white hover:bg-blue-700"
                                     onClick={() => void runPublish()}
                                 >
-                                    {publishing ? 'Syncing…' : plan?.status === 'active' ? 'Sync now' : 'Publish'}
+                                    {publishing ? t('teacher.studyPlan.syncing') : plan?.status === 'active' ? t('teacher.studyPlan.syncNow') : t('teacher.studyPlan.publish')}
                                 </Button>
                             </DialogFooter>
                         </>
@@ -807,16 +806,14 @@ export default function TeacherStudyPlanPage() {
                     {confirmDialog === 'remove-day' ? (
                         <>
                             <DialogHeader>
-                                <DialogTitle>Remove plan from this day?</DialogTitle>
+                                <DialogTitle>{t('teacher.studyPlan.removePlanTitle')}</DialogTitle>
                                 <DialogDescription className="text-left text-slate-600">
-                                    This removes all periods and tasks for{' '}
-                                    {format(selectedCalendarDate, 'EEEE, MMM d, yyyy')}. Students will not see a plan on
-                                    this date after you sync. This cannot be undone.
+                                    {t('teacher.studyPlan.removePlanBody', { date: format(selectedCalendarDate, 'EEEE, MMM d, yyyy') })}
                                 </DialogDescription>
                             </DialogHeader>
                             <DialogFooter className="gap-2 sm:gap-0">
                                 <Button type="button" variant="outline" onClick={() => setConfirmDialog(null)}>
-                                    Cancel
+                                    {t('common.cancel')}
                                 </Button>
                                 <Button
                                     type="button"
@@ -824,7 +821,7 @@ export default function TeacherStudyPlanPage() {
                                     disabled={dayEditorBusy}
                                     onClick={() => void handleRemovePlanForSelectedDate()}
                                 >
-                                    Remove plan
+                                    {t('teacher.studyPlan.removePlan')}
                                 </Button>
                             </DialogFooter>
                         </>

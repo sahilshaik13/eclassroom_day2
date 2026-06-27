@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { format, parseISO } from 'date-fns'
 import { Clock, Loader2, Pencil, PlayCircle, Trash2, Users } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -80,6 +81,7 @@ export function TeacherScheduleClassCard({
   meeting: ClassMeeting | null
   zoomLink?: string
 }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [editOpen, setEditOpen] = useState(false)
   const initial = resetFormFromMeeting(meeting, title)
@@ -117,11 +119,11 @@ export function TeacherScheduleClassCard({
       return updateClassMeeting(meeting.id, buildPayload())
     },
     onSuccess: () => {
-      toast.success('Meeting time updated')
+      toast.success(t('teacher.schedule.meetingUpdated'))
       setEditOpen(false)
       invalidateMeetings()
     },
-    onError: () => toast.error('Could not update meeting'),
+    onError: () => toast.error(t('teacher.schedule.updateFailed')),
   })
 
   const deleteMutation = useMutation({
@@ -130,10 +132,10 @@ export function TeacherScheduleClassCard({
       await deleteClassMeeting(meeting.id)
     },
     onSuccess: () => {
-      toast.success('Meeting removed')
+      toast.success(t('teacher.schedule.meetingRemoved'))
       invalidateMeetings()
     },
-    onError: () => toast.error('Could not remove meeting'),
+    onError: () => toast.error(t('teacher.schedule.removeFailed')),
   })
 
   const openEdit = () => {
@@ -186,7 +188,7 @@ export function TeacherScheduleClassCard({
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Users className="h-3.5 w-3.5" />
-                  {students} Students
+                  {students} {t('teacher.schedule.students')}
                 </span>
               </div>
             </div>
@@ -198,7 +200,7 @@ export function TeacherScheduleClassCard({
                 className="flex-1 sm:flex-none gap-2 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold text-xs"
               >
                 <a href={joinUrl} target="_blank" rel="noopener noreferrer">
-                  <PlayCircle className="h-4 w-4" /> Start Class
+                  <PlayCircle className="h-4 w-4" /> {t('teacher.schedule.startClass')}
                 </a>
               </Button>
             ) : (
@@ -206,7 +208,7 @@ export function TeacherScheduleClassCard({
                 disabled
                 className="flex-1 sm:flex-none gap-2 bg-blue-600 rounded-xl font-semibold text-xs opacity-60"
               >
-                <PlayCircle className="h-4 w-4" /> Start Class
+                <PlayCircle className="h-4 w-4" /> {t('teacher.schedule.startClass')}
               </Button>
             )}
             {meeting ? (
@@ -218,8 +220,8 @@ export function TeacherScheduleClassCard({
                   className="h-9 w-9 rounded-xl border-slate-200 text-slate-500 hover:text-indigo-600"
                   onClick={openEdit}
                   disabled={meetBusy}
-                  aria-label="Change meeting time"
-                  title="Edit meeting"
+                  aria-label={t('teacher.schedule.changeMeetingTime')}
+                  title={t('teacher.schedule.editMeeting')}
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
@@ -230,8 +232,8 @@ export function TeacherScheduleClassCard({
                   className="h-9 w-9 rounded-xl border-slate-200 text-slate-500 hover:text-red-600"
                   onClick={() => deleteMutation.mutate()}
                   disabled={meetBusy}
-                  aria-label="Remove meeting"
-                  title="Delete meeting"
+                  aria-label={t('teacher.schedule.removeMeeting')}
+                  title={t('teacher.schedule.deleteMeeting')}
                 >
                   {deleteMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

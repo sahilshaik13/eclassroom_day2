@@ -123,16 +123,16 @@ export default function StudentClassesPage() {
             },
             audio_url: audioDataUrl,
           })
-          toast.success('Task submitted with audio')
+          toast.success(t('student.classes.taskSubmittedAudio'))
         } else {
           const res = await api.patch(`/student/tasks/${task.id}/toggle`)
           const completed = !!res.data?.data?.completed
-          toast.success(completed ? 'Task marked as done' : 'Task unmarked')
+          toast.success(completed ? t('student.classes.taskDone') : t('student.classes.taskUnmarked'))
         }
         softRefetchStudyPlan(queryClient, ['student', 'classes', selectedClass.id, 'study-plan'])
         softRefetchStudyPlan(queryClient, queryKeys.student.tasksToday())
       } catch {
-        toast.error('Could not update task')
+        toast.error(t('student.classes.taskUpdateFailed'))
       } finally {
         setTogglingTaskId(null)
       }
@@ -163,7 +163,7 @@ export default function StudentClassesPage() {
             <Card className="rounded-xl border border-dashed border-slate-200 bg-white shadow-sm">
               <CardContent className="flex flex-col items-center px-4 py-6 text-center">
                 <Layers className="mb-2 h-8 w-8 text-slate-200" />
-                <p className="text-xs font-bold text-slate-500">Not enrolled in any classes yet.</p>
+                <p className="text-xs font-bold text-slate-500">{t('student.classes.notEnrolled')}</p>
               </CardContent>
             </Card>
           ) : (
@@ -182,9 +182,9 @@ export default function StudentClassesPage() {
             <Card className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 shadow-sm">
               <CardContent className="flex flex-col items-center px-4 py-10 text-center">
                 <Search className="mb-2 h-9 w-9 text-slate-200" />
-                <h3 className="text-sm font-black text-slate-900">Select a class</h3>
+                <h3 className="text-sm font-black text-slate-900">{t('student.classes.selectAClass')}</h3>
                 <p className="mt-1 max-w-xs text-xs font-semibold text-slate-500">
-                  Choose a class above to view its study plan.
+                  {t('student.classes.chooseAbove')}
                 </p>
               </CardContent>
             </Card>
@@ -200,17 +200,17 @@ export default function StudentClassesPage() {
                 <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-500">
                   <Calendar className="h-6 w-6" />
                 </div>
-                <h3 className="text-base font-black text-slate-900">No study plan available</h3>
+                <h3 className="text-base font-black text-slate-900">{t('student.classes.noStudyPlan')}</h3>
                 <p className="mx-auto mt-2 max-w-sm text-xs font-semibold leading-relaxed text-slate-500">
-                  The teacher hasn&apos;t assigned a structured study plan for{' '}
-                  <strong className="text-slate-700"><TranslatedText value={selectedClass.name} /></strong> yet.
+                  {t('student.classes.teacherNotAssigned')}{' '}
+                  <strong className="text-slate-700"><TranslatedText value={selectedClass.name} /></strong> {t('student.classes.yet')}
                 </p>
                 {selectedClass.zoom_link && (
                   <Button
                     className="mt-5 min-h-0 h-10 gap-2 rounded-xl bg-blue-600 px-5 text-xs font-black text-white shadow-md hover:bg-blue-700"
                     onClick={() => window.open(selectedClass.zoom_link, '_blank')}
                   >
-                    <Video className="h-4 w-4 shrink-0" /> Join live class
+                    <Video className="h-4 w-4 shrink-0" /> {t('student.classes.joinLiveClass')}
                   </Button>
                 )}
               </CardContent>

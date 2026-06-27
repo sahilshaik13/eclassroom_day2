@@ -59,9 +59,9 @@ export default function ReportsPage() {
       a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }))
       a.download = `report_${name.replace(/\s+/g, '_')}_${d.month}.txt`
       a.click()
-      toast.success('Download complete')
+      toast.success(t('teacher.reports.downloadComplete'))
     } catch {
-      toast.error('Failed to generate report card')
+      toast.error(t('teacher.reports.downloadFailed'))
     }
   }
 
@@ -77,7 +77,7 @@ export default function ReportsPage() {
           <Input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search students..."
+            placeholder={t('teacher.reports.searchPlaceholder')}
             className="pl-9 h-10 border-slate-200 bg-white shadow-sm focus:ring-primary/10"
           />
         </div>
@@ -88,12 +88,12 @@ export default function ReportsPage() {
           <CardHeader className="border-b border-slate-100 bg-slate-50/30 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-lg font-black text-slate-900">Student Directory</CardTitle>
-                <CardDescription>Select a student to generate their latest academic report.</CardDescription>
+                <CardTitle className="text-lg font-black text-slate-900">{t('teacher.reports.studentDirectory')}</CardTitle>
+                <CardDescription>{t('teacher.reports.selectStudent')}</CardDescription>
               </div>
               {!loading && (
                 <Badge variant="outline" className="bg-white text-slate-500 border-slate-200 uppercase text-[10px] font-black">
-                  {filtered.length} Students Listed
+                  {filtered.length} {t('teacher.reports.studentsListed')}
                 </Badge>
               )}
             </div>
@@ -108,9 +108,9 @@ export default function ReportsPage() {
                 <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 border border-slate-100">
                   <FileText className="h-8 w-8 text-slate-300" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900">No records found</h3>
+                <h3 className="text-lg font-bold text-slate-900">{t('teacher.reports.noRecords')}</h3>
                 <p className="text-sm text-slate-500 max-w-xs mt-2 leading-relaxed">
-                  We couldn't find any students matching your current search criteria.
+                  {t('teacher.reports.noMatchCriteria')}
                 </p>
               </div>
             ) : (
@@ -127,7 +127,7 @@ export default function ReportsPage() {
                       <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{s.name}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <Badge variant="secondary" className="bg-slate-100 text-slate-500 text-[9px] font-black uppercase px-1.5 py-0 border-none">
-                          Active Learner
+                          {t('teacher.reports.activeLearner')}
                         </Badge>
                       </div>
                     </div>
@@ -140,7 +140,7 @@ export default function ReportsPage() {
                         className="h-9 px-4 gap-2 border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-bold text-xs shadow-sm hover:shadow-md transition-all active:scale-95"
                       >
                         <Download className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">Download PDF</span>
+                        <span className="hidden sm:inline">{t('teacher.reports.downloadPdf')}</span>
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
                         <ChevronRight className="h-4 w-4" />

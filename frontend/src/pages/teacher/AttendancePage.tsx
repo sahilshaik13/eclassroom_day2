@@ -18,9 +18,9 @@ interface Student { id: string; name: string }
 interface ClassItem { id: string; name: string }
 
 const STATUS_OPTS: { v: Status; label: string; icon: any; cls: string; activeCls: string }[] = [
-  { v: 'present', label: 'Present', icon: CheckCircle2, cls: 'text-emerald-600 bg-emerald-50 border-emerald-100', activeCls: 'bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-200' },
-  { v: 'late', label: 'Late', icon: Clock, cls: 'text-amber-600 bg-amber-50 border-amber-100', activeCls: 'bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-200' },
-  { v: 'absent', label: 'Absent', icon: XCircle, cls: 'text-rose-600 bg-rose-50 border-rose-100', activeCls: 'bg-rose-500 text-white border-rose-500 shadow-lg shadow-rose-200' },
+  { v: 'present', label: 'common.present', icon: CheckCircle2, cls: 'text-emerald-600 bg-emerald-50 border-emerald-100', activeCls: 'bg-emerald-500 text-white border-emerald-500 shadow-lg shadow-emerald-200' },
+  { v: 'late', label: 'common.late', icon: Clock, cls: 'text-amber-600 bg-amber-50 border-amber-100', activeCls: 'bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-200' },
+  { v: 'absent', label: 'common.absent', icon: XCircle, cls: 'text-rose-600 bg-rose-50 border-rose-100', activeCls: 'bg-rose-500 text-white border-rose-500 shadow-lg shadow-rose-200' },
 ]
 
 export default function AttendancePage() {
@@ -61,7 +61,7 @@ export default function AttendancePage() {
   }, [roster])
 
   useEffect(() => {
-    if (rosterError) toast.error('Could not load students')
+    if (rosterError) toast.error(t('teacher.attendance.couldNotLoad'))
   }, [rosterError])
 
   const markAll = (status: Status) => {
@@ -78,8 +78,8 @@ export default function AttendancePage() {
         session_date: date,
         records: students.map(s => ({ student_id: s.id, status: statuses[s.id] ?? 'absent' })),
       })
-      toast.success('Attendance successfully recorded')
-    } catch { toast.error('Failed to save attendance') }
+      toast.success(t('teacher.attendance.recorded'))
+    } catch { toast.error(t('teacher.attendance.saveFailed')) }
     finally { setSaving(false) }
   }
 
@@ -91,7 +91,7 @@ export default function AttendancePage() {
         <div className="flex items-center gap-3">
           <Select value={classId} onValueChange={setClassId}>
             <SelectTrigger className="w-[180px] bg-white border-slate-200 shadow-sm h-10">
-              <SelectValue placeholder="Select Class" />
+              <SelectValue placeholder={t('teacher.attendance.selectClass')} />
             </SelectTrigger>
             <SelectContent>
               {classes.map(c => (
@@ -116,7 +116,7 @@ export default function AttendancePage() {
             <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-slate-400" />
-                <span className="text-xs font-black text-slate-500 uppercase tracking-wider">Quick Mark All</span>
+                <span className="text-xs font-black text-slate-500 uppercase tracking-wider">{t('teacher.attendance.quickMarkAll')}</span>
               </div>
               <div className="flex items-center gap-2">
                 {STATUS_OPTS.map(opt => (
@@ -140,8 +140,8 @@ export default function AttendancePage() {
         <Card className="border-slate-200/60 shadow-xl shadow-slate-200/20 overflow-hidden bg-white/50 backdrop-blur-sm">
           <CardHeader className="border-b border-slate-100 bg-slate-50/30 p-6 flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="text-lg font-black text-slate-900">Session Roster</CardTitle>
-              <CardDescription>{students.length} students enrolled in this session.</CardDescription>
+              <CardTitle className="text-lg font-black text-slate-900">{t('teacher.attendance.sessionRoster')}</CardTitle>
+              <CardDescription>{t('teacher.attendance.studentsEnrolled', { count: students.length })}</CardDescription>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -154,9 +154,9 @@ export default function AttendancePage() {
                 <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4 border border-slate-100">
                   <CalendarIcon className="h-8 w-8 text-slate-300" />
                 </div>
-                <h3 className="text-lg font-bold text-slate-900">No session data</h3>
+                <h3 className="text-lg font-bold text-slate-900">{t('teacher.attendance.noSessionData')}</h3>
                 <p className="text-sm text-slate-500 max-w-xs mt-2 leading-relaxed">
-                  Select a class above to begin marking attendance for students.
+                  {t('teacher.attendance.selectClassAbove')}
                 </p>
               </div>
             ) : (
@@ -187,7 +187,7 @@ export default function AttendancePage() {
                             )}
                           >
                             <opt.icon className="h-3.5 w-3.5" />
-                            {opt.label}
+                            {t(opt.label)}
                           </Button>
                         )
                       })}
@@ -209,7 +209,7 @@ export default function AttendancePage() {
                   <RefreshCw className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    <Save className="h-4 w-4" /> Save Attendance
+                    <Save className="h-4 w-4" /> {t('teacher.attendance.saveAttendance')}
                   </>
                 )}
               </Button>

@@ -224,20 +224,20 @@ export default function TeacherDashboard() {
 
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-bold text-slate-900">Today&apos;s curriculum</h2>
+          <h2 className="text-lg font-bold text-slate-900">{t('teacher.dashboard.todayCurriculum')}</h2>
           <Button variant="outline" size="sm" className="rounded-xl border-slate-200 text-xs font-semibold" asChild>
-            <Link to="/teacher/study-plan">Study plan</Link>
+            <Link to="/teacher/study-plan">{t('teacher.studyPlan.title')}</Link>
           </Button>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           {todayCurriculumLoading ? (
             <div className="flex items-center gap-3 text-sm text-slate-500">
               <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-              Loading today&apos;s plan…
+              {t('teacher.dashboard.loadingTodaysPlan')}
             </div>
           ) : !todayCurriculum && !todayCurriculumRow ? (
             <p className="text-sm text-slate-500">
-              No scheduled curriculum day for today in your first class, or no plan yet. Open Study plan for the full calendar.
+              {t('teacher.dashboard.noCurriculum')}
             </p>
           ) : (
             <div className="space-y-4">
@@ -246,11 +246,11 @@ export default function TeacherDashboard() {
               </p>
               {todayCurriculumRow && todayCurriculumColumns.length ? (
                 <div>
-                  <p className="mb-2 text-xs font-semibold text-indigo-700">Today&apos;s timetable</p>
+                  <p className="mb-2 text-xs font-semibold text-indigo-700">{t('teacher.dashboard.todaysTimetable')}</p>
                   <StudyPlanTableView
                     columns={todayCurriculumColumns}
                     rows={[todayCurriculumRow]}
-                    emptyMessage="No timetable row is available for today."
+                    emptyMessage={t('teacher.dashboard.noTimetable')}
                   />
                 </div>
               ) : null}
@@ -286,14 +286,14 @@ export default function TeacherDashboard() {
 
       {/* Today's Schedule — real classes from API */}
       <section className="space-y-4">
-        <h2 className="text-lg font-bold text-slate-900">Today's Schedule</h2>
+        <h2 className="text-lg font-bold text-slate-900">{t('teacher.dashboard.todaySchedule')}</h2>
         {classes.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
-            <p className="text-sm text-slate-400">No classes assigned yet.</p>
+            <p className="text-sm text-slate-400">{t('teacher.dashboard.noClassesAssigned')}</p>
           </div>
         ) : scheduleClasses.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center">
-            <p className="text-sm text-slate-400">No upcoming meetings for today.</p>
+            <p className="text-sm text-slate-400">{t('teacher.dashboard.noUpcomingMeetings')}</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -307,16 +307,16 @@ export default function TeacherDashboard() {
                   key={cls.id || i}
                   classId={cls.id}
                   title={cls.name}
-                  batch={`Class ${i + 1}`}
+                  batch={t('teacher.dashboard.classN', { n: i + 1 })}
                   time={
                     meeting
                       ? formatMeetingTimeRange(meeting)
                       : cls.schedule_json?.time
                         ? String(cls.schedule_json.time)
-                        : 'No meeting today'
+                        : t('teacher.dashboard.noMeetingToday')
                   }
                   students={enrollment}
-                  status={meeting ? meetingScheduleStatus(meeting) : 'Upcoming'}
+                  status={meeting ? meetingScheduleStatus(meeting) : t('student.competitions.upcoming')}
                   meeting={meeting ?? null}
                   zoomLink={cls.zoom_link}
                   meetingTitle={meeting?.title}

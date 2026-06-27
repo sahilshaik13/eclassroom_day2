@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Eye, FileText } from 'lucide-react'
 import type { StudyPlanPdfImport } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -16,10 +17,14 @@ interface StudyPlanSourceCardProps {
 
 export function StudyPlanSourceCard({
   source,
-  title = 'Study Plan Table',
-  description = 'Full imported table from the applied PDF study plan.',
-  emptyMessage = 'No imported PDF study plan is available yet.',
+  title,
+  description,
+  emptyMessage,
 }: StudyPlanSourceCardProps) {
+  const { t } = useTranslation()
+  const resolvedTitle = title ?? t('studyPlan.tableTitle')
+  const resolvedDescription = description ?? t('studyPlan.tableDescription')
+  const resolvedEmptyMessage = emptyMessage ?? t('studyPlan.tableEmpty')
   const [pdfOpen, setPdfOpen] = useState(false)
 
   const columns = useMemo(() => {
@@ -42,13 +47,13 @@ export function StudyPlanSourceCard({
         <CardHeader className="gap-3 pb-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle className="text-lg font-black text-slate-900">{title}</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">{description}</p>
+              <CardTitle className="text-lg font-black text-slate-900">{resolvedTitle}</CardTitle>
+              <p className="mt-1 text-sm text-slate-500">{resolvedDescription}</p>
             </div>
             {source?.pdf_url ? (
               <Button variant="outline" className="h-9 rounded-xl text-xs font-bold" onClick={() => setPdfOpen(true)}>
                 <Eye className="mr-2 h-3.5 w-3.5" />
-                Preview PDF
+                {t('studyPlan.previewPdf')}
               </Button>
             ) : null}
           </div>
@@ -56,7 +61,7 @@ export function StudyPlanSourceCard({
         <CardContent className="space-y-4">
           {!source ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
-              {emptyMessage}
+              {resolvedEmptyMessage}
             </div>
           ) : (
             <>
@@ -67,23 +72,23 @@ export function StudyPlanSourceCard({
                   </Badge>
                 ) : null}
                 <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
-                  {rows.length} rows
+                  {t('studyPlan.rows', { count: rows.length })}
                 </Badge>
                 <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
-                  {columns.length} columns
+                  {t('studyPlan.columns', { count: columns.length })}
                 </Badge>
               </div>
 
               <StudyPlanTableView
                 columns={columns}
                 rows={rows}
-                emptyMessage={emptyMessage}
+                emptyMessage={resolvedEmptyMessage}
               />
 
               {!source.pdf_url ? (
                 <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
                   <FileText className="h-4 w-4 text-slate-400" />
-                  PDF preview is not available right now.
+                  {t('studyPlan.pdfPreviewUnavailable')}
                 </div>
               ) : null}
             </>
@@ -96,7 +101,7 @@ export function StudyPlanSourceCard({
         onOpenChange={setPdfOpen}
         pdfUrl={source?.pdf_url}
         filename={source?.original_filename}
-        title={title}
+        title={resolvedTitle}
       />
     </>
   )

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, Send, AlertTriangle } from 'lucide-react'
@@ -30,6 +31,7 @@ import { competitionListQueryOptions } from '@/lib/competitionQueries'
 type ExamPhase = 'loading' | 'welcome' | 'exam' | 'submitted'
 
 export default function StudentExamPage() {
+  const { t } = useTranslation()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -106,7 +108,7 @@ export default function StudentExamPage() {
       if (picked && Object.keys(picked.answers).length > 0) {
         draftRestoredRef.current = true
         applyDraftAnswers(picked.answers, examActive ? picked.phase : undefined)
-        toast.success('Your saved progress was restored')
+        toast.success(t('student.exam.progressRestored'))
       }
     },
     [applyDraftAnswers],
@@ -130,7 +132,7 @@ export default function StudentExamPage() {
     (active) => {
       setIsExamActive(active)
       if (!active && phase === 'exam') {
-        toast.error('The exam window was closed. Your answers are saved.')
+        toast.error(t('student.exam.windowClosed'))
         setPhase('welcome')
       }
     },
@@ -194,7 +196,7 @@ export default function StudentExamPage() {
       recorder.start()
       setRecordingId(qid)
     } catch {
-      toast.error('Microphone access denied')
+      toast.error(t('student.exam.micDenied'))
     }
   }, [])
 
@@ -241,7 +243,7 @@ export default function StudentExamPage() {
     if (!id) return
     const unanswered = answerableQuestions.length - answeredCount
     if (unanswered > 0) {
-      if (!window.confirm(`You have ${unanswered} unanswered question(s). Submit anyway?`)) return
+      if (!window.confirm(t('student.exam.unansweredConfirm', { count: unanswered }))) return
     }
 
     setSubmitting(true)
@@ -253,12 +255,12 @@ export default function StudentExamPage() {
           queryKey: queryKeys.competitions.studentRegistrations(),
           type: 'active',
         })
-        toast.success('Exam submitted successfully!')
+        toast.success(t('student.exam.examSubmitted'))
         setPhase('submitted')
       }
     } catch (e: unknown) {
       const err = e as { response?: { data?: { error?: { message?: string } } } }
-      toast.error(err?.response?.data?.error?.message || 'Submission failed')
+      toast.error(err?.response?.data?.error?.message || t('student.exam.submissionFailed'))
     } finally {
       setSubmitting(false)
     }
@@ -281,7 +283,7 @@ export default function StudentExamPage() {
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
           <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
-          <p className="text-sm text-slate-500">Loading exam...</p>
+          <p className="text-sm text-slate-500">{t('student.exam.loading')}</p>
         </div>
       </div>
     )
@@ -294,12 +296,12 @@ export default function StudentExamPage() {
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100">
             <CheckCircle2 className="h-10 w-10 text-emerald-600" />
           </div>
-          <h1 className="mb-2 text-2xl font-black text-slate-900">Submission complete</h1>
+          <h1 className="mb-2 text-2xl font-black text-slate-900">{t('student.exam.submissionComplete')}</h1>
           <p className="mb-8 text-sm leading-relaxed text-slate-500">
-            Your answers have been submitted. MCQ items are auto-graded; other responses will be reviewed by your teachers.
+            {t('student.exam.submissionMessage')}
           </p>
           <Button onClick={() => navigate('/student/competitions')} className="bg-blue-600 hover:bg-blue-700">
-            Back to competitions
+            {t('student.exam.backToCompetitions')}
           </Button>
         </div>
       </div>
@@ -312,28 +314,28 @@ export default function StudentExamPage() {
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 to-blue-950 p-4">
         <div className="max-w-lg rounded-3xl border border-white/10 bg-white/5 p-10 text-center backdrop-blur-xl">
           <h1 className="mb-2 text-3xl font-black text-white">{title}</h1>
-          <p className="mb-6 text-sm text-white/50">{n} question(s)</p>
+          <p className="mb-6 text-sm text-white/50">{t('student.exam.questions', { count: n })}</p>
           {hasDraft && (
-            <p className="mb-4 text-xs font-medium text-emerald-300">Saved progress available — continue where you left off.</p>
+            <p className="mb-4 text-xs font-medium text-emerald-300">{t('student.exam.savedProgress')}</p>
           )}
           <div className="mb-8 space-y-2 rounded-2xl bg-white/5 p-5 text-left">
-            <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-white/40">Rules</h3>
-            <p className="text-sm text-white/70">1. Answer each question in order.</p>
-            <p className="text-sm text-white/70">2. Your answers are saved automatically.</p>
-            <p className="text-sm text-white/70">3. Review your work before submitting.</p>
+            <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-white/40">{t('student.exam.rules')}</h3>
+            <p className="text-sm text-white/70">{t('student.exam.rule1')}</p>
+            <p className="text-sm text-white/70">{t('student.exam.rule2')}</p>
+            <p className="text-sm text-white/70">{t('student.exam.rule3')}</p>
           </div>
           {n === 0 ? (
             <div className="mb-4 flex items-center justify-center gap-2 text-sm text-amber-400">
-              <AlertTriangle className="h-4 w-4" /> Exam not configured yet.
+              <AlertTriangle className="h-4 w-4" /> {t('student.exam.examNotConfigured')}
             </div>
           ) : !isExamActive ? (
             <div className="space-y-4">
               <div className="flex items-center gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-                <p className="text-sm font-medium text-amber-200">Waiting for the exam to start…</p>
+                <p className="text-sm font-medium text-amber-200">{t('student.exam.waitingToStart')}</p>
               </div>
               <Button size="lg" disabled className="w-full cursor-not-allowed opacity-50">
-                Enter exam
+                {t('student.exam.enterExam')}
               </Button>
             </div>
           ) : (
@@ -342,7 +344,7 @@ export default function StudentExamPage() {
               className="w-full bg-blue-600 py-3 text-base font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700"
               onClick={() => setPhase('exam')}
             >
-              {hasDraft ? 'Resume exam' : 'Enter exam'}
+              {hasDraft ? t('student.exam.resumeExam') : t('student.exam.enterExam')}
             </Button>
           )}
           <button
@@ -350,7 +352,7 @@ export default function StudentExamPage() {
             onClick={() => navigate(-1)}
             className="mx-auto mt-4 block text-sm text-white/40 transition-colors hover:text-white/70"
           >
-            <ArrowLeft className="mr-1 inline h-3 w-3" /> Go back
+            <ArrowLeft className="mr-1 inline h-3 w-3" /> {t('student.exam.goBack')}
           </button>
         </div>
       </div>
@@ -364,7 +366,7 @@ export default function StudentExamPage() {
           <div>
             <h1 className="text-sm font-black text-slate-800">{title}</h1>
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              {answeredCount} / {answerableQuestions.length} answered · auto-saved
+              {t('student.exam.answered', { count: answeredCount, total: answerableQuestions.length })}
             </p>
           </div>
           <Button
@@ -373,7 +375,7 @@ export default function StudentExamPage() {
             className="gap-1 bg-emerald-600 hover:bg-emerald-700"
             size="sm"
           >
-            <Send className="h-4 w-4" /> {submitting ? 'Submitting…' : 'Submit all'}
+            <Send className="h-4 w-4" /> {submitting ? t('student.exam.submitting') : t('student.exam.submitAll')}
           </Button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Mic, MicOff, ImagePlus, CheckCircle2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,7 @@ export function ExamQuestionStudentView({
   audioPreviewUrl,
   recordingStream,
 }: Props) {
+  const { t } = useTranslation()
   if (!isAnswerableQuestion(question)) {
     return (
       <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">
@@ -69,7 +71,7 @@ export function ExamQuestionStudentView({
           maxLength={question.max_length}
           value={(answer as string) || ''}
           onChange={(e) => onAnswer(question.id, e.target.value)}
-          placeholder={`Up to ${question.max_length} characters`}
+          placeholder={t('studyPlan.upToChars', { limit: question.max_length })}
         />
       )}
       {question.type === 'long_answer' && (
@@ -77,7 +79,7 @@ export function ExamQuestionStudentView({
           className="min-h-[120px] w-full rounded-lg border border-slate-200 p-3 text-sm"
           value={(answer as string) || ''}
           onChange={(e) => onAnswer(question.id, e.target.value)}
-          placeholder="Type your answer…"
+          placeholder={t('studyPlan.typeAnswer')}
         />
       )}
       {question.type === 'image_upload' && (
@@ -157,6 +159,7 @@ function ImageAnswer({
   answer?: { dataUrls: string[] }
   onAnswer: (v: { dataUrls: string[] }) => void
 }) {
+  const { t } = useTranslation()
   const inputRef = useRef<HTMLInputElement>(null)
   const urls = answer?.dataUrls ?? []
 
@@ -190,9 +193,9 @@ function ImageAnswer({
       />
       <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => inputRef.current?.click()}>
         <ImagePlus className="h-4 w-4" />
-        {urls.length ? 'Add more images' : 'Upload image(s)'}
+        {urls.length ? t('studyPlan.addMoreImages') : t('studyPlan.uploadImages')}
       </Button>
-      <p className="text-[10px] text-slate-400">Up to {maxFiles} file(s)</p>
+      <p className="text-[10px] text-slate-400">{t('studyPlan.upToFiles', { count: maxFiles })}</p>
       {urls.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {urls.map((url, i) => (
@@ -223,6 +226,7 @@ function AudioAnswer({
   onUpload: (dataUrl: string) => void
   recordingStream?: MediaStream | null
 }) {
+  const { t } = useTranslation()
   const fileRef = useRef<HTMLInputElement>(null)
   return (
     <div className="space-y-3 pl-11">
@@ -235,11 +239,11 @@ function AudioAnswer({
       <div className="flex items-center gap-3">
         {isRecording ? (
           <Button type="button" onClick={onStop} variant="destructive" size="sm" className="gap-1">
-            <MicOff className="h-4 w-4" /> Stop
+            <MicOff className="h-4 w-4" /> {t('common.stop')}
           </Button>
         ) : (
           <Button type="button" onClick={onStart} variant="outline" size="sm" className="gap-1">
-            <Mic className="h-4 w-4" /> {hasRecording ? 'Re-record' : 'Record'}
+            <Mic className="h-4 w-4" /> {hasRecording ? t('studyPlan.reRecord') : t('common.record')}
           </Button>
         )}
         <input
@@ -263,10 +267,10 @@ function AudioAnswer({
           disabled={isRecording}
           onClick={() => fileRef.current?.click()}
         >
-          Upload audio
+          {t('studyPlan.uploadAudio')}
         </Button>
         {isRecording && (
-          <span className="animate-pulse text-xs font-bold text-red-500">Recording…</span>
+          <span className="animate-pulse text-xs font-bold text-red-500">{t('studyPlan.recording')}</span>
         )}
       </div>
       {isRecording ? (
