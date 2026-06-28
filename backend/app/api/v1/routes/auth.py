@@ -15,6 +15,7 @@ from pydantic import BaseModel, EmailStr
 from app.core.deps import get_current_user, TokenData
 from app.core.response import success, error
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.services.auth_service import AuthService, AuthError
 
 
@@ -58,7 +59,8 @@ class RefreshRequest(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/otp/send")
-async def send_otp(body: OTPSendRequest):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def send_otp(request: Request, body: OTPSendRequest):
     try:
         tenant_id = str(body.tenant_id) if body.tenant_id else None
         comp_id = str(body.competition_id) if body.competition_id else None
@@ -71,7 +73,8 @@ async def send_otp(body: OTPSendRequest):
 
 
 @router.post("/otp/verify")
-async def verify_otp(body: OTPVerifyRequest):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def verify_otp(request: Request, body: OTPVerifyRequest):
     try:
         tenant_id = str(body.tenant_id) if body.tenant_id else None
         comp_id = str(body.competition_id) if body.competition_id else None
@@ -82,7 +85,8 @@ async def verify_otp(body: OTPVerifyRequest):
 
 
 @router.post("/login")
-async def login(body: LoginRequest):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def login(request: Request, body: LoginRequest):
     try:
         result = await AuthService.login_with_password(body.email, body.password)
         return success(result)
@@ -91,6 +95,7 @@ async def login(body: LoginRequest):
 
 
 @router.post("/forgot-password")
+@limiter.limit(settings.RATE_LIMIT_AUTH)
 async def forgot_password(body: ForgotPasswordRequest, request: Request):
     """Request a password reset link (admin, teacher, super admin only)."""
     try:
@@ -143,7 +148,8 @@ async def logout(token: TokenData = Depends(get_current_user)):
 
 
 @router.post("/refresh")
-async def refresh_session(body: RefreshRequest):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def refresh_session(request: Request, body: RefreshRequest):
     try:
         result = await AuthService.refresh_session(body.refresh_token)
         return success(result)

@@ -6,7 +6,8 @@ import { useMediaQuery } from 'react-responsive'
 import { useTranslation } from 'react-i18next'
 import {
   BookOpen, LayoutDashboard, GraduationCap, MessageCircle, UserCircle,
-  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, FileText
+  Users, Library, Settings, LogOut, Menu, X, Bell, Building2, Trophy, FileText,
+  Shield,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 import { useStudyPlanSyncStore } from '@/stores/studyPlanSyncStore'
@@ -55,10 +56,12 @@ const NAV_ITEMS: Record<UserRole, NavItem[]> = {
   super_admin: [
     { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
     { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
+    { label: 'API Gateway', href: '/super-admin/gateway', icon: Shield },
   ],
   platform_admin: [
     { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
     { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
+    { label: 'API Gateway', href: '/super-admin/gateway', icon: Shield },
   ],
 }
 
@@ -94,10 +97,12 @@ const BOTTOM_NAV_ITEMS: Record<UserRole, NavItem[]> = {
   super_admin: [
     { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
     { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
+    { label: 'Gateway', href: '/super-admin/gateway', icon: Shield },
   ],
   platform_admin: [
     { label: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
     { label: 'Tenants', href: '/super-admin/tenants', icon: Building2 },
+    { label: 'Gateway', href: '/super-admin/gateway', icon: Shield },
   ],
 }
 

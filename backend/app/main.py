@@ -5,17 +5,16 @@ import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.core.cors import cors_allow_headers
 from app.core.logging_config import configure_logging
 from app.core.app_logging import attach_neon_log_handler, log_unhandled_exception
@@ -23,9 +22,10 @@ from app.core.neon_db import close_neon_pool, init_neon_pool
 from app.core.redis_client import close_redis, init_redis
 from app.core.http_client import close_http_client
 from app.services import application_log_store
-from app.api.v1.routes import auth, student, teacher, admin, public, superadmin, competition, progress_report, meet, translate
+from app.api.v1.routes import auth, student, teacher, admin, public, superadmin, competition, progress_report, meet, translate, gateway_admin
 from app.middleware.audit_middleware import AuditLogMiddleware
 from app.middleware.cache_access_middleware import CacheAccessMiddleware
+from app.middleware.gateway_middleware import GatewayMiddleware
 from app.middleware.structured_logging_middleware import StructuredLoggingMiddleware
 from app.services.audit_log_service import rotate_audit_logs
 from app.services.database_keepalive_service import run_database_keepalive
@@ -33,15 +33,6 @@ from app.worker.enqueue import close_arq_pool, init_arq_pool
 
 configure_logging()
 
-# slowapi always loads a dotenv file via Starlette Config (cp1252 on Windows).
-# Use ASCII-only placeholder so UTF-8 decorative comments in backend/.env do not break startup.
-_SLOWAPI_ENV = Path(__file__).resolve().parent.parent / ".slowapi.env"
-_limiter_kw: dict = {"key_func": get_remote_address}
-if _SLOWAPI_ENV.is_file():
-    _limiter_kw["config_filename"] = str(_SLOWAPI_ENV)
-if settings.REDIS_URL:
-    _limiter_kw["storage_uri"] = settings.REDIS_URL
-limiter = Limiter(**_limiter_kw)
 _logger = logging.getLogger(__name__)
 
 if settings.sentry_enabled:
@@ -149,6 +140,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # ── Middleware (last added = outermost) ─────────────────────────
+app.add_middleware(GatewayMiddleware)
 app.add_middleware(CacheAccessMiddleware)
 app.add_middleware(StructuredLoggingMiddleware)
 app.add_middleware(AuditLogMiddleware)
@@ -253,6 +245,7 @@ app.include_router(superadmin.router, prefix="/api/v1")
 app.include_router(competition.router, prefix="/api/v1")
 app.include_router(meet.router, prefix="/api/v1")
 app.include_router(translate.router, prefix="/api/v1")
+app.include_router(gateway_admin.router, prefix="/api/v1")
 
 # ── Health check ──────────────────────────────────────────────
 @app.get("/health")

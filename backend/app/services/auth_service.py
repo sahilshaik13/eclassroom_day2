@@ -15,6 +15,11 @@ from gotrue.errors import AuthApiError
 from app.db.supabase import get_admin_client
 from app.core.config import settings
 from app.services.student_attendance_service import record_login_attendance
+from app.services.api_gateway_service import (
+    check_otp_lockout,
+    clear_otp_attempts,
+    record_failed_otp_attempt,
+)
 
 
 def _disposable_auth_client():
@@ -252,6 +257,14 @@ class AuthService:
 
         tenant_id = str(tenant_id)
 
+        lockout_remaining = await check_otp_lockout(phone)
+        if lockout_remaining:
+            raise AuthError(
+                "OTP_LOCKED",
+                f"Too many failed attempts. Try again in {lockout_remaining // 60 + 1} minute(s).",
+                429,
+            )
+
         # 1. Validate OTP code
         try:
             otp_res = (
@@ -267,10 +280,18 @@ class AuthService:
             raise AuthError("INTERNAL_ERROR", f"Verification failed: {str(e)}", 500)
 
         if not otp_res or not otp_res.data:
+            lockout = await record_failed_otp_attempt(phone)
+            if lockout:
+                raise AuthError(
+                    "OTP_LOCKED",
+                    f"Too many failed attempts. Try again in {settings.OTP_LOCKOUT_MINUTES} minute(s).",
+                    429,
+                )
             raise AuthError("INVALID_CREDENTIALS", "Invalid or expired OTP", 401)
 
         # 2. Consume the code
         admin.table("otp_codes").delete().eq("id", otp_res.data[0]["id"]).execute()
+        await clear_otp_attempts(phone)
 
         return await AuthService._complete_student_phone_login(
             phone, tenant_id, competition_id

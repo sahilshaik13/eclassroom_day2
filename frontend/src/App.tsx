@@ -78,6 +78,7 @@ const TenantsPage = lazy(() => import('@/pages/superadmin/TenantPage'))
 const TenantDetailPage = lazy(() => import('@/pages/superadmin/TenantDetailPage'))
 const SuperAdminTenantTeachersPage = lazy(() => import('@/pages/superadmin/SuperAdminTenantTeachersPage'))
 const SuperAdminTenantStudentsPage = lazy(() => import('@/pages/superadmin/SuperAdminTenantStudentsPage'))
+const SuperAdminGatewayPage = lazy(() => import('@/pages/superadmin/SuperAdminGatewayPage'))
 
 function Lazy({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageFallback />}>{children}</Suspense>
@@ -273,6 +274,7 @@ export default function App() {
           <Route path="tenants/:tenantId" element={<Lazy><TenantDetailPage /></Lazy>} />
           <Route path="tenants/:tenantId/teachers" element={<Lazy><SuperAdminTenantTeachersPage /></Lazy>} />
           <Route path="tenants/:tenantId/students" element={<Lazy><SuperAdminTenantStudentsPage /></Lazy>} />
+          <Route path="gateway" element={<Lazy><SuperAdminGatewayPage /></Lazy>} />
         </Route>
 
         <Route path="*" element={<AuthAwareRedirect fallback="/auth/student-login" />} />

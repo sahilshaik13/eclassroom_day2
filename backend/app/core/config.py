@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     # ── Rate limiting ─────────────────────────────────────────
     RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_API: str = "100/minute"
+    GATEWAY_ENABLED: bool = True
 
     # ── Redis (SSE import events, ARQ worker, cache) ──────────
     REDIS_URL: str = ""
